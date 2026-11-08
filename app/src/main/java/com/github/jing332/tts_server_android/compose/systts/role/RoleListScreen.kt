@@ -672,8 +672,10 @@ fun RoleListScreen(
                         var reassignedCount = 0
                         val removed = withIO {
                             dbm.systemTtsV2.delete(delTarget)
-                            runCatching {
-                                CachedEngineManager.removeEngine(delDto?.source)
+                            // delDto 非空才清引擎缓存（removeEngine 不收可空）；
+                            // config 非 TtsConfigurationDTO 的极端条目无需清（无引擎实例）
+                            (delDto?.source)?.let { src ->
+                                runCatching { CachedEngineManager.removeEngine(src) }
                             }
                             val stillEnabled = dbm.systemTtsV2.allEnabled.any { item ->
                                 val d = item.config as? TtsConfigurationDTO ?: return@any false
@@ -692,12 +694,14 @@ fun RoleListScreen(
                             true
                         }
                         SystemTtsService.notifyUpdateConfig()
+                        // toast 按文案实际占位符个数传参（getString 多余 vararg 不报错但不严谨）：
+                        // reassigned 文案要 2 参（名+数）、deleted 文案只收 1 参（名）
                         if (removed) {
-                            toast(
-                                if (reassignedCount > 0) R.string.role_voice_del_reassigned
-                                else R.string.role_voice_del_toast,
-                                delTarget.displayName, reassignedCount,
-                            )
+                            if (reassignedCount > 0) {
+                                toast(R.string.role_voice_del_reassigned, delTarget.displayName, reassignedCount)
+                            } else {
+                                toast(R.string.role_voice_del_toast, delTarget.displayName)
+                            }
                         }
                         // 被删的恰是本行绑定：失效态立刻反映（voiceNames 重读后查不到配置 → ⚠）
                         reload()
