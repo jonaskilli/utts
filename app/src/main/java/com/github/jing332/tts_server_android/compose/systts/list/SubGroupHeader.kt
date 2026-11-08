@@ -89,9 +89,8 @@ fun SubGroupHeader(
     var showOptions by remember { mutableStateOf(false) }
     var showExtraOptions by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
-    // 11-08 竖线色：主题槽外提为 val（drawBehind lambda 里直接读 colorScheme 也行，
-    // 但提出来可读性更好；主题切换重组时此处随之重取）
-    val primaryColor = MaterialTheme.colorScheme.primary
+    // 11-08 官方标准件方案（用户令「照抄通用做法」）：缩进参考线色=outlineVariant 中性灰
+    // （GitHub 目录树/Gmail 线程同款；主题槽取色，八套主题+深色自动成立）
     val outlineVariantColor = MaterialTheme.colorScheme.outlineVariant
 
     if (showDeleteDialog)
@@ -102,31 +101,31 @@ fun SubGroupHeader(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            // 11-08 竖线方案（用户令「二级分组一直拿捏不准，换方向」；预览三方向后按推荐 B 落地）：
-            // 行底=透明贴页底——深底横条（10-13 B 档 #EAF7EF）行比卡深、头重脚轻，预览装机对照后废弃；
-            // 层级信号改由「3dp primary 左缘竖线 + 字号递减」承担：页面只剩页底+卡片两层色。
-            // 更深层（level≥1）=2dp outlineVariant 细灰线（比 primary 弱一档，表示「更深一层」）。
-            // ⚠️ 仍走主题槽（primary/outlineVariant，八套主题+深色自动成立），未写死色值。
-            // 配置项卡片（Item）、一级分组行（GroupItem）均不动。
+            // 11-08 官方标准件方案（用户令「照抄通用做法」）：
+            // ①撤 8bc9727 的 primary 绿竖线（自创语言，且「标识绿」与图标/开关抢色）——
+            //   换 2dp outlineVariant 中性灰缩进参考线，位置=内容左线（ListGutter-2）。
+            //   层级信号=灰参考线+缩进+字号递减，全是非颜色信号，换主题零适配。
+            // ②行底仍透明贴页底（行不再是色块，卡片=页面唯一容器色）。
+            // 沿革：surfaceContainer 深底条（10-13 B 档）→ primary 竖线（8bc9727）→ 本档。
+            // 配置项卡片（Item）、一级分组行（GroupItem）、卡上标签（TagScreen 灰描边=
+            // 官方 Badge outlined 变体，容器带色时的标准形态）均不动。
             .background(Color.Transparent)
             .drawBehind {
-                // 左缘竖线画在 padding 之外：drawBehind 不吃布局，位置=行左缘 0dp
-                val color = if (level == 0) primaryColor else outlineVariantColor
+                // 缩进参考线画在行左缘：2dp 宽、全高（与组内卡片左线对齐）
                 drawRoundRect(
-                    color = color,
-                    topLeft = Offset(0f, 0f),
-                    size = Size(if (level == 0) 3.dp.toPx() else 2.dp.toPx(), size.height),
-                    cornerRadius = CornerRadius(if (level == 0) 2.dp.toPx() else 1.dp.toPx()),
+                    color = outlineVariantColor,
+                    topLeft = Offset(14.dp.toPx(), 0f),
+                    size = Size(2.dp.toPx(), size.height),
+                    cornerRadius = CornerRadius(1.dp.toPx()),
                 )
             }
             .clickable { if (!showOptions && !showExtraOptions) onClick() }
             .padding(
                 // 10-07 用户令：子分组箭头**左侧**对齐一级分组箭头**中间**——一级行 start 8 +
                 // 24dp 箭头盒 ⇒ 盒中心 20dp，本行 start 同落 20dp（20dp 箭头盒左缘即在该点）。
-                // 11-08 竖线方案：start 20→24，给左缘竖线让出 3dp + 1dp 空隙（箭头中心对齐
-                // 原口径偏移 4dp，层级感已由竖线扛，可接受；装机嫌偏再回调）。
+                // 11-08 回归该口径（8bc9727 曾为竖线让位改 24，本档撤竖线后同步回归 20）。
                 // end 8（10-05 用户拍板：三行 ⋮ 统一 30dp 列）
-                start = 24.dp,
+                start = 20.dp,
                 top = paddingTop,
                 bottom = paddingBottom,
                 end = 8.dp
