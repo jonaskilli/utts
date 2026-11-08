@@ -101,11 +101,12 @@ fun SubGroupHeader(
             .background(Color.Transparent)
             .clickable { if (!showOptions && !showExtraOptions) onClick() }
             .padding(
-                // 10-07 用户令：子分组箭头**左侧**对齐一级分组箭头**中间**——一级行 start 8 +
-                // 24dp 箭头盒 ⇒ 盒中心 20dp，本行 start 同落 20dp（20dp 箭头盒左缘即在该点）。
-                // 11-08 回归该口径（8bc9727 曾为竖线让位改 24，本档撤竖线后同步回归 20）。
+                // 11-08 缩进定档（用户令「子分组箭头缩进缩得太狠」+「喜欢以前一半位置的错位」）：
+                // start 20→16dp——一级图标左缘 8dp，错位 8dp ≈ 半个箭头（原 12dp 太大）；
+                // 名字列起点 38dp 与一级 38dp 几乎对齐。原 10-07「对齐一级箭头中心」口径
+                // 随一级收窄（6+28）已失效，本笔取代。
                 // end 8（10-05 用户拍板：三行 ⋮ 统一 30dp 列）
-                start = 20.dp,
+                start = 16.dp,
                 top = paddingTop,
                 bottom = paddingBottom,
                 end = 8.dp
