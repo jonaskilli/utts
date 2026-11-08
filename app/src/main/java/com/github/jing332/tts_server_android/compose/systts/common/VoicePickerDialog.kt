@@ -1892,7 +1892,9 @@ private fun CandidateRow(
         // ===== 左列两行（11-09 用户令「参照角色列表」）：第一行=名字+▶+⋮ 同排；
         // 第二行小字=插件名·标记 emoji。插件名/标记从名字行沉到第二行，
         // 名字行只留名字+选中态，视觉与角色列表「标签框行+注释行」同构 =====
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
+        // 11-09 用户令（参照角色列表图一版式）：左列 Top 对齐——第一行名字与 ▶/⋮
+        // 顶对齐（原 Center 使 ▶/⋮ 垂直居中于两行，与第一行名字错位）
+        Column(Modifier.weight(1f)) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
