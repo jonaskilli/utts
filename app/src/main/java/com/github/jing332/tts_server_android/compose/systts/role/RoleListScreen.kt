@@ -1165,7 +1165,8 @@ private fun RoleRow(
                                 },
                                 style = MaterialTheme.typography.bodyMedium.copy(
                                     fontSize = 14.sp,
-                                    fontWeight = FontWeight.SemiBold,
+                                    // 11-09 用户令「标签内的字重太重了」：撤 SemiBold
+                                    // 回 normal——灰底已提供块感，加粗叠加太重
                                 ),
                                 color = if (voiceName == null) Color(0xFF9E9E9E)
                                         else MaterialTheme.colorScheme.primary,
