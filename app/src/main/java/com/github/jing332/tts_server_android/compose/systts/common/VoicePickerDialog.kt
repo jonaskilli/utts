@@ -1216,6 +1216,22 @@ fun VoicePickerDialog(
                         onDelete = { topDeleteTarget?.let { deleteConfirmTarget = it } },
                     )
                 }
+                // 插件名第二行（11-09 用户令「放第二行，换个不明显的颜色」+ 追令
+                // 「身份信息跟名字走，不缀参数行后」）：紧跟「当前发音人」名字行下；
+                // 终值行（语速/音量/音高）是参数信息、插件名是身份信息，不混排。
+                // 色=outline（M3 最淡辅助灰，弱化近融入背景、深浅色保底可读）；
+                // 无前缀分隔点（行首「·」像列表符号，纯文字干净）；start 18dp=与名字
+                // 文字对齐（圆点 7dp+间距 7dp+行首约 4dp 的既有缩进线）
+                if (topPluginName != null) {
+                    Text(
+                        topPluginName,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline,
+                        maxLines = 1,
+                        overflow = TextOverflow.Clip,
+                        modifier = Modifier.padding(start = 18.dp, top = 1.dp),
+                    )
+                }
             }
 
             // ===== 终值（播放链同源三层乘积；三维恒显，用户 09-10）=====
@@ -1238,20 +1254,6 @@ fun VoicePickerDialog(
                 // 上下各 2dp（用户 09-11：顶部三行是紧密信息，行距收小，与音频参数弹窗同步）
                 modifier = Modifier.padding(top = 2.dp, bottom = 2.dp),
             )
-            // 插件名独立一行（11-09 用户令「放第二行，换个不明显的颜色」）：
-            // 从名字行挪下来、贴在终值行下；色取 outline（比 onSurfaceVariant 更淡一档的
-            // 描边灰——M3 色阶里 outline 本就是"不显眼的辅助信息"用色，弱化到几乎融入背景，
-            // 但深浅色主题都保底可读）；字号仍 labelSmall 11sp
-            if (topPluginName != null) {
-                Text(
-                    "· $topPluginName",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.outline,
-                    maxLines = 1,
-                    overflow = TextOverflow.Clip,
-                    modifier = Modifier.padding(top = 1.dp, bottom = 2.dp),
-                )
-            }
             } // if (!addMode) 顶部块收尾
 
             // 分段两区（用户 09-11 下午「完全 MD3 版」终裁：官方 SegmentedButton 全 app 统一）：
