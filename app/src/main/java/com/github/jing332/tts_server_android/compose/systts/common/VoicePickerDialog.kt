@@ -2,6 +2,7 @@ package com.github.jing332.tts_server_android.compose.systts.common
 
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -55,6 +56,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.SpanStyle
@@ -154,6 +156,7 @@ import kotlinx.coroutines.launch
  */
 @OptIn(
     androidx.compose.material3.ExperimentalMaterial3Api::class,
+    androidx.compose.foundation.ExperimentalFoundationApi::class,
     // decorFitsSystemWindows（全屏弹窗铺满到系统栏后面）在部分 Compose 版本仍标着实验注解。
     // 本项目未开 warnings-as-errors，冗余 opt-in 至多是条警告，换来的是跨版本都能编过。
     androidx.compose.ui.ExperimentalComposeUiApi::class,
@@ -1057,6 +1060,12 @@ fun VoicePickerDialog(
             // ⋮ 一出现，这个不一致就从"看不见"变成"点得到"，故与显示名统一取暂存优先。
             val topMarkKey = if (isBindingMode) (pendingVoice ?: boundVoice)
             else pendingVoice ?: voice
+            // 当前发音人分类标签（11-09 用户令「当前发音人也要显示分类+标签形式」）：
+            // 键与标记同源（绑定=绑定/暂存 tag，非绑定=当前 voice）；照角色列表口径
+            // 只放分类 tag id（女青年01），点击=确认把暂存落到该标签（同无操作提示）、
+            // 长按=随机换同分类（🎲 直键退役，长按即入口）；单例类别/非绑定无候选不响应
+            val topCategoryTag = topMarkKey
+            val topCategoryClickable = isBindingMode && topCategoryTag.isNotBlank()
             // 插件名缀尾（11-08 用户令「换声面板也需要插件名…显示插件的四个字」）：
             // 与角色列表注释行同口径——前 4 码点、全角｜替换；随暂存目标走（跟随目标配置项
             // 的插件，暂存换了发音人但同插件则不变；查不到插件/本地音效=不显示）
@@ -1116,29 +1125,48 @@ fun VoicePickerDialog(
                             modifier = Modifier.weight(1f, fill = false),
                         )
                     }
-                    // 一键换（10-06 用户令：从分类行挪到「当前发音人」这里）：在当前分类+搜索
-                    // 范围内随机换一个（排除当前暂存/绑定），结果落暂存、顶部名字跟显，确认才落库。
-                    // 🎲 彩色 emoji（10-06 用户拍板：选 emoji 不用 Casino 图标——Material 实心
-                    // 骰子在浅底上是一个重方块，预览稿与实装图标形态不一致；emoji 真机彩色、
-                    // 与候选行点亮标记 ❤️🚶😈 同一语汇）。仅绑定模式显示；无候选 Toast 提示
-                    if (isBindingMode) {
-                        Text(
-                            "🎲",
+                    // 分类标签框（11-09 用户令：替代 🎲 直键——「不要那个骰子按键了，
+                    // 直接就是长按标签随机换」）：照角色列表标签框同款（同底色/圆角/手势）。
+                    // 点=同当前绑定提示（与旧口径一致）；长按=随机换同分类（仅绑定模式响应，
+                    // 池子有候选才挂长按；单例类别长按照角色列表口径=无动作不挂）
+                    if (topCategoryClickable) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = lerp(
+                                MaterialTheme.colorScheme.secondaryContainer,
+                                MaterialTheme.colorScheme.surfaceContainerLow, 0.25f
+                            ),
                             modifier = Modifier
-                                .clickable(
-                                    indication = null,
-                                    interactionSource = remember { MutableInteractionSource() },
-                                ) {
-                                    applyRandomPick(
-                                        pickRandomIn(effectiveCategory, tagSearch, topMarkKey),
-                                        silentIfEmpty = false,
-                                    )
-                                }
-                                // 字形 ~19sp + 两侧 12dp ≈ 40dp 宽、上下 12dp 凑满 48dp 触控高
-                                //（与右侧 ▶ 裸字符键同处方）
-                                .padding(horizontal = 12.dp, vertical = 12.dp),
-                            style = MaterialTheme.typography.titleLarge,
-                        )
+                                .combinedClickable(
+                                    onClick = {
+                                        // 点标签=当前绑定（候选行同款提示，选了角色无法确认的口径）
+                                        Toast.makeText(
+                                            context,
+                                            context.getString(R.string.voice_picker_same_voice),
+                                            Toast.LENGTH_SHORT,
+                                        ).show()
+                                    },
+                                    onLongClick = {
+                                        applyRandomPick(
+                                            pickRandomIn(effectiveCategory, tagSearch, topMarkKey),
+                                            silentIfEmpty = false,
+                                        )
+                                    },
+                                    onLongClickLabel = stringResource(R.string.role_menu_reassign),
+                                )
+                                .minimumInteractiveComponentSize(),
+                        ) {
+                            Text(
+                                topCategoryTag,
+                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp),
+                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                maxLines = 1,
+                                overflow = TextOverflow.Clip,
+                                modifier = Modifier
+                                    .padding(horizontal = 10.dp, vertical = 5.dp)
+                                    .widthIn(max = 220.dp)
+                            )
+                        }
                     }
                     // ▶ 同候选行方案A：裸字符可点替代 TextButton（单字符占 58dp 底座，顶栏紧巴巴），
                     // 16dp 字形+两侧 12dp ≈40dp，上下 12dp 凑满 48dp 触控高
