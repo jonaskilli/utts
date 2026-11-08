@@ -744,7 +744,7 @@ fun VoicePickerDialog(
                                         append(close)
                                     },
                                     maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
+                                    overflow = TextOverflow.Clip,
                                 )
                             } else if (addMode) {
                                 Text(stringResource(R.string.role_add_char_title))
@@ -1110,7 +1110,8 @@ fun VoicePickerDialog(
                                 fontWeight = FontWeight.SemiBold
                             ),
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
+                            // 省略时直接截断不打「…」（11-09 用户令，与角色列表口径一致）
+                            overflow = TextOverflow.Clip,
                             // 名字吃剩余宽度先缩（11-09 用户拍板「拆两个 Text」）：
                             // 插件名独立 Text 钉在名字后不参与省略——一体 AnnotatedString 时
                             // 整串一起 Ellipsis，名字长会先把插件名截掉，行为与角色列表
@@ -1423,9 +1424,8 @@ fun VoicePickerDialog(
                             //（config 静态类型 IConfiguration 无 source，先 as? TtsConfigurationDTO——
                             //  CI 实锤过同款错误）；查不到（含音效槽位）=null 不显示
                             val rowPluginName = remember(tag, dataVersion, rowVersion) {
-                                (enabledConfigEntityByTag(tag)?.config as? TtsConfigurationDTO)
-                                    ?.source as? PluginTtsSource
-                                    ?.let { dbm.pluginDao.getMetaByPluginId(it.pluginId)?.name }
+                                val src = (enabledConfigEntityByTag(tag)?.config as? TtsConfigurationDTO)?.source as? PluginTtsSource
+                                src?.let { dbm.pluginDao.getMetaByPluginId(it.pluginId)?.name }
                                     ?.replace('|', '｜')
                                     ?.take(4)
                                     ?.takeUnless { it.isBlank() }
@@ -1617,8 +1617,8 @@ fun VoicePickerDialog(
                             val rowMarks = marksMap[v] ?: emptyList()
                             // 插件名（11-09 用户令）：旁白候选行同样缀插件名前 4 码点
                             val rowPluginName = remember(v, cfgEntity.id, dataVersion) {
-                                (cfgEntity.config as? TtsConfigurationDTO)?.source as? PluginTtsSource
-                                    ?.let { dbm.pluginDao.getMetaByPluginId(it.pluginId)?.name }
+                                val src = (cfgEntity.config as? TtsConfigurationDTO)?.source as? PluginTtsSource
+                                src?.let { dbm.pluginDao.getMetaByPluginId(it.pluginId)?.name }
                                     ?.replace('|', '｜')
                                     ?.take(4)
                                     ?.takeUnless { it.isBlank() }
@@ -1887,7 +1887,8 @@ private fun CandidateRow(
                 // 行内容变多，缩一号腾宽度；与 labelSmall 注释行 11sp 拉开层级）
                 style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp),
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+                // 省略时直接截断不打「…」（11-09 用户令，与角色列表口径一致）
+                overflow = TextOverflow.Clip,
                 color = nameColor,
             )
             if (usedBadge) {
