@@ -1113,10 +1113,14 @@ private fun RoleRow(
                 //   （widthIn(max=halfRow)，上方名字列注释）——标签区域大小由名字长度间接决定
                 Column(Modifier.weight(1f)) {
                     // ===== 第一行：标签框 + ▶ + ⋮（贴右缘）=====
+                    // 11-09 用户令「第一行的对齐——角色名和第一行」：Row 改 Top 对齐——
+                    // 标签框顶部与第一行角色名顶部齐（原 CenterVertically + 标签框
+                    // minimumInteractiveComponentSize 的 48dp 最小高把框垂直撑高，
+                    // 框文字上浮高过名字第一行，实机截图「男主2」高于「谢凛」实锤）
                     Row(
                         Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.End,
-                        verticalAlignment = Alignment.CenterVertically,
+                        verticalAlignment = Alignment.Top,
                     ) {
                         // 发音人标签框（只放分类 tag）：点=换声弹窗、长按=随机换声
                         // （仅 14 类可换类别响应，单例类别长按无动作）；失效标签加红 ⚠。
