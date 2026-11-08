@@ -45,6 +45,13 @@ fun CreateSubGroupDialog(
     var selectedIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
     var searchQuery by remember { mutableStateOf("") }
 
+    // 11-08 用户令「新建子分组只到二级，不让建三级四级」：名称含 / 的多级语法
+    // 降级为提示警告（功能仍可用但确认键会拦）——三级+子分组让列表过深难读。
+    // 层级上限=2：输入「花花/世界」在一级分组下即到二级顶格，允许；再深（a/b/c）拦截。
+    val depthLimit = 2
+    val inputDepth = subGroupName.trim().count { it == '/' } + 1
+    val tooDeep = inputDepth > depthLimit
+
     val filteredItems = remember(searchQuery, ungroupedItems) {
         if (searchQuery.isBlank()) ungroupedItems
         else ungroupedItems.filter {
@@ -74,7 +81,14 @@ fun CreateSubGroupDialog(
                     label = { Text("子分组名称") },
                     // 多级提示从标签挪到 supportingText（用户 09-12：括号塞标签里难懂又挤成两行；
                     // 功能保留线索：名称含 / 时按 categoryPath 一次建多级）
-                    supportingText = { Text("名称含 / 时一次建多级，如 讯飞/女青年") },
+                    // 11-08 加层级上限提示：只支持建到二级（含一级分组本身），三级以上确认键拦截
+                    supportingText = {
+                        Text(
+                            if (tooDeep) "最多建到二级子分组，不支持更深层级"
+                            else "名称含 / 时一次建多级，如 讯飞/女青年"
+                        )
+                    },
+                    isError = tooDeep,
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
                 )
@@ -177,12 +191,12 @@ fun CreateSubGroupDialog(
         confirmButton = {
             TextButton(
                 onClick = {
-                    if (subGroupName.isNotBlank()) {
+                    if (subGroupName.isNotBlank() && !tooDeep) {
                         val selected = ungroupedItems.filter { selectedIds.contains(it.id) }
                         onConfirm(subGroupName.trim(), selected)
                     }
                 },
-                enabled = subGroupName.isNotBlank()
+                enabled = subGroupName.isNotBlank() && !tooDeep
             ) {
                 Text("确认")
             }

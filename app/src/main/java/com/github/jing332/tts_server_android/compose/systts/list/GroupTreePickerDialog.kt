@@ -92,6 +92,9 @@ fun GroupTreePickerDialog(
     }
 
     val finalCategoryPath = if (isCreatingNew) newSubGroupName.trim() else selectedCategoryPath
+    // 11-08 用户令「新建子分组只到二级」：手动输入含 / 的路径限两级（selectedCategoryPath
+    // 是从树上选的现成节点，天然 ≤ 已有深度，不需要拦）。树选择器入口与 CreateSubGroupDialog 同口径
+    val subNameTooDeep = isCreatingNew && newSubGroupName.trim().count { it == '/' } + 1 > 2
     val selGroupName = groups.firstOrNull { it.id == selectedGroupId }?.name ?: ""
     // 目标大分组含子分组时，禁止确认根目录选中（只能选子分组或新建）
     val targetHasSubGroups = (subPathsByGroup[selectedGroupId] ?: emptyList()).isNotEmpty()
@@ -323,7 +326,14 @@ fun GroupTreePickerDialog(
                                 onValueChange = { newSubGroupName = it },
                                 label = { Text("子分组名称") },
                                 // 多级提示（用户 09-12：三处建子分组输入框统一；含 / 时按 categoryPath 一次建多级）
-                                supportingText = { Text("名称含 / 时一次建多级，如 讯飞/女青年") },
+                                // 11-08 加层级上限：只建到二级，三级以上确认键拦截（三入口统一）
+                                supportingText = {
+                                    Text(
+                                        if (subNameTooDeep) "最多建到二级子分组，不支持更深层级"
+                                        else "名称含 / 时一次建多级，如 讯飞/女青年"
+                                    )
+                                },
+                                isError = subNameTooDeep,
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(start = 64.dp, top = 4.dp),
@@ -402,7 +412,7 @@ fun GroupTreePickerDialog(
                 },
                 enabled = when {
                     isCreatingNewGroup -> newGroupName.isNotBlank()
-                    isCreatingNew -> newSubGroupName.isNotBlank()
+                    isCreatingNew -> newSubGroupName.isNotBlank() && !subNameTooDeep
                     else -> !isRootSelectedInvalid
                 }
             ) {

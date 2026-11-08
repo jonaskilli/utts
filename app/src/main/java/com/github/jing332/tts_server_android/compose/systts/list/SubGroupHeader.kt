@@ -112,12 +112,13 @@ fun SubGroupHeader(
             ),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // 11-08 回退细 chevron（用户装机实测「三角一般般」；与一级分组行 GroupItem 同批回退）
+        // 11-08 回退细 chevron（用户装机实测「三角一般般」）；尺寸统一 24dp（用户令
+        // 「两级箭头差距太大」——大小一致、层级只靠缩进，树形列表通用画法）
         Icon(
             imageVector = Icons.Default.ExpandMore,
             contentDescription = if (isExpanded) "收起" else "展开",
             modifier = Modifier
-                .size(20.dp)
+                .size(24.dp)
                 .rotate(rotationAngle),
             tint = MaterialTheme.colorScheme.onSurfaceVariant
         )

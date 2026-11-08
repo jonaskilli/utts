@@ -85,7 +85,7 @@ fun GroupItem(
     // 10-12 曾给替换规则页传 48（去对齐条目行的 requiredSize(48) 占位）；10-13 用户令
     // 「替换规则也要回从前，撤掉让参照密钥管理改的那几批」——条目行已回 M3 原生 Checkbox，
     // 替换页不再传本参数，全站统一默认值。保留参数（系统TTS/插件页本就走默认，行为不变）。
-    arrowBoxWidth: Dp = 26.dp,
+    arrowBoxWidth: Dp = 28.dp,
 ) {
     val view = LocalView.current
     val context = LocalContext.current
@@ -151,15 +151,15 @@ fun GroupItem(
             // 右缘 8（10-05 用户拍板：三行 ⋮ 统一 30dp 列）——卡片 ⋮ 被容器 8dp 内缩锁定在字形
             // ≈30dp，22 列永远凑不齐三行；本行 end=8 后 ⋮ 字形 ≈30dp 与子分组/卡片同列，
             // 48dp 热区完整在屏内（热区右缘距屏 8dp）
-            .padding(start = 4.dp, top = 4.dp, bottom = 4.dp, end = 8.dp),
+            .padding(start = 6.dp, top = 4.dp, bottom = 4.dp, end = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         val rotationAngle by animateFloatAsState(
             targetValue = if (isExpanded) 0f else -90f,
             label = ""
         )
-        // 11-08 回退细 chevron（用户装机实测「三角一般般」）；保留左距收窄：
-        // start 8→4dp、箭头盒 32→26dp（用户「箭头左边距有点大」，实测方向对）。
+        // 11-08 回退细 chevron（用户装机实测「三角一般般」）；左距定档 start 6dp、盒 28dp
+        //（迭代：原 8+32 太宽 → 4+26 太近 → 6+28 折中，名字列起点 ≈34dp）。
         // 10-12：箭头外套固定盒——盒右缘即组名文字线，宽度由 arrowBoxWidth 决定。
         // 沿革：ExpandCircleDown 黑实心圆（参考分支）→ ExpandMore → ArrowDropDown 三角 → 回 ExpandMore。
         Box(
