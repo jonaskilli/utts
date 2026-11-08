@@ -1102,9 +1102,17 @@ private fun RoleRow(
             // 右侧两行（voice 空不渲染，照插件）
             if (rec.voice.isNotBlank()) {
                 Spacer(Modifier.width(10.dp))
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
-                    // ===== 第一行：标签框 + ▶ + ⋮（Arrangement.End 贴右缘）=====
+                // 11-09 用户令（图一实锤三问题）版式修正：
+                // ①Column 改 Top 对齐——标签框与第一行角色名顶对齐（原 Center 让两行
+                //   整体垂直居中，多行名字时标签框下坠不对齐）；
+                // ②第一行 Row 加 fillMaxWidth——标签框/▶/⋮ 贴右缘（原 Row 只在
+                //   Column 内容宽内 End，名字短时整组吊在名字旁边不贴右）
+                // ③标签区域宽度规则不变=「行宽−名字列宽」，名字列仍按内容占宽封顶半屏
+                //   （widthIn(max=halfRow)，上方名字列注释）——标签区域大小由名字长度间接决定
+                Column(Modifier.weight(1f)) {
+                    // ===== 第一行：标签框 + ▶ + ⋮（贴右缘）=====
                     Row(
+                        Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.End,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
