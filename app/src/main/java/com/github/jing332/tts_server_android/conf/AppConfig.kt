@@ -48,7 +48,8 @@ object AppConfig {
         registerTypeConverters(
             save = { it.id },
             restore = { value ->
-                // 「默认」主题档退役（10-12 用户令）：存量值兜底改选绿色（弹窗已不列出默认档）
+                // 11-08 用户令「主题只留动态颜色和绿色」：红/粉/蓝/青/橙/紫/棕/灰八套退役，
+                // 存量值兜底改选绿色（「默认」档 10-12 已先行退役，一并兜底）
                 AppTheme.values().find { it.id == value }?.takeIf { it != AppTheme.DEFAULT }
                     ?: AppTheme.GREEN
             }

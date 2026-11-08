@@ -29,17 +29,8 @@ fun appTheme(
     context: Context = LocalContext.current,
 ): ColorScheme {
     val base = when (themeType) {
-        AppTheme.DEFAULT -> defaultTheme(darkTheme)
+        AppTheme.DEFAULT, AppTheme.GREEN -> greenTheme(darkTheme)
         AppTheme.DYNAMIC_COLOR -> dynamicColorTheme(darkTheme, context)
-        AppTheme.GREEN -> greenTheme(darkTheme)
-        AppTheme.RED -> redTheme(darkTheme)
-        AppTheme.PINK -> pinkTheme(darkTheme)
-        AppTheme.BLUE -> blueTheme(darkTheme)
-        AppTheme.CYAN -> cyanTheme(darkTheme)
-        AppTheme.ORANGE -> orangeTheme(darkTheme)
-        AppTheme.PURPLE -> purpleTheme(darkTheme)
-        AppTheme.BROWN -> brownTheme(darkTheme)
-        AppTheme.GRAY -> grayTheme(darkTheme)
     }
     // 动态取色（Android 12+ 壁纸派生）：浅色同样走纯白底（与静态主题同口径），深色用官方暗表现算
     return if (themeType == AppTheme.DYNAMIC_COLOR) dynamicNeutral(base, darkTheme) else themedNeutral(base, themeType, darkTheme)
@@ -176,7 +167,7 @@ private val themeTypeState: MutableState<AppTheme> by lazy(mode = LazyThreadSafe
 @Composable
 private fun InitTheme() {
     val theme = try {
-        // 存量选了「默认」的兜底改选绿色（弹窗已不列出默认档）
+        // 存量选了被删主题（默认/八套彩色）的兜底改选绿色（11-08 起仅剩绿色+动态两档）
         AppConfig.theme.value.takeIf { it != AppTheme.DEFAULT } ?: AppTheme.GREEN
     } catch (e: Exception) {
         e.printStackTrace()
