@@ -1039,9 +1039,8 @@ private fun RoleRow(
         previewSynthesizing -> "…"
         else -> "■"
     }
-    // 注释行文本：displayName · 插件名（失效=显示 tag 本身；查不到 displayName 时只显插件名）
+    // 注释行文本（拆两段后只保留 displayName 位；插件名在渲染处独立 Text 钉住）
     val captionBase = displayName?.replace('|', '｜')?.takeIf { it.isNotBlank() } ?: rec.voice
-    val caption = if (pluginName != null) "$captionBase · $pluginName" else captionBase
     // 已点亮标记 chip（固定顺序，每枚一个 chip；未点亮不渲染）
     val litMarks = VoiceMarksFile.MARK_ITEMS.filter { it.first in marks }
     Surface(
@@ -1227,16 +1226,30 @@ private fun RoleRow(
                             .widthIn(max = halfRow),
                         horizontalArrangement = Arrangement.End,
                     ) {
+                    // 注释行文本拆两段（11-09 用户令「省略的应该是显示名，而不是插件」）：
+                    // 旧 caption 把 displayName·插件名拼成一串整体 Clip——超宽时从尾部截，
+                    // 先截掉的恰是插件名，方向反了。拆开：显示名 Text 吃剩余可截（Clip），
+                    // 插件名独立 Text 钉住永不截；失效（查不到 displayName）时只显示名位
+                    // 落 tag 本身，同样可截
+                    Text(
+                        captionBase,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        // 直接截断不打「…」（用户令；截断只落在显示名上）
+                        overflow = TextOverflow.Clip,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    if (pluginName != null) {
+                        Spacer(Modifier.width(4.dp))
                         Text(
-                            caption,
+                            "· $pluginName",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
-                            // 省略时直接截断不打「…」（11-09 用户令再令：说了不要省略号
-                            // 依然有——上一版仍是 Ellipsis，改 Clip 与角色列表全链口径一致）
                             overflow = TextOverflow.Clip,
-                            modifier = Modifier.weight(1f, fill = false),
                         )
+                    }
                         if (litMarks.isNotEmpty()) {
                             Spacer(Modifier.width(6.dp))
                             // chip 逐枚渲染、点击即取消该枚标记（QQ 式——11-08 用户令「点 chip 取消」；
