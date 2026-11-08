@@ -1635,7 +1635,17 @@ fun KeyManagerScreen(tagRuleId: String, onBack: () -> Unit) {
                 // 10-07 用户令：启用中的组自动上浮——甲方案（10-09 用户拍板）改为按
                 // floatSnapshot（进页快照）排序：两档内部保持原相对顺序（稳定排序），
                 // 页内启停不再触发重排（消除编辑中分组跳走）
-                groups.sortedByDescending { g -> floatSnapshot[g.title] == true }.forEach { grp ->
+                groups
+                // 11-08 用户令「带模型的分组放前面，不带的放后面」：在启用上浮之上再分一档——
+                // 主排序键=接口组且真拉过模型（ifc.models 非空）优先；次排序键=启用上浮快照。
+                // 两档内部各自保持原相对顺序（sortedByDescending 稳定）。
+                .sortedByDescending { grp ->
+                    val hasModels = grp.ifc?.models?.isNotEmpty() == true
+                    val floating = floatSnapshot[grp.title] == true
+                    // 带模型 > 不带；同级内启用的浮上（floating 布尔参与同键比较，
+                    // true 排前）；其余顺序不变
+                    hasModels to floating
+                }.forEach { grp ->
                     val isCollapsed = collapsed?.contains(grp.title) == true
                     // 组内删除模式（菜单第二项「多选删除子项」）：只对该组生效，组保留
                     val isDeleting = deleteModeGroup == grp.title
