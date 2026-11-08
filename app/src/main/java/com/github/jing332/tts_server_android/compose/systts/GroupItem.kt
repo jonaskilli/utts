@@ -13,7 +13,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.DeleteForever
-import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Output
 import com.github.jing332.compose.widgets.AppDropdownMenu
@@ -158,19 +158,16 @@ fun GroupItem(
             targetValue = if (isExpanded) 0f else -90f,
             label = ""
         )
-        // 11-08 折叠键改实心三角（用户令「chevron 形状轻飘看着乱」；Google Drive 文件树同款）：
-        // ArrowDropDown（展开朝下）/旋转 -90° 折叠朝右；onSurfaceVariant 中性灰——
-        // 行头形状语言=三角(可折叠)/圆(序号徽章)/方(勾选)，三形不打架。
-        // 沿革：ExpandCircleDown 黑实心圆（参考分支）→ ExpandMore 细 chevron → 本档。
-        // 11-08 左距收窄（用户「箭头左边距有点大」）：start 8→4dp、箭头盒 32→26dp。
+        // 11-08 回退细 chevron（用户装机实测「三角一般般」）；保留左距收窄：
+        // start 8→4dp、箭头盒 32→26dp（用户「箭头左边距有点大」，实测方向对）。
         // 10-12：箭头外套固定盒——盒右缘即组名文字线，宽度由 arrowBoxWidth 决定。
-        // 图标 24dp、视觉大小不变。
+        // 沿革：ExpandCircleDown 黑实心圆（参考分支）→ ExpandMore → ArrowDropDown 三角 → 回 ExpandMore。
         Box(
             modifier = Modifier.size(width = arrowBoxWidth, height = 36.dp),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
-                Icons.Default.ArrowDropDown,
+                Icons.Default.ExpandMore,
                 contentDescription = stringResource(if (isExpanded) R.string.desc_collapse_group else R.string.desc_expand_group, name),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier

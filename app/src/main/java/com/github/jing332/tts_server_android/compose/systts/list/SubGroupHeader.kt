@@ -14,7 +14,7 @@ import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.automirrored.filled.DriveFileMove
 import androidx.compose.material.icons.filled.DriveFileRenameOutline
-import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Output
@@ -38,10 +38,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.state.ToggleableState
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -89,10 +85,6 @@ fun SubGroupHeader(
     var showOptions by remember { mutableStateOf(false) }
     var showExtraOptions by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
-    // 11-08 官方标准件方案（用户令「照抄通用做法」）：缩进参考线色=outlineVariant 中性灰
-    // （GitHub 目录树/Gmail 线程同款；主题槽取色，八套主题+深色自动成立）
-    val outlineVariantColor = MaterialTheme.colorScheme.outlineVariant
-
     if (showDeleteDialog)
         ConfigDeleteDialog(
             onDismissRequest = { showDeleteDialog = false }, content = name, onConfirm = onDelete
@@ -101,25 +93,12 @@ fun SubGroupHeader(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            // 11-08 官方标准件方案（用户令「照抄通用做法」）：
-            // ①撤 8bc9727 的 primary 绿竖线（自创语言，且「标识绿」与图标/开关抢色）——
-            //   换 2dp outlineVariant 中性灰缩进参考线，位置=内容左线（ListGutter-2）。
-            //   层级信号=灰参考线+缩进+字号递减，全是非颜色信号，换主题零适配。
-            // ②行底仍透明贴页底（行不再是色块，卡片=页面唯一容器色）。
-            // 沿革：surfaceContainer 深底条（10-13 B 档）→ primary 竖线（8bc9727）→ 本档。
-            // 配置项卡片（Item）、一级分组行（GroupItem）、卡上标签（TagScreen 灰描边=
-            // 官方 Badge outlined 变体，容器带色时的标准形态）均不动。
+            // 11-08 终局（用户令「灰线没必要，撤掉」）：行底透明、无任何装饰线——
+            // 层级只靠缩进+字号递减（Google 设置页子项同款「素」态）。
+            // 沿革：surfaceContainer 深底条（10-13 B 档）→ primary 竖线（8bc9727）→
+            // outlineVariant 灰线（d51106b）→ 全撤（本笔）。两级列表配参考线属过度装饰。
+            // 配置项卡片（Item）、一级分组行（GroupItem）不动。
             .background(Color.Transparent)
-            .drawBehind {
-                // 11-08 参考线内缩（用户令「贴边不行」）：x=0 贴屏缘 → x=14dp，
-                // 落在卡片左侧内容带（卡片左线 16dp 往左 2dp），与卡缘呼应不顶屏幕
-                drawRoundRect(
-                    color = outlineVariantColor,
-                    topLeft = Offset(14.dp.toPx(), 0f),
-                    size = Size(2.dp.toPx(), size.height),
-                    cornerRadius = CornerRadius(1.dp.toPx()),
-                )
-            }
             .clickable { if (!showOptions && !showExtraOptions) onClick() }
             .padding(
                 // 10-07 用户令：子分组箭头**左侧**对齐一级分组箭头**中间**——一级行 start 8 +
@@ -133,10 +112,9 @@ fun SubGroupHeader(
             ),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // 11-08 折叠键改实心三角（与一级分组行 GroupItem 同批同款：ArrowDropDown 旋转，
-        // onSurfaceVariant 中性灰；两级同规格——20dp 一致，层级只靠缩进表达）
+        // 11-08 回退细 chevron（用户装机实测「三角一般般」；与一级分组行 GroupItem 同批回退）
         Icon(
-            imageVector = Icons.Default.ArrowDropDown,
+            imageVector = Icons.Default.ExpandMore,
             contentDescription = if (isExpanded) "收起" else "展开",
             modifier = Modifier
                 .size(20.dp)
