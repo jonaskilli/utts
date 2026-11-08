@@ -20,7 +20,6 @@ import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Output
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
@@ -37,7 +36,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 
@@ -118,15 +116,11 @@ internal fun Item(
     val markEmoji = VoiceMarksFile.emojiOf(marks)
     val nameWithMarks = if (markEmoji.isEmpty()) limitedName else "$limitedName $markEmoji"
 
-    // 11-08 悬浮感重做（用户令「卡片的悬浮感不够」）：卡底浅绿（surfaceContainerLow #F4FBF6）
-    // → 纯白（Color.White 中性值例外——目的恰是无色相对比，主题槽给的是带色相的协调）；
-    // 阴影 3dp→6dp 档（CardDefaults.elevatedCardElevation，M3 顶栏浮层同级）。
-    // 浮起=「色差+阴影」双信号：白卡在带色相页底上色差扛大头，阴影辅助。
-    // 页底/分组行/子分组行均不动。
+    // 10-10 晚回退纯白批（ce2e3ce）：配置卡回 ElevatedCard 默认色阶（surfaceContainerLow，
+    // 淡灰随主题走），页底恢复带主题色相淡底后靠色阶自然分层
+    // 11-08 白卡+6dp 阴影实验（e83410e）经装机实测「不如以前」整批回滚，恢复本档
     ElevatedCard(
-        modifier = modifier,
-        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 6.dp),
-        colors = CardDefaults.elevatedCardColors(containerColor = Color.White),
+        modifier = modifier
     ) {
         // 卡片中间区域单击：与右侧显式按钮互补
         // 默认(swapButton=false,右侧是编辑)：单击=试听；交换后(swapButton=true,右侧是试听)：单击=编辑

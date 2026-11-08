@@ -1024,12 +1024,9 @@ private fun RoleRow(
                         // softContainerColor() 与卡底混、比例 0.25（七成偏 secondaryContainer，
                         // GREEN 浅色 ≈ #DEF3E5）——比对半混深半档，块感比之前清楚；书栏同一公式同深。
                         // 主题槽插值而非写死色值：十套主题与深浅色自动成立
-                        // 11-08 悬浮感（用户令「只动角色列表的标签」）：底色公式不动，
-                        // border=null → onSecondaryContainer 25% 透明微描边——标签从「印在
-                        // 行上的一块色」变「贴在行上的一枚小卡」。Surface 无影可加，
-                        // 描边即浮贴信号；书栏/行底/分组均未动。
+                        // 11-08 描边实验（e83410e）经装机实测随白卡批一并回滚
                         color = lerp(softContainerColor(), MaterialTheme.colorScheme.surfaceContainerLow, 0.25f),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.25f)),
+                        border = null,
                         modifier = Modifier
                             .combinedClickable(
                                 onClick = onTagClick,

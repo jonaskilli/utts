@@ -1649,16 +1649,14 @@ fun KeyManagerScreen(tagRuleId: String, onBack: () -> Unit) {
                     // 在白底对比度回来；组头绿带由 GroupHeaderBlock 自包（视觉=卡名条）
                     // 10-10 用户令「前三图颜色改为设置的底色」：surface（#F8FAF5）→
                     // surfaceContainerLow（#F2F8F4，与设置分区卡同档浅绿）
-                    // 11-08 悬浮感重做：同主界面配置卡口径——卡底转纯白+阴影 6dp 档
-                    //（用户令「卡片的悬浮感不够」；连体卡内分区暂不动，装机后按需二轮）。
+                    // 11-08 白卡+6dp 实验经装机实测回滚（用户「阴影改完不如以前」）
                     item(key = "g:" + grp.title) {
                         ElevatedCard(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(start = 4.dp, end = 0.dp, top = 10.dp, bottom = 4.dp),
-                            elevation = CardDefaults.elevatedCardElevation(defaultElevation = 6.dp),
                             colors = CardDefaults.elevatedCardColors(
-                                containerColor = Color.White
+                                containerColor = MaterialTheme.colorScheme.surfaceContainerLow
                             )
                         ) {
                         GroupHeaderBlock(
