@@ -38,6 +38,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.state.ToggleableState
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -84,6 +89,10 @@ fun SubGroupHeader(
     var showOptions by remember { mutableStateOf(false) }
     var showExtraOptions by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
+    // 11-08 竖线色：主题槽外提为 val（drawBehind lambda 里直接读 colorScheme 也行，
+    // 但提出来可读性更好；主题切换重组时此处随之重取）
+    val primaryColor = MaterialTheme.colorScheme.primary
+    val outlineVariantColor = MaterialTheme.colorScheme.outlineVariant
 
     if (showDeleteDialog)
         ConfigDeleteDialog(
@@ -93,28 +102,31 @@ fun SubGroupHeader(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .background(
-                when (level) {
-                    // 10-13 深夜用户令「分组栏选 B」：一级子分组=surfaceContainer（GREEN 浅色 #EAF7EF），
-                    // 比页底深约 8 级、比卡底深 3 级——「整体寡淡」反馈后知情选择此档要层次感
-                    // （知悉 10-13 验收曾嫌「行比卡深、头重脚轻」的历史，见下方沿革）。
-                    // 更深层 surfaceContainerLowest(#FBFEFC)。
-                    // 沿革：surfaceContainer(#EAF7EF，10-13 验收嫌行比卡深) → 半档插值（方案 A，嫌区分不够）
-                    // → 卡底同档（D，仍嫌寡淡）→ 现行 B=surfaceContainer。配置项卡片（Item）一概不动。
-                    // ⚠️ 走的仍是主题槽（十套主题各自成立、深色自动镜像），不要写死色值。
-                    // 一级分组行（GroupItem）保持页底不变。
-                    0 -> MaterialTheme.colorScheme.surfaceContainer
-                    else -> MaterialTheme.colorScheme.surfaceContainerLowest
-                }
-            )
+            // 11-08 竖线方案（用户令「二级分组一直拿捏不准，换方向」；预览三方向后按推荐 B 落地）：
+            // 行底=透明贴页底——深底横条（10-13 B 档 #EAF7EF）行比卡深、头重脚轻，预览装机对照后废弃；
+            // 层级信号改由「3dp primary 左缘竖线 + 字号递减」承担：页面只剩页底+卡片两层色。
+            // 更深层（level≥1）=2dp outlineVariant 细灰线（比 primary 弱一档，表示「更深一层」）。
+            // ⚠️ 仍走主题槽（primary/outlineVariant，八套主题+深色自动成立），未写死色值。
+            // 配置项卡片（Item）、一级分组行（GroupItem）均不动。
+            .background(Color.Transparent)
+            .drawBehind {
+                // 左缘竖线画在 padding 之外：drawBehind 不吃布局，位置=行左缘 0dp
+                val color = if (level == 0) primaryColor else outlineVariantColor
+                drawRoundRect(
+                    color = color,
+                    topLeft = Offset(0f, 0f),
+                    size = Size(if (level == 0) 3.dp.toPx() else 2.dp.toPx(), size.height),
+                    cornerRadius = CornerRadius(if (level == 0) 2.dp.toPx() else 1.dp.toPx()),
+                )
+            }
             .clickable { if (!showOptions && !showExtraOptions) onClick() }
             .padding(
                 // 10-07 用户令：子分组箭头**左侧**对齐一级分组箭头**中间**——一级行 start 8 +
                 // 24dp 箭头盒 ⇒ 盒中心 20dp，本行 start 同落 20dp（20dp 箭头盒左缘即在该点）。
-                // 10-06 曾「按层缩进取消」全层级统一 8dp，实测子分组箭头跑到一级箭头中心
-                // 左侧 12dp（13.4 vs 20），层级读不出来。层级感仍由字号/背景递减承担。
+                // 11-08 竖线方案：start 20→24，给左缘竖线让出 3dp + 1dp 空隙（箭头中心对齐
+                // 原口径偏移 4dp，层级感已由竖线扛，可接受；装机嫌偏再回调）。
                 // end 8（10-05 用户拍板：三行 ⋮ 统一 30dp 列）
-                start = 20.dp,
+                start = 24.dp,
                 top = paddingTop,
                 bottom = paddingBottom,
                 end = 8.dp
