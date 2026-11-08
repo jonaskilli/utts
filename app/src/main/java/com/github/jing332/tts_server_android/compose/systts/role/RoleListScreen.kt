@@ -25,7 +25,11 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -38,6 +42,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -53,7 +58,6 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -69,15 +73,22 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.lerp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.drake.net.utils.withIO
 import com.github.jing332.common.ACCENT_GREEN
 import com.github.jing332.compose.widgets.ControlBottomBarVisibility
 import com.github.jing332.database.dbm
+import com.github.jing332.database.entities.systts.SystemTtsV2
 import com.github.jing332.database.entities.systts.TtsConfigurationDTO
+import com.github.jing332.database.entities.systts.source.PluginTtsSource
+import com.github.jing332.tts.CachedEngineManager
+import com.github.jing332.tts.PreviewState
+import com.github.jing332.tts.TaggedTtsPreviewPlayer
 import com.github.jing332.tts_server_android.R
 import com.github.jing332.tts_server_android.compose.ListGutter
 import com.github.jing332.tts_server_android.compose.LocalBottomBarBehavior
 import com.github.jing332.tts_server_android.compose.systts.common.VoicePickerDialog
+import com.github.jing332.tts_server_android.service.systts.SystemTtsService
 import com.github.jing332.tts_server_android.service.systts.help.CharacterRecordsFile
 import com.github.jing332.tts_server_android.service.systts.help.KeyListFile
 import com.github.jing332.tts_server_android.service.systts.help.VoiceMarksFile
@@ -87,8 +98,13 @@ import kotlinx.coroutines.launch
  * 角色管理·1:1 复刻（拍板「照 v10 插件原样搬，之后他再改」）：
  * 对照 角色管理v10_主题密钥增强.js 逐函数复刻——
  * **平铺列表**（非分组）：每行=左名字列（主名+别名每行一个、性别色圆点、收藏【】、主角👑）
- * + 右侧（发音人标签框 / ⋮ 发音人管理 / ▶ 试听）。
- * 点击名字=勾选（选中背景高亮）；长按名字=操作菜单（合并+跟随/合并+选发音人（标记≥2）、
+ * + 右侧两行（11-08 重构）：
+ *   第一行=标签框（只放分类 tag，点=换声弹窗 / 长按=随机换声）+ ▶试听（三态）+ ⋮菜单
+ *   （❤️🚶😈 标记 toggle + 删除配置项，与换声弹窗 VoiceOverflowMenu 同款）；
+ *   第二行=注释行：发音人 displayName·插件名(前4字) 在左，已点亮标记 chip 钉行尾（点击取消）。
+ *   宽度不够时削减顺序=displayName 先缩（chip/插件名保住）——11-08 用户令。
+ * 除右侧标签框/▶/⋮ 各自吃掉点击外，整行其余区域点击=选中角色（11-08 用户令「点击范围」）。
+ * 点击名字=勾选（选中背景高亮）；长按=操作菜单（合并+跟随/合并+选发音人（标记≥2）、
  * 释放删除已合并角色（有别名）、修改角色名（单选）、删除角色、设为主角）。
  * 发音人标签框点击=换声弹窗（与日志弹窗同款，桥接已通过）。
  * 顶部：书籍栏（书名/切换/修改书名）；密钥管理与备份恢复入口在宿主顶栏（给角色区留空）。
@@ -253,6 +269,12 @@ fun RoleListScreen(
     var mergeFollowFor by remember { mutableStateOf<List<String>?>(null) } // 标记的角色名列表，选目标
     var mergeVoiceTarget by remember { mutableStateOf<String?>(null) } // 合并+选择发音人：目标角色
     var pickerFor by remember { mutableStateOf<CharacterRecordsFile.RoleRecord?>(null) } // 换声（标签框点击）
+    // ⋮ → 删除配置项（11-08 角色行加 ⋮ 菜单）：复用换声弹窗同款删除链，
+    // 弹窗渲染照 VoicePickerDialog.deleteConfirmTarget 抄（确认文案+联动重分配在 onDeleteConfigConfirmed）
+    var deleteConfigTarget by remember { mutableStateOf<SystemTtsV2?>(null) }
+    // ▶ 行内试听状态（与换声弹窗同链）：previewingIdx=正在试听的行下标（全局单实例播放器）
+    val previewState by TaggedTtsPreviewPlayer.state.collectAsStateWithLifecycle()
+    var previewingIdx by remember { mutableStateOf<Int?>(null) }
     var showBookDialog by remember { mutableStateOf(false) }
     // 密钥管理/备份恢复入口已上移到宿主顶栏（给角色区留空），
     // 弹窗状态与渲染都在 RoleManagementScreen，本页不再持有
@@ -503,9 +525,28 @@ fun RoleListScreen(
                 // 行 key 用下标：同名两条记录（合并产物 / 框架回写）不会再撞 key（旧版 name+voice 撞了会崩）
                 val key = "row_$idx"
                 item(key = key) {
+                    // 发音人配置项（试听/⋮删除配置项的锚点）：按 rec.voice 查启用配置，
+                    // 查不到（失效标签）时 ▶/⋮ 相应禁用——▶ 照旧显示但点了无效，
+                    // ⋮ 删除项置灰（deleteEnabled=false，与换声弹窗顶部菜单同口径）
+                    val anchorEntity = remember(rec.voice, version) {
+                        dbm.systemTtsV2.allEnabled.firstOrNull { item ->
+                            (item.config as? TtsConfigurationDTO)?.speechRule?.tag == rec.voice
+                        }
+                    }
+                    // 插件名（注释行缀尾，前 4 字——与日志插件牌 PLUGIN_NAME_MAX_CHARS 同口径）
+                    val pluginNameShort = remember(anchorEntity?.id) {
+                        val src = anchorEntity?.config?.source as? PluginTtsSource
+                        src?.let { dbm.pluginDao.getMetaByPluginId(it.pluginId)?.name }
+                            ?.replace('|', '｜')
+                            ?.take(4)
+                            ?.takeUnless { it.isBlank() }
+                    }
                     RoleRow(
                         rec = rec,
                         voiceName = voiceTagText(rec.voice, voiceNames),
+                        displayName = voiceNames[rec.voice],
+                        pluginName = pluginNameShort,
+                        hasAnchor = anchorEntity != null,
                         marks = marks[rec.voice].orEmpty(),
                         marked = idx in markedIdx,
                         onNameClick = { toggleMark(idx) },
@@ -528,6 +569,41 @@ fun RoleListScreen(
                                     toast(R.string.role_reassign_none)
                                 }
                             }
+                        },
+                        // ▶ 试听（与换声弹窗顶部试听同链）：TaggedTtsPreviewPlayer 全局单实例，
+                        // 同一时刻只有一个试听；再点=停。实体=该角色绑定的启用配置项。
+                        onPreview = {
+                            val entity = anchorEntity
+                            if (entity != null) {
+                                if (previewingIdx == idx && previewState != PreviewState.IDLE) {
+                                    TaggedTtsPreviewPlayer.stop()
+                                    previewingIdx = null
+                                } else {
+                                    previewingIdx = idx
+                                    // 点击即置「合成中」（v10 口径）：不等 play() 异步置位
+                                    TaggedTtsPreviewPlayer.markSynthesizing()
+                                    scope.launch {
+                                        TaggedTtsPreviewPlayer.play(
+                                            context, entity, "你好，这是试听语音。"
+                                        )
+                                    }
+                                }
+                            }
+                        },
+                        previewActive = previewingIdx == idx && previewState != PreviewState.IDLE,
+                        previewSynthesizing = previewingIdx == idx &&
+                            previewState == PreviewState.SYNTHESIZING,
+                        // 标记 toggle（QQ 式取消）：文件通道无观察者，靠 marksVersion 刷新
+                        onToggleMark = { mark ->
+                            scope.launch {
+                                if (VoiceMarksFile.toggle(tagRuleId, rec.voice, mark)) {
+                                    marks = VoiceMarksFile.readAll(tagRuleId)
+                                }
+                            }
+                        },
+                        // ⋮ → 删除配置项：复用换声弹窗同款删除链（确认弹窗 + 联动重分配）
+                        onDeleteConfig = {
+                            anchorEntity?.let { deleteConfigTarget = it }
                         },
                     )
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
@@ -559,6 +635,78 @@ fun RoleListScreen(
             titleBadge = rec.name,
             onChanged = { _, _ -> reload() },
             onDismissRequest = { pickerFor = null },
+        )
+    }
+    // ===== ⋮ → 删除配置项（11-08 角色行菜单）：确认弹窗+删除链照换声弹窗
+    // deleteConfirmTarget / deletePreviewedConfig 一字抄（VoicePickerDialog.kt:1679/425）——
+    // ①删配置项+清失效引擎缓存 ②标签删空才从池子移除 ③删空立即给受影响角色重分配；
+    // 本页无 anchorVersion/dataVersion 机制，落库后 reload() 重读全部文件即同步
+    deleteConfigTarget?.let { delTarget ->
+        val delDto = delTarget.config as? TtsConfigurationDTO
+        val delTag = delDto?.speechRule?.tag.orEmpty()
+        val tagRuleIdDel = delDto?.speechRule?.tagRuleId.orEmpty()
+        val tagLabel = voiceNames[delTag]
+        val tagShown = tagLabel?.ifBlank { null } ?: delTag
+        val assigned = remember(delTarget.id) {
+            CharacterRecordsFile.readVoiceOwnerMap(tagRuleIdDel)[delTag]
+                .orEmpty().isNotEmpty()
+        }
+        AlertDialog(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            onDismissRequest = { deleteConfigTarget = null },
+            title = { Text(stringResource(R.string.role_voice_del_title)) },
+            text = {
+                Text(
+                    stringResource(R.string.role_voice_del_msg_title, tagShown, delTarget.displayName) +
+                        "\n\n" +
+                        stringResource(
+                            if (assigned) R.string.role_voice_del_msg_used
+                            else R.string.role_voice_del_msg_unused
+                        ),
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    deleteConfigTarget = null
+                    scope.launch {
+                        var reassignedCount = 0
+                        val removed = withIO {
+                            dbm.systemTtsV2.delete(delTarget)
+                            runCatching {
+                                CachedEngineManager.removeEngine(delDto?.source)
+                            }
+                            val stillEnabled = dbm.systemTtsV2.allEnabled.any { item ->
+                                val d = item.config as? TtsConfigurationDTO ?: return@any false
+                                d.speechRule.tagRuleId == tagRuleIdDel && d.speechRule.tag == delTag
+                            }
+                            if (!stillEnabled && delTag.isNotBlank()) {
+                                CharacterRecordsFile.removeFromPool(tagRuleIdDel, delTag)
+                                val enabledTags = dbm.systemTtsV2.allEnabled.mapNotNull { item ->
+                                    (item.config as? TtsConfigurationDTO)?.speechRule?.tag
+                                        ?.takeIf { it.isNotEmpty() }
+                                }.toSet()
+                                reassignedCount = CharacterRecordsFile.reassignVoicesForTag(
+                                    tagRuleIdDel, delTag, enabledTags
+                                )
+                            }
+                            true
+                        }
+                        SystemTtsService.notifyUpdateConfig()
+                        if (removed) {
+                            toast(
+                                if (reassignedCount > 0) R.string.role_voice_del_reassigned
+                                else R.string.role_voice_del_toast,
+                                delTarget.displayName, reassignedCount,
+                            )
+                        }
+                        // 被删的恰是本行绑定：失效态立刻反映（voiceNames 重读后查不到配置 → ⚠）
+                        reload()
+                    }
+                }) { Text(stringResource(R.string.role_voice_del_confirm)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteConfigTarget = null }) { Text(stringResource(R.string.cancel)) }
+            },
         )
     }
     // ===== 合并+选择发音人：目标=长按角色，选完发音人后把其余标记角色并入 =====
@@ -696,8 +844,16 @@ fun RoleListScreen(
     // （候选 / 试听 / 确认键 / Toast）与「+ 添加角色」完全同源——只有一处实现。
     // 顺带修正口径：原先写进 voice 的是裸关键词（「女青年」），现在是 tag id（「女青年01」），
     // 与本 App「voice=tag id」的数据链一致——旧写法朗读时根本匹配不上发音人。
+    // 锚点（11-08 用户令「分类跟随之前」）：换声弹窗的分类下拉默认选中锚点 tag 的分类，
+    // 旧写法抓「第一条有声音的记录」当锚点 → 释放后分类落在别人头上，每次手动切。
+    // 改为取**被释放名字所属记录**的 voice 当锚点：从哪个分类释放的，就停在哪个分类。
+    // 记录按名字匹配（主名或别名）；voice 空白才回落池子首个（与添加角色同兜底）。
     releaseTargetFor?.let { (owner, name) ->
-        val anchorTag = records.firstOrNull { it.voice.isNotBlank() }?.voice
+        val ownerTag = records.firstOrNull { rec ->
+            rec.name == name || CharacterRecordsFile.splitAliases(rec.aliases).contains(name)
+        }?.voice.takeUnless { it.isNullOrBlank() }
+        val anchorTag = ownerTag
+            ?: records.firstOrNull { it.voice.isNotBlank() }?.voice
             ?: CharacterRecordsFile.readVoicePool(tagRuleId).firstOrNull().orEmpty()
         VoicePickerDialog(
             anchorConfigId = null,
@@ -814,91 +970,73 @@ private fun MenuActionRow(
 }
 
 /**
- * 发音人标签文本（照插件 generateVoiceTag 口径）：tag 前缀 + 显示名连写
- * （定稿「男主1晓伊」式）；显示名以 tag 开头时不重复拼（防"男主1男主1"）；
- * 查不到配置返回 null（RoleRow 回落 tag + ⚠）。
- *
- * 宽度收口（10-10 用户拍板「版式不动，只换截断逻辑」）：**按段整丢、永不切半截词**。
- * 旧两套字数上限（显示名 8 字硬切 + 连写 14.5 字权重预算）退役——它们按字符数切、
- * 不认「｜」分段，制造了「稳重男声｜真音已」「睿智长」这类半截词（实机截图实锤，
- * 且多数行是误切：220dp 框实际装得下约 15 全角字，旧预算算得太保守）。
- * 新规则：先试全串；超宽才从尾部按「｜」整段丢（先丢「｜真音已验」类后缀段、
- * 再丢「｜男/女」段，前缀段与名字段最后动）；丢段后仍超宽才按字切名字段尾部兜底。
- * 预算 = 15 全角字（见 SEG_BUDGET 注释）。
+ * 发音人标签有效性（11-08 重构）：tag 在启用配置里能查到显示名=有效；查不到=null
+ * （RoleRow 标签框回落 tag + 红 ⚠）。旧「tag+显示名连写 + 15 字预算预切」整链退役——
+ * 11-08 重构后标签框只放分类 tag（用户令），显示名沉到注释行、按实际框宽 Ellipsis。
  */
-private fun voiceTagText(tag: String, nameMap: Map<String, String>): String? {
-    val disp = nameMap[tag] ?: return null
-    val prefix = if (disp.startsWith(tag)) "" else tag
-    val full = prefix + disp
-    if (weightedWidth(full) <= TAG_BUDGET) return full
-    // 超宽：把显示名按「｜」分段，从尾部整段丢（分隔符连同段一起丢，保前段完整）
-    // ⚠️ 无分隔符时直接按字切兜底——三分支 if-else 不能把 return 挂尾支（Kotlin 会解析成裸 return+Unit）
-    val hasFullwidth = disp.contains('｜')
-    val hasAscii = disp.contains('|')
-    if (!hasFullwidth && !hasAscii) return cutToTagBoxWidth(full, TAG_BUDGET)
-    val sep = if (hasFullwidth) '｜' else '|'
-    val segs = disp.split(sep).toMutableList()
-    while (segs.size > 1 && weightedWidth(prefix + segs.joinToString(sep.toString())) > TAG_BUDGET) {
-        segs.removeAt(segs.lastIndex)
-    }
-    return cutToTagBoxWidth(prefix + segs.joinToString(sep.toString()), TAG_BUDGET)
-}
+private fun voiceTagText(tag: String, nameMap: Map<String, String>): String? =
+    nameMap[tag]
+
+/** 标记 emoji → mark id 反查（chip 点击取消用；MARK_ITEMS 顺序即显示顺序） */
+private fun emojiMarkOf(emoji: String): String =
+    VoiceMarksFile.MARK_ITEMS.firstOrNull { it.second == emoji }?.first ?: ""
 
 /**
- * 标签框预算：15 全角字 ≈ 13sp×15 = 195dp 文本 + 左右各 10dp 内边距 = 215dp，
- * 落在标签框 220dp 上限内（比旧 14.5 预算多出的 0.5 字来自「段尾分隔符可省」的实测余量；
- * cutToTagBoxWidth 兜底保证字体偏宽时也只截尾部、不溢出框）。
- */
-private const val TAG_BUDGET = 15f
-
-/** 权重宽度：全角 1.0 / 半角 0.55（数字、字母、半角符号） */
-private fun weightedWidth(text: String): Float {
-    var w = 0f
-    for (ch in text) w += if (ch.code < 0x2E80) 0.55f else 1.0f
-    return w
-}
-
-/** 按标签框可用宽度截断文本：只截不补符号（不要省略号） */
-private fun cutToTagBoxWidth(text: String, budget: Float = TAG_BUDGET): String {
-    var used = 0f
-    val out = StringBuilder()
-    for (ch in text) {
-        val w = if (ch.code < 0x2E80) 0.55f else 1.0f
-        if (used + w > budget) break
-        used += w
-        out.append(ch)
-    }
-    return out.toString()
-}
-
-/**
- * 角色行（照插件 createListRow / v9 排布）：左名字列竖排（主名第一行，别名从第二行起各占一行，
- * 每行 = 性别圆点 + 名称 + 收藏【】 + 主角👑），整列垂直居中 → 右侧标签框对这一列上下居中；
- * 右动作列=发音人标签框 + 已点亮标记 emoji（❤️🚶😈，与换声弹窗同源 voice_marks.json）
- * 随机分配入口（10-04 曾为标签后 🔄 直键 → 10-06 用户令改长按标签、直键删除）：
- * 长按标签立即换一个同类别发音人、标签就地更新；仅 14 类可换类别响应，
- * 单例类别（括号/音效/duihua 等）长按无动作，避开无候选的空操作。
+ * 角色行（11-08 重构定稿）：
+ * 左名字列竖排（主名第一行，别名从第二行起各占一行，每行=性别圆点+名称+收藏【】+主角👑）；
+ * 右侧两行：
+ *   第一行=发音人标签框（只放**分类 tag**如「女青年01」，点=换声、长按=随机换声）
+ *     + ▶ 试听（▶/…/■ 三态，TaggedTtsPreviewPlayer 全局单实例）
+ *     + ⋮ 菜单（❤️🚶😈 标记 toggle + 删除配置项，与换声弹窗 VoiceOverflowMenu 同款）；
+ *   第二行=注释行：displayName（查不到=tag+⚠）·插件名（前4字）在左，
+ *     已点亮标记 chip 钉**行尾**（点击即取消——QQ 式；11-08 用户令：
+ *     chip 不够宽时削的是 displayName 字数，chip 永不被挤掉、更不竖排）。
+ * 点击范围（11-08 用户令）：除标签框/▶/⋮ 各自吃掉点击外，**整行其余任何区域**
+ * 点击=选中角色、长按=操作菜单。
  */
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 private fun RoleRow(
     rec: CharacterRecordsFile.RoleRecord,
     voiceName: String?,
+    displayName: String?,
+    pluginName: String?,
+    hasAnchor: Boolean,
     marks: List<String>,
     marked: Boolean,
     onNameClick: () -> Unit,
     onNameLongClick: () -> Unit,
     onTagClick: () -> Unit,
     onReassign: () -> Unit,
+    onPreview: () -> Unit,
+    previewActive: Boolean,
+    previewSynthesizing: Boolean,
+    onToggleMark: (String) -> Unit,
+    onDeleteConfig: () -> Unit,
 ) {
     val isFav = rec.obj.optInt("usageCount", 0) == 50
     val isProtagonist = rec.isMain
     // 名字列竖排的全部名称（照 v9：第一行主名，别名从第二行起各占一行）
     val nameList = (listOf(rec.name) + CharacterRecordsFile.splitAliases(rec.aliases))
         .distinctBy { it.trim() }
-    // 10-14 用户令三改定稿：名字列=按内容占宽、封顶半屏（超半屏折行不省略）；
-    // 标签槽=weight(1f) 吃剩余+挂名字点击（空白点选），15 字位放不下直接截断（不打「…」）。
+    // 名字列封顶半屏（沿 10-14 定稿）；右侧两行吃剩余
     val halfRow = ((LocalConfiguration.current.screenWidthDp - 2 * ListGutter.value) / 2).dp
+    // ▶ 三态色（与换声弹窗 previewLabelColor 同源）：空闲=主色 / 合成中=琥珀 / 播放中=红
+    val previewColor = when {
+        !previewActive -> MaterialTheme.colorScheme.primary
+        previewSynthesizing -> Color(0xFFFF6F00)
+        else -> Color(0xFFF44336)
+    }
+    val previewLabel = when {
+        !previewActive -> "▶"
+        previewSynthesizing -> "…"
+        else -> "■"
+    }
+    // 注释行文本：displayName · 插件名（失效=显示 tag 本身；查不到 displayName 时只显插件名）
+    val captionBase = displayName?.replace('|', '｜')?.takeIf { it.isNotBlank() } ?: rec.voice
+    val caption = if (pluginName != null) "$captionBase · $pluginName" else captionBase
+    // 已点亮标记 chip（固定顺序，每枚一个 chip；未点亮不渲染）
+    val litMarks = VoiceMarksFile.MARK_ITEMS.filter { it.first in marks }
     Surface(
         // 选中态（用户 09-14 二次修）：整行染色保留，但加 12dp 圆角、
         // 色阶从 surfaceContainerHighest 降到 surfaceContainerHigh 浅一档——
@@ -909,48 +1047,30 @@ private fun RoleRow(
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(
-            // 纵向 10dp 保留（行高 ≥44dp 保证点击区域）。水平内边距照插件 14dp 的口径已退役
-            // （v3 边距统一）：容器 gutter 16 即裸内容线，行内不再叠加，选中块随行落 16..gutter 全宽
-            Modifier.fillMaxWidth().padding(vertical = 10.dp),
+            // 纵向 10dp 保留（行高 ≥44dp 保证点击区域）。
+            // 整行点击=选中/长按菜单（11-08 用户令「除标签外都能选中」）：
+            // 关涟漪防与选中底色叠成第二块灰（名字列旧口径同款）；标签框/▶/⋮
+            // 各自的 handler 挂在内层组件上，点击时内层优先消费、不会冒泡到这
+            Modifier.fillMaxWidth()
+                .combinedClickable(
+                    onClick = onNameClick,
+                    onLongClick = onNameLongClick,
+                    indication = null,
+                    interactionSource = remember { MutableInteractionSource() },
+                )
+                .padding(vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // 名字列
-            // 选中态只由整行 Surface 一处表达（方案 B「整行一块」）：
-            // 这里必须关掉按压反馈波纹，否则名字列自己的涟漪会叠成第二块灰。
+            // 名字列：照 v9 排布（主名第一行，别名逐个竖排，每行带性别色圆点）
             Column(
                 Modifier
-                    // 10-14 用户令三改定稿：名字列=**按内容占宽、封顶半屏**——名字短时不占满，
-                    // 省下的空间给标签框（标签 15 字位全显）；名字长（主名或别名）顶到半屏后
-                    // 折行续排，不省略不折叠（10-12「显示完全」口径保持）。
-                    // 半屏=（屏宽−两侧 gutter 32dp）/2。点击区=名字文字本身（10-13 晚的
-                    // 「空白也可点选」随对半 weight 方案一并退役——两边都长时二者不可兼得，
-                    // 名字显示完全优先）。视觉：名字起线在左、标签仍右缘齐线。
                     .widthIn(max = halfRow)
-                    .combinedClickable(
-                        onClick = onNameClick,
-                        onLongClick = onNameLongClick,
-                        indication = null,
-                        interactionSource = remember { MutableInteractionSource() },
-                    )
                     .heightIn(min = 44.dp),
-                // 名字列整体垂直居中（修：Column 默认 Top 排列会把 16sp 单行文字顶在
-                // min 44dp 的上沿，而右侧标签框是居中于整行的 → 标签框比名字低约 10dp 显歪。
-                // 名字列多行（主名 + 别名竖排）时，右侧标签框同样对这整列上下居中）
                 verticalArrangement = Arrangement.Center,
             ) {
-                // 照 v9 排布：主名第一行，别名从第二行起逐个竖排，每行都带性别色圆点
                 nameList.forEachIndexed { idx, name ->
-                    // 10-14 甲案（用户拍板「别名换行排版不行」）：Row 改 Top 对齐 + 圆点 top 9dp
-                    // 钉在首行文字中线（16sp/行高 24sp 的几何中心）——原 CenterVertically 会把
-                    // 圆点垂直居中到整段折行高度，长别名折两行时圆点跑到末行旁、首行左侧空着
-                    //（装机截图实锤）。折行续行本就在 Text 框内（圆点右侧）缩进，圆点归位即正。
-                    // 单行名字几何不变（9dp = 单行行高的中线）。
+                    // 圆点 top 9dp 钉在首行文字中线（16sp/行高 24sp 几何中心，10-14 甲案）
                     Row(verticalAlignment = Alignment.Top) {
-                        // 性别色圆点：只看发音人分类标签（tag 本身即「分类词+序号」，见 genderDotColor 注释）
-                        // 0919 缩到 6dp（用户：8dp 圆点视觉太重；色相是性别信息载体，缩尺寸不降饱和）
-                        // 4dp 曾压不住场，6dp 为缩小后与名字行仍相称的下限
-                        // start 4（10-05 用户：圆点原顶在 16 内容线上，「圆点对齐难受」——收进 4dp
-                        // 不再压线；名字脊线 30 不变，点-名间距 8→4 让圆点更「属于」名字）
                         Spacer(
                             Modifier
                                 .padding(start = 4.dp)
@@ -966,107 +1086,145 @@ private fun RoleRow(
                             },
                             style = MaterialTheme.typography.bodyLarge.copy(fontSize = 16.sp),
                             color = MaterialTheme.colorScheme.onSurface,
-                            // 名字换行显示完全（10-12 用户令「这个角色名也必须能够换行，也就是说
-                            // 角色名必须要显示完全」）：原写死 maxLines=1 + 省略号，长名被截成
-                            // 「王尘、吕宵、高…」，用户看不到全名。改为在名字列宽度内自由折行——
-                            // 10-14 用户令推平：主名/别名**同待遇**，各有半屏宽的权力，
-                            // 超宽折行、永不省略；名字列封顶半屏（widthIn(max=halfRow)，
-                            // 见上方名字列注释），标签框不许越界（另见标签槽注释）。
+                            // 名字超半屏折行续排，不省略（10-12「显示完全」口径保持）
                         )
                     }
                     if (idx < nameList.lastIndex) Spacer(Modifier.height(2.dp))
                 }
             }
-            // 右侧动作列：只剩发音人标签框（voice 空不渲染，照插件）；
-            // 标签后接已点亮的标记 emoji（顺序同管理弹窗 getVoiceMarkLabel，未点亮不渲染）
+            // 右侧两行（voice 空不渲染，照插件）
             if (rec.voice.isNotBlank()) {
-                // 固定间距 10dp
                 Spacer(Modifier.width(10.dp))
-                // 弹性槽（10-14 终稿）：weight(1f) 吃「行宽−名字列」的全部剩余（fill=true），
-                // 标签框靠 Arrangement.End 贴右缘=内容宽（上限 220dp）——名字短时框=内容宽、
-                // 15 字位全显；两边都长时框被压到剩余空间、文本直接截断不打「…」。
-                // 空白点选（10-13 晚口径恢复，用户令「半屏宽还愁选中区不够长吗」）：
-                // 本槽自身挂名字的点击/长按处理——点标签左侧空白=选中角色/菜单，
-                // 点标签框=换声（Surface 自己的 handler 在上层，互不干扰）。
-                // 演进：10-13 晚对半 weight（标签压短实锤）→ 338588a 内容宽（标签越中线、
-                // 名字列被挤窄实锤）→ 名字列封顶半屏 + 本槽吃剩余+截断+空白点选。
-                Row(
-                    Modifier
-                        .weight(1f)
-                        .combinedClickable(
-                            onClick = onNameClick,
-                            onLongClick = onNameLongClick,
-                            indication = null,
-                            interactionSource = remember { MutableInteractionSource() },
-                        ),
-                    horizontalArrangement = Arrangement.End,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    // 标签文本：正常态由 voiceTagText 按框宽截好；失效态（查不到配置）
-                    // 回落 tag + ⚠——⚠ 本身也占宽，故先让出 2 字预算再拼，
-                    // 否则尾巴又会被框挤掉（框里不要出现「…」）
-                    // 10-05 用户：失效 ⚠ 单独染红（error 色）——标签整体还是容器色文字，
-                    // 感叹号红起来一眼可辨（AnnotatedString 分段着色）
-                    val tagBase = voiceName
-                        ?: cutToTagBoxWidth(rec.voice, TAG_BUDGET - 2f)
-                    val tagInvalid = voiceName == null
-                    // 发音人标签框（失效标签加红色 ⚠）；点它=换声弹窗（标记 / 删除配置项都在里面）；
-                    // 长按=随机分配（10-06 用户令，替代原标签后的 🔄 直键）——仅 14 类可换类别
-                    // 响应，单例类别长按无动作（原直键在单例类别本就不渲染，口径一致）；
-                    // minimumInteractiveComponentSize 照旧保 48dp 触控（原 Surface(onClick) 同款）
-                    // 宽度（10-14 三改终态）：本槽 weight(1f, fill=false) 吃「行宽−名字列」剩余，
-                    // 框=内容宽（上限 220dp）——名字短时框=内容宽、15 字位全显；两边都长时
-                    // 框被压到剩余、文本直接截断（Clip，不打「…」）。位置 Arrangement.End
-                    // 贴行尾（右缘齐线，旧格式观感）。
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        // 标签底色（10-13 用户定稿方案 B「混深改到七成 #DEF3E5，保守微调」）：
-                        // softContainerColor() 与卡底混、比例 0.25（七成偏 secondaryContainer，
-                        // GREEN 浅色 ≈ #DEF3E5）——比对半混深半档，块感比之前清楚；书栏同一公式同深。
-                        // 主题槽插值而非写死色值：十套主题与深浅色自动成立
-                        // 11-08 描边实验（e83410e）经装机实测随白卡批一并回滚
-                        color = lerp(softContainerColor(), MaterialTheme.colorScheme.surfaceContainerLow, 0.25f),
-                        border = null,
-                        modifier = Modifier
-                            .combinedClickable(
-                                onClick = onTagClick,
-                                onLongClick = onReassign.takeIf {
-                                    CharacterRecordsFile.categoryBaseOf(rec.voice) != null
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
+                    // ===== 第一行：标签框 + ▶ + ⋮（Arrangement.End 贴右缘）=====
+                    Row(
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        // 发音人标签框（只放分类 tag）：点=换声弹窗、长按=随机换声
+                        // （仅 14 类可换类别响应，单例类别长按无动作）；失效标签加红 ⚠。
+                        // 宽度：内容宽（上限 220dp），放不下按像素 Clip 截断——
+                        // 11-08 用户令撤「15 字预算预切」（TAG_BUDGET）：名字列短时
+                        // 右边明明有空间却照切是 bug（图二实锤），改按实际框宽截
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = lerp(softContainerColor(), MaterialTheme.colorScheme.surfaceContainerLow, 0.25f),
+                            modifier = Modifier
+                                .combinedClickable(
+                                    onClick = onTagClick,
+                                    onLongClick = onReassign.takeIf {
+                                        CharacterRecordsFile.categoryBaseOf(rec.voice) != null
+                                    },
+                                    onLongClickLabel = stringResource(R.string.role_menu_reassign),
+                                )
+                                .minimumInteractiveComponentSize(),
+                        ) {
+                            Text(
+                                buildAnnotatedString {
+                                    append(rec.voice)
+                                    if (voiceName == null) {
+                                        withStyle(SpanStyle(color = MaterialTheme.colorScheme.error)) {
+                                            append(" ⚠")
+                                        }
+                                    }
                                 },
-                                onLongClickLabel = stringResource(R.string.role_menu_reassign),
+                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp),
+                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                maxLines = 1,
+                                overflow = TextOverflow.Clip,
+                                modifier = Modifier
+                                    .padding(horizontal = 10.dp, vertical = 5.dp)
+                                    .widthIn(max = 220.dp)
                             )
-                            .minimumInteractiveComponentSize(),
+                        }
+                        // ▶ 试听（与换声弹窗顶部试听同链）：无锚点配置项（失效标签）不渲染
+                        if (hasAnchor) {
+                            Text(
+                                previewLabel,
+                                color = previewColor,
+                                style = MaterialTheme.typography.titleMedium,
+                                modifier = Modifier
+                                    .clickable(onClick = onPreview)
+                                    .padding(horizontal = 12.dp, vertical = 12.dp),
+                            )
+                            // ⋮ 菜单（与换声弹窗 VoiceOverflowMenu 同款）：
+                            // 标记三项 toggle（点亮打勾、菜单不关可连点）+ 删除配置项
+                            var menuOpen by remember { mutableStateOf(false) }
+                            Box {
+                                Text(
+                                    "⋮",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    modifier = Modifier
+                                        .clickable { menuOpen = true }
+                                        .padding(horizontal = 12.dp, vertical = 12.dp),
+                                )
+                                DropdownMenu(
+                                    expanded = menuOpen,
+                                    onDismissRequest = { menuOpen = false },
+                                ) {
+                                    VoiceMarksFile.MARK_ITEMS.forEach { (mark, emojiText, label) ->
+                                        DropdownMenuItem(
+                                            text = { Text(label) },
+                                            leadingIcon = { Text(emojiText) },
+                                            trailingIcon = {
+                                                if (mark in marks) Icon(
+                                                    Icons.Filled.Check,
+                                                    contentDescription = "已点亮",
+                                                )
+                                            },
+                                            onClick = { onToggleMark(mark) },
+                                        )
+                                    }
+                                    HorizontalDivider()
+                                    DropdownMenuItem(
+                                        text = { Text("删除配置项", color = MaterialTheme.colorScheme.error) },
+                                        leadingIcon = {
+                                            Icon(
+                                                Icons.Filled.Delete,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.error,
+                                            )
+                                        },
+                                        onClick = {
+                                            menuOpen = false
+                                            onDeleteConfig()
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    // ===== 第二行：注释行（displayName·插件名 左，标记 chip 钉行尾）=====
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(top = 3.dp),
                     ) {
                         Text(
-                            buildAnnotatedString {
-                                append(tagBase)
-                                if (tagInvalid) {
-                                    withStyle(SpanStyle(color = MaterialTheme.colorScheme.error)) {
-                                        append(" ⚠")
-                                    }
-                                }
-                            },
-                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp),
-                            // 字色（10-13 退回）：与底同源，onSecondaryContainer 对比度只会更大
-                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            caption,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
-                            // 10-14 用户令再改：两边都长时本框被压到「行宽−名字列」，
-                            // 15 字位文本放不下就**直接截断**（Clip，不打「…」——用户令
-                            // 「不打省略号，直接不显示」）；名字短时框=内容宽，全显不触发。
-                            overflow = TextOverflow.Clip,
-                            modifier = Modifier
-                                .padding(horizontal = 10.dp, vertical = 5.dp)
-                                .widthIn(max = 220.dp)
+                            // 宽度不够先削 displayName（11-08 用户令）：注释文字吃剩余、
+                            // 超宽尾部截断；chip/第一行控件永不被挤
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
                         )
-                    }
-                    // 🔄 随机分配直键已删（10-06 用户令）：入口改为长按标签，见上方标签框注释
-                    val litEmoji = VoiceMarksFile.emojiOf(marks)
-                    if (litEmoji.isNotEmpty()) {
-                        Text(
-                            litEmoji,
-                            fontSize = 13.sp,
-                            modifier = Modifier.padding(start = 3.dp),
-                        )
+                        if (litMarks.isNotEmpty()) {
+                            Spacer(Modifier.width(6.dp))
+                            // chip 逐枚渲染、点击即取消该枚标记（QQ 式——11-08 用户令「点 chip 取消」；
+                            // 原整串一个 Text 在行宽不够时会逐字折行竖排（图一实锤），拆枚+maxLines=1 后
+                            // 宽度压力全部转移到左侧 displayName 的 Ellipsis 上）
+                            litMarks.forEach { (_, emojiText) ->
+                                Text(
+                                    emojiText,
+                                    fontSize = 13.sp,
+                                    maxLines = 1,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(9.dp))
+                                        .clickable { onToggleMark(emojiMarkOf(emojiText)) }
+                                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                                )
+                            }                        }
                     }
                 }
             }
