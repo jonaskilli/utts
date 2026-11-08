@@ -15,8 +15,8 @@ import androidx.compose.ui.graphics.Color
 // 10-13 深夜用户令「配置项卡片色用以前的，现在的太深了」：GREEN 卡底（Low 槽）#EFF6F1 回滚 → #F4FBF6
 //   （反转 80738f6 当晚挑的「微深一档」；#F4FBF6 = 10-11 V1 起用了两天的旧卡底）。
 //   组头带=lerp(background, Low, 0.5) 自动跟移（≈#F8FCF7）。
-// 11-08 用户令「主题只留动态颜色和绿色」：其余九套彩色彩板退役，本表随之只剩
-//   DEFAULT/GREEN 两行（动态取色无静态表，Theme.kt dynamicNeutral() 现算）。
+// 11-08 用户令（两轮收敛后终态）：保留绿/青/紫/棕/灰五套静态主题，红粉蓝橙退役，
+//   本表剩 DEFAULT/GREEN/CYAN/PURPLE/BROWN/GRAY 六行（动态取色无静态表，Theme.kt dynamicNeutral() 现算）。
 // 标签/选中档不在本表：Color2 浅色 secondaryContainer=accent step4，softContainerColor() 取之（不动）。
 // 深色表维持 10-10 版未动（未装机验收过，不随本批盲改）。
 // 列表顺序固定：[lowest, low, container, high, highest, dim, bright]，消费方=Theme.kt themedNeutral()。
@@ -24,9 +24,17 @@ import androidx.compose.ui.graphics.Color
 internal val lightSurfaceTones: Map<AppTheme, List<Color>> = mapOf(
     AppTheme.DEFAULT to listOf(Color(0xFFFBFEFD), Color(0xFFF4FBF7), Color(0xFFE6F7ED), Color(0xFFDCF3E7), Color(0xFFD0EFDF), Color(0xFFE6F7ED), Color(0xFFFBFEFD)),
     AppTheme.GREEN to listOf(Color(0xFFFBFEFC), Color(0xFFF4FBF6), Color(0xFFEAF7EF), Color(0xFFE2F4E8), Color(0xFFDAF1E1), Color(0xFFEAF7EF), Color(0xFFFBFEFC)),
+    AppTheme.CYAN to listOf(Color(0xFFFAFDFE), Color(0xFFF2FAFB), Color(0xFFDEF7F9), Color(0xFFD2F3F7), Color(0xFFC4EFF4), Color(0xFFDEF7F9), Color(0xFFFAFDFE)),
+    AppTheme.PURPLE to listOf(Color(0xFFFEFCFE), Color(0xFFFBF7FE), Color(0xFFF7EDFE), Color(0xFFF4E6FD), Color(0xFFF0DEFB), Color(0xFFF7EDFE), Color(0xFFFEFCFE)),
+    AppTheme.BROWN to listOf(Color(0xFFFEFDFC), Color(0xFFFCF9F6), Color(0xFFF6EEE7), Color(0xFFF2E8DF), Color(0xFFEEE1D4), Color(0xFFF6EEE7), Color(0xFFFEFDFC)),
+    AppTheme.GRAY to listOf(Color(0xFFFCFCFC), Color(0xFFF9F9F9), Color(0xFFF0F0F0), Color(0xFFEBEBEB), Color(0xFFE6E6E6), Color(0xFFF0F0F0), Color(0xFFFCFCFC)),
 )
 
 internal val darkSurfaceTones: Map<AppTheme, List<Color>> = mapOf(
     AppTheme.DEFAULT to listOf(Color(0xFF161814), Color(0xFF222420), Color(0xFF262824), Color(0xFF31332F), Color(0xFF3C3E3A), Color(0xFF1A1C18), Color(0xFF40433E)),
     AppTheme.GREEN to listOf(Color(0xFF141815), Color(0xFF202421), Color(0xFF242925), Color(0xFF2F3330), Color(0xFF3A3E3B), Color(0xFF181C19), Color(0xFF3E433F)),
+    AppTheme.CYAN to listOf(Color(0xFF131917), Color(0xFF1F2524), Color(0xFF232928), Color(0xFF2D3432), Color(0xFF383F3D), Color(0xFF171D1B), Color(0xFF3D4342)),
+    AppTheme.PURPLE to listOf(Color(0xFF19171B), Color(0xFF252327), Color(0xFF29272B), Color(0xFF343236), Color(0xFF3F3D41), Color(0xFF1D1B1F), Color(0xFF434246)),
+    AppTheme.BROWN to listOf(Color(0xFF1B1614), Color(0xFF282220), Color(0xFF2C2625), Color(0xFF37312F), Color(0xFF423C3A), Color(0xFF1F1A18), Color(0xFF47413F)),
+    AppTheme.GRAY to listOf(Color(0xFF13181B), Color(0xFF1F2427), Color(0xFF23292B), Color(0xFF2E3336), Color(0xFF393F41), Color(0xFF171C1F), Color(0xFF3E4346)),
 )

@@ -547,6 +547,10 @@
     <string name="theme_default">默认</string>
     <string name="dynamic_color">动态颜色</string>
     <string name="green">绿色</string>
+    <string name="cyan">青色</string>
+    <string name="purple">紫色</string>
+    <string name="brown">棕色</string>
+    <string name="gray">灰色</string>
     <string name="desc_expand_group">展开分组：%1$s</string>
     <string name="desc_collapse_group">折叠分组：%1$s</string>
     <string name="label_speech_rate">语速：%1$s</string>

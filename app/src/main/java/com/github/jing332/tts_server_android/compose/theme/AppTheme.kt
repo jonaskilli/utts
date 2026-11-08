@@ -4,8 +4,8 @@ import androidx.compose.ui.graphics.Color
 import com.github.jing332.tts_server_android.R
 
 /**
- * 11-08 用户令「主题只留动态颜色和绿色」：除 DEFAULT（隐性兜底档，见下）外
- * 其余九套彩色彩板退役，存量选了被删主题的由 AppConfig 读取处兜底改选绿色。
+ * 11-08 用户令（两轮收敛后终态）：保留绿色/青/紫/棕/灰 + 动态颜色共六档，
+ * 红粉蓝橙四套退役，存量选了被删主题的由 AppConfig 读取处兜底改选绿色。
  *
  * DEFAULT（id=""）保留在枚举里但任何 UI 都不列出：它是存量数据「最早版本无主题设置」
  * 的占位值，删掉会让 AppConfig 的 values().find 对旧存量返回 null 走 GREEN 兜底——
@@ -15,4 +15,8 @@ enum class AppTheme(val id: String, val stringResId: Int = -1, val color: Color)
     DEFAULT("", R.string.theme_default, green_seed),
     DYNAMIC_COLOR("dynamicColor", R.string.dynamic_color, Color.Unspecified),
     GREEN("green", R.string.green, green_seed),
+    CYAN("cyan", R.string.cyan, cyan_seed),
+    PURPLE("purple", R.string.purple, purple_seed),
+    BROWN("brown", R.string.brown, brown_seed),
+    GRAY("gray", R.string.gray, gray_seed),
 }
