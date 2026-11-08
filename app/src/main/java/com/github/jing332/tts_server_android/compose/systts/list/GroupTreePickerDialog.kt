@@ -92,9 +92,8 @@ fun GroupTreePickerDialog(
     }
 
     val finalCategoryPath = if (isCreatingNew) newSubGroupName.trim() else selectedCategoryPath
-    // 11-08 用户令「把斜杠功能删掉」：多级建组语法退役，新建子分组名拒收 /
-    // （selectedCategoryPath 是树上选的现成节点，不受影响）
-    val subNameHasSlash = isCreatingNew && newSubGroupName.contains('/')
+    // 11-08 用户令：多级建组语法退役后 / 只是普通字符，无需拦截
+    //（selectedCategoryPath 是树上选的现成节点，不受影响）
     val selGroupName = groups.firstOrNull { it.id == selectedGroupId }?.name ?: ""
     // 目标大分组含子分组时，禁止确认根目录选中（只能选子分组或新建）
     val targetHasSubGroups = (subPathsByGroup[selectedGroupId] ?: emptyList()).isNotEmpty()
@@ -325,11 +324,7 @@ fun GroupTreePickerDialog(
                                 value = newSubGroupName,
                                 onValueChange = { newSubGroupName = it },
                                 label = { Text("子分组名称") },
-                                // 11-08 斜杠功能退役：输入 / 即时报错「名称不能包含 /」
-                                supportingText = {
-                                    Text(if (subNameHasSlash) "名称不能包含 /" else "")
-                                },
-                                isError = subNameHasSlash,
+
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(start = 64.dp, top = 4.dp),
@@ -408,7 +403,7 @@ fun GroupTreePickerDialog(
                 },
                 enabled = when {
                     isCreatingNewGroup -> newGroupName.isNotBlank()
-                    isCreatingNew -> newSubGroupName.isNotBlank() && !subNameHasSlash
+                    isCreatingNew -> newSubGroupName.isNotBlank()
                     else -> !isRootSelectedInvalid
                 }
             ) {

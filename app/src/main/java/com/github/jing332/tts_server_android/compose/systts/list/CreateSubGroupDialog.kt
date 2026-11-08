@@ -45,9 +45,8 @@ fun CreateSubGroupDialog(
     var selectedIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
     var searchQuery by remember { mutableStateOf("") }
 
-    // 11-08 用户令「把斜杠功能删掉」：多级建组语法退役——输入框直接拒收 / 字符，
-    // 子分组名不再可能含路径分隔符（three 处入口同口径；树选择器见 GroupTreePickerDialog）
-    val hasSlash = subGroupName.contains('/')
+    // 11-08 用户令：多级建组语法退役后 / 只是普通字符，名字里带 / 就是字面名
+    //（不再触发任何路径解析），无需拦截
 
     val filteredItems = remember(searchQuery, ungroupedItems) {
         if (searchQuery.isBlank()) ungroupedItems
@@ -76,11 +75,7 @@ fun CreateSubGroupDialog(
                     value = subGroupName,
                     onValueChange = { subGroupName = it },
                     label = { Text("子分组名称") },
-                    // 11-08 斜杠功能退役：输入 / 即时报错「名称不能包含 /」
-                    supportingText = {
-                        Text(if (hasSlash) "名称不能包含 /" else "")
-                    },
-                    isError = hasSlash,
+
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
                 )
@@ -183,12 +178,12 @@ fun CreateSubGroupDialog(
         confirmButton = {
             TextButton(
                 onClick = {
-                    if (subGroupName.isNotBlank() && !hasSlash) {
+                    if (subGroupName.isNotBlank()) {
                         val selected = ungroupedItems.filter { selectedIds.contains(it.id) }
                         onConfirm(subGroupName.trim(), selected)
                     }
                 },
-                enabled = subGroupName.isNotBlank() && !hasSlash
+                enabled = subGroupName.isNotBlank()
             ) {
                 Text("确认")
             }
