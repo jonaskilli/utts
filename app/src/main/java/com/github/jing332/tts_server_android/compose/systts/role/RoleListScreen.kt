@@ -1112,17 +1112,17 @@ private fun RoleRow(
                 //   Column 内容宽内 End，名字短时整组吊在名字旁边不贴右）
                 // ③标签区域宽度规则不变=「行宽−名字列宽」，名字列仍按内容占宽封顶半屏
                 //   （widthIn(max=halfRow)，上方名字列注释）——标签区域大小由名字长度间接决定
-                // 11-09 终版（预览验收通过）：右列=一个整体块——
-                // ①块封顶半屏（widthIn max=halfRow 挂本 Column：块内所有行共享上限，
-                //   撤第二行 Row 上的 fillMaxWidth+widthIn——上一版两者打架，fill 赢了失效）
-                // ②块整体贴行尾（horizontalAlignment=End：第一行 Row fillMaxWidth 占满
-                //   后内部 End 贴线；▶/⋮ 另有 offset(x=6.dp) 视觉右移贴线——按键触控盒
-                //   居中留白会让图标右缘距内容线 12dp，显「第一行右侧留空」）
-                // ③块内两行左对齐自然排（第二行内容从标签框左缘起，右边留空就留空）
-                Column(
-                    Modifier.weight(1f).widthIn(max = halfRow),
-                    horizontalAlignment = Alignment.End,
-                ) {
+                // 11-09 装机二轮复盘（用户实锤两问题）：
+                // ①「有 emoji 的行，角色名和第一行做不到对齐」——emoji 13sp 字形渲染
+                //   高度把第二行撑高，外层行 CenterVertically 分配高度差 → 名字/标签框
+                //   相对错位。修：emoji/chip Text 加固定行高（与 labelSmall 一致），
+                //   第二行高度回归文字级，两行高度稳定后对齐稳定
+                // ②「第二行还是超半屏——显示名+插件名+emoji 加一块不能超过半屏」——
+                //   上一版 halfRow 挂 Column，但 Column 有 weight(1f)，weight 分配宽
+                //   ≥halfRow 时上限失效（打架换了位置）。修：halfRow 移挂**第二行 Row**
+                //   （Row 无 fillMaxWidth，宽=min(内容,半屏) 不打架），Column 撤 widthIn
+                //   恢复 weight(1f) 占剩余；第一行 Row 保留 fillMaxWidth 贴右缘
+                Column(Modifier.weight(1f), horizontalAlignment = Alignment.End) {
                     // ===== 第一行：标签框 + ▶ + ⋮（贴右缘）=====
                     // 11-09 用户令「第一行的对齐——角色名和第一行」：Row 改 Top 对齐——
                     // 标签框顶部与第一行角色名顶部齐（原 CenterVertically + 标签框
@@ -1241,9 +1241,14 @@ private fun RoleRow(
                     // ④「左缘对齐第一行，右边留空就留空」——Row 默认 Start 排列，
                     //   内容从标签框左缘起自然排，撤 End（不硬撑块宽、不推插件名到最右）
                     // ⑤点注释行=选中角色（父级已挂整行 combinedClickable，冒泡到行）
+                    // ⑥「显示名+插件名+emoji 加一块不能超过半屏」——halfRow 挂本 Row
+                    //   （Row 无 fillMaxWidth：宽=min(内容,半屏)，不与上限打架）；
+                    //   weight(1f,fill=false) 的显示名在这半屏内吃剩余、被截的只有它
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(top = 1.dp),
+                        modifier = Modifier
+                            .padding(top = 1.dp)
+                            .widthIn(max = halfRow),
                     ) {
                         // 显示名（吃剩余宽度、唯一可被截的元素；失效=tag 本身）
                         Text(
@@ -1266,12 +1271,16 @@ private fun RoleRow(
                             )
                         }
                         // 已点亮标记 emoji（钉最右永不截；点击取消，QQ 式）
+                        // 11-09 装机二轮复盘①：emoji 13sp 字形全高渲染会把第二行撑高
+                        // （有 emoji 的行第一行与角色名错位的根因）——固定行高 16sp
+                        // （与 labelSmall 行高一致），emoji 视觉大小不变、高度不再撑行
                         if (litMarks.isNotEmpty()) {
                             Spacer(Modifier.width(6.dp))
                             litMarks.forEach { (_, emojiText) ->
                                 Text(
                                     emojiText,
                                     fontSize = 13.sp,
+                                    lineHeight = 16.sp,
                                     maxLines = 1,
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(9.dp))
