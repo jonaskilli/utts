@@ -393,6 +393,78 @@ fun purpleTheme(
         )
 
 /**
+ * 棕色
+ */
+@Composable
+fun brownTheme(
+    darkTheme: Boolean
+): ColorScheme =
+    if (!darkTheme)
+        lightColorScheme(
+            primary = brown_seed,
+            onPrimary = brown_md_theme_light_onPrimary,
+            primaryContainer = brown_md_theme_light_primaryContainer,
+            onPrimaryContainer = brown_md_theme_light_onPrimaryContainer,
+            secondary = brown_md_theme_light_secondary,
+            onSecondary = brown_md_theme_light_onSecondary,
+            secondaryContainer = brown_md_theme_light_secondaryContainer,
+            onSecondaryContainer = brown_md_theme_light_onSecondaryContainer,
+            tertiary = brown_md_theme_light_tertiary,
+            onTertiary = brown_md_theme_light_onTertiary,
+            tertiaryContainer = brown_md_theme_light_tertiaryContainer,
+            onTertiaryContainer = brown_md_theme_light_onTertiaryContainer,
+            error = brown_md_theme_light_error,
+            errorContainer = brown_md_theme_light_errorContainer,
+            onError = brown_md_theme_light_onError,
+            onErrorContainer = brown_md_theme_light_onErrorContainer,
+            background = brown_md_theme_light_background,
+            onBackground = brown_md_theme_light_onBackground,
+            outline = brown_md_theme_light_outline,
+            inverseOnSurface = brown_md_theme_light_inverseOnSurface,
+            inverseSurface = brown_md_theme_light_inverseSurface,
+            inversePrimary = brown_md_theme_light_inversePrimary,
+            surfaceTint = brown_md_theme_light_surfaceTint,
+            outlineVariant = brown_md_theme_light_outlineVariant,
+            scrim = brown_md_theme_light_scrim,
+            surface = brown_md_theme_light_surface,
+            onSurface = brown_md_theme_light_onSurface,
+            surfaceVariant = brown_md_theme_light_surfaceVariant,
+            onSurfaceVariant = brown_md_theme_light_onSurfaceVariant,
+        )
+    else
+        darkColorScheme(
+            primary = brown_md_theme_dark_primary,
+            onPrimary = brown_md_theme_dark_onPrimary,
+            primaryContainer = brown_md_theme_dark_primaryContainer,
+            onPrimaryContainer = brown_md_theme_dark_onPrimaryContainer,
+            secondary = brown_md_theme_dark_secondary,
+            onSecondary = brown_md_theme_dark_onSecondary,
+            secondaryContainer = brown_md_theme_dark_secondaryContainer,
+            onSecondaryContainer = brown_md_theme_dark_onSecondaryContainer,
+            tertiary = brown_md_theme_dark_tertiary,
+            onTertiary = brown_md_theme_dark_onTertiary,
+            tertiaryContainer = brown_md_theme_dark_tertiaryContainer,
+            onTertiaryContainer = brown_md_theme_dark_onTertiaryContainer,
+            error = brown_md_theme_dark_error,
+            errorContainer = brown_md_theme_dark_errorContainer,
+            onError = brown_md_theme_dark_onError,
+            onErrorContainer = brown_md_theme_dark_onErrorContainer,
+            background = brown_md_theme_dark_background,
+            onBackground = brown_md_theme_dark_onBackground,
+            outline = brown_md_theme_dark_outline,
+            inverseOnSurface = brown_md_theme_dark_inverseOnSurface,
+            inverseSurface = brown_md_theme_dark_inverseSurface,
+            inversePrimary = brown_md_theme_dark_inversePrimary,
+            surfaceTint = brown_md_theme_dark_surfaceTint,
+            outlineVariant = brown_md_theme_dark_outlineVariant,
+            scrim = brown_md_theme_dark_scrim,
+            surface = brown_md_theme_dark_surface,
+            onSurface = brown_md_theme_dark_onSurface,
+            surfaceVariant = brown_md_theme_dark_surfaceVariant,
+            onSurfaceVariant = brown_md_theme_dark_onSurfaceVariant,
+        )
+
+/**
  * 灰色
  */
 @Composable
