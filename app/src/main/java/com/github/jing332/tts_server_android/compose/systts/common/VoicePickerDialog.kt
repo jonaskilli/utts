@@ -1056,6 +1056,18 @@ fun VoicePickerDialog(
             // ⋮ 一出现，这个不一致就从"看不见"变成"点得到"，故与显示名统一取暂存优先。
             val topMarkKey = if (isBindingMode) (pendingVoice ?: boundVoice)
             else pendingVoice ?: voice
+            // 插件名缀尾（11-08 用户令「换声面板也需要插件名…显示插件的四个字」）：
+            // 与角色列表注释行同口径——前 4 码点、全角｜替换；随暂存目标走（跟随目标配置项
+            // 的插件，暂存换了发音人但同插件则不变；查不到插件/本地音效=不显示）
+            val topPluginName = remember(topMarkKey, paramsTarget.id, dataVersion) {
+                // config 静态类型是 IConfiguration（无 source），先 as? TtsConfigurationDTO
+                //（CI 实锤 RoleListScreen :538 同款错误，同类同修）
+                val src = (paramsTarget.config as? TtsConfigurationDTO)?.source as? PluginTtsSource
+                src?.let { dbm.pluginDao.getMetaByPluginId(it.pluginId)?.name }
+                    ?.replace('|', '｜')
+                    ?.take(4)
+                    ?.takeUnless { it.isBlank() }
+            }
             val topMarks = remember(topMarkKey, marksMap) {
                 if (topMarkKey.isBlank()) emptyList()
                 else marksMap[topMarkKey] ?: emptyList()
@@ -1092,7 +1104,17 @@ fun VoicePickerDialog(
                                 .background(genderDotColor(topMarkKey), CircleShape)
                         )
                         Text(
-                            currentVoiceName,
+                            buildAnnotatedString {
+                                append(currentVoiceName)
+                                if (topPluginName != null) {
+                                    withStyle(SpanStyle(
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontSize = 11.sp,
+                                    )) {
+                                        append(" · $topPluginName")
+                                    }
+                                }
+                            },
                             style = MaterialTheme.typography.titleMedium.copy(
                                 fontWeight = FontWeight.SemiBold
                             ),

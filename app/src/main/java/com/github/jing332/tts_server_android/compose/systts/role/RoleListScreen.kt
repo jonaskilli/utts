@@ -36,6 +36,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -534,8 +535,10 @@ fun RoleListScreen(
                         }
                     }
                     // 插件名（注释行缀尾，前 4 字——与日志插件牌 PLUGIN_NAME_MAX_CHARS 同口径）
+                    // 注意：config 静态类型是 IConfiguration（无 source 字段），
+                    // 必须先 as? TtsConfigurationDTO 才能取 source（CI 实锤 :538 Unresolved 'source'）
                     val pluginNameShort = remember(anchorEntity?.id) {
-                        val src = anchorEntity?.config?.source as? PluginTtsSource
+                        val src = (anchorEntity?.config as? TtsConfigurationDTO)?.source as? PluginTtsSource
                         src?.let { dbm.pluginDao.getMetaByPluginId(it.pluginId)?.name }
                             ?.replace('|', '｜')
                             ?.take(4)
