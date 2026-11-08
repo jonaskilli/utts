@@ -31,7 +31,9 @@ fun appTheme(
     val base = when (themeType) {
         AppTheme.DEFAULT, AppTheme.GREEN -> greenTheme(darkTheme)
         AppTheme.DYNAMIC_COLOR -> dynamicColorTheme(darkTheme, context)
+        AppTheme.PINK -> pinkTheme(darkTheme)
         AppTheme.CYAN -> cyanTheme(darkTheme)
+        AppTheme.ORANGE -> orangeTheme(darkTheme)
         AppTheme.PURPLE -> purpleTheme(darkTheme)
         AppTheme.BROWN -> brownTheme(darkTheme)
         AppTheme.GRAY -> grayTheme(darkTheme)

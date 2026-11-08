@@ -442,7 +442,9 @@
     <string name="theme_default">默认</string>
     <string name="dynamic_color">动态颜色</string>
     <string name="green">绿色</string>
+    <string name="pink">粉色</string>
     <string name="cyan">青色</string>
+    <string name="orange">橙色</string>
     <string name="purple">紫色</string>
     <string name="brown">棕色</string>
     <string name="gray">灰色</string>
