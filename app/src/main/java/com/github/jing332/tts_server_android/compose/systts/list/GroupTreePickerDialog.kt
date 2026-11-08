@@ -325,15 +325,9 @@ fun GroupTreePickerDialog(
                                 value = newSubGroupName,
                                 onValueChange = { newSubGroupName = it },
                                 label = { Text("子分组名称") },
-                                // 多级提示（用户 09-12：三处建子分组输入框统一；含 / 时按 categoryPath 一次建多级）
-                                // 11-08 加层级上限：只建到二级，三级以上确认键拦截（三入口统一）
-                                supportingText = {
-                                    Text(
-                                        if (subNameTooDeep) "最多建到二级子分组，不支持更深层级"
-                                        else "名称含 / 时一次建多级，如 讯飞/女青年"
-                                    )
-                                },
-                                isError = subNameTooDeep,
+                                // 11-08 用户令「别提三级四级」：撤多级/层级文案，斜杠建组
+                                // 静默保留（超深时确认键仍拦截）。空文案占位防高度跳变
+                                supportingText = { Text("") },
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(start = 64.dp, top = 4.dp),

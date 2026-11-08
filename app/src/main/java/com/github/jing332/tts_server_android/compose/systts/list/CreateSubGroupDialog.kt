@@ -79,16 +79,10 @@ fun CreateSubGroupDialog(
                     value = subGroupName,
                     onValueChange = { subGroupName = it },
                     label = { Text("子分组名称") },
-                    // 多级提示从标签挪到 supportingText（用户 09-12：括号塞标签里难懂又挤成两行；
-                    // 功能保留线索：名称含 / 时按 categoryPath 一次建多级）
-                    // 11-08 加层级上限提示：只支持建到二级（含一级分组本身），三级以上确认键拦截
-                    supportingText = {
-                        Text(
-                            if (tooDeep) "最多建到二级子分组，不支持更深层级"
-                            else "名称含 / 时一次建多级，如 讯飞/女青年"
-                        )
-                    },
-                    isError = tooDeep,
+                    // 11-08 用户令「别提三级四级，不提示谁知道斜杠能建多级」：撤掉多级语法
+                    // 提示与层级上限文案——斜杠建组功能保留但静默（输入超深时确认键仍拦截，
+                    // 无解释文案）。supportingText 留空占位高度，避免弹窗高度跳变
+                    supportingText = { Text("") },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
                 )
