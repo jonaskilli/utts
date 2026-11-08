@@ -1114,7 +1114,12 @@ fun VoicePickerDialog(
                         maxLines = 1,
                         // 省略时直接截断不打「…」（11-09 用户令，与角色列表口径一致）
                         overflow = TextOverflow.Clip,
-                        modifier = Modifier.weight(1f, fill = false),
+                        // 11-09 用户令「空间足够的情况下要展开」：fill=true 让显示名
+                        // 盒子吃满剩余（内容左对齐）——原 fill=false 时盒子虽也分到剩余，
+                        // 但与 Spacer(weight 1f) 平分后只剩一半，内容超一半就截、
+                        // 另一半成空白（用户实锤「总感觉有空但显示名就省略了」）。
+                        // fill=true 后显示名可用宽=全部剩余，只有真放不下才截
+                        modifier = Modifier.weight(1f, fill = true),
                     )
                     if (topPluginName != null) {
                         Text(
@@ -1154,10 +1159,13 @@ fun VoicePickerDialog(
                                 .padding(horizontal = 4.dp, vertical = 1.dp),
                         )
                     }
-                    Spacer(Modifier.weight(1f))
                     // 🎲 一键换恢复（11-09 用户令「长按随机换也不要了，还是后面加骰子」）：
                     // 在当前分类+搜索范围内随机换一个（排除当前暂存/绑定），结果落暂存；
                     // 按键收窄右移（用户令「▶/⋮ 往右移给左边空位置」同款）：horizontal 12→8
+                    // （原 Spacer(weight 1f) 已撤——它与显示名 Text 的 weight(1f) 平分剩余，
+                    // 显示名被压到一半宽提前截断、另一半成空白，即用户实锤
+                    // 「总感觉有空但显示名就省略了」的根因。显示名 fill=true 吃满剩余后
+                    // 插件名/emoji/骰/▶/⋮ 自然钉到最右，无需 Spacer 推）
                     if (isBindingMode) {
                         Text(
                             "🎲",
