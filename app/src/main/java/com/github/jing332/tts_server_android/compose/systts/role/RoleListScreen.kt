@@ -1073,7 +1073,10 @@ private fun RoleRow(
                 Modifier
                     .widthIn(max = halfRow)
                     .heightIn(min = 44.dp),
-                verticalArrangement = Arrangement.Center,
+                // 11-09 用户令（图一实锤「第一行没对齐」）：撤 Center 改 Top——名字列
+                // 与右列同一 Top 基准，标签框与第一行名字顶齐（原 Center 让名字短时
+                // 名字块垂直居中，两列基准错位）
+                verticalArrangement = Arrangement.Top,
             ) {
                 nameList.forEachIndexed { idx, name ->
                     // 圆点 top 9dp 钉在首行文字中线（16sp/行高 24sp 几何中心，10-14 甲案）
@@ -1210,9 +1213,14 @@ private fun RoleRow(
                         }
                     }
                     // ===== 第二行：注释行（displayName·插件名 左，标记 chip 钉行尾）=====
+                    // 11-09 用户令：第一二行联系要紧密——行距 3→1dp（显示名是标签的
+                    // 具体信息，紧贴标签框读起来是一组）；宽度封顶半屏（与名字列同规则，
+                    // 原 fill=false 按内容撑、长名横贯整行面积过大）
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(top = 3.dp),
+                        modifier = Modifier
+                            .padding(top = 1.dp)
+                            .widthIn(max = halfRow),
                     ) {
                         Text(
                             caption,
