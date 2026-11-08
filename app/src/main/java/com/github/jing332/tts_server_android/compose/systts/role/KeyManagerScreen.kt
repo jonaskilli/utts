@@ -1630,14 +1630,14 @@ fun KeyManagerScreen(tagRuleId: String, onBack: () -> Unit) {
                 // floatSnapshot（进页快照）排序：两档内部保持原相对顺序（稳定排序），
                 // 页内启停不再触发重排（消除编辑中分组跳走）
                 groups
-                // 11-08 用户令「带模型的分组放前面，不带的放后面」；二轮修正判据——
-                // 首版用 ifc.models 非空，但手动建 key 的接口组 models 可能仍空（拉取/手动
-                // 加模型才写 models），云之声这类组被误判「不带」垫底。改为：接口组
-                // （ifc != null，即拉取模型流程建的）就算「带模型档」，未分组（手填裸 Key）
-                // 垫底。次键=启用上浮快照不变
+                // 11-08 用户令「带模型的分组放前面，不带的放后面」；三轮定稿判据=
+                // grp.entries.isNotEmpty()（组里有密钥条目=有模型，本 app 一条密钥即一个模型）。
+                // 沿革：v1 ifc.models 非空（元数据可缺失，云之声误判）→ v2 ifc != null
+                // （空接口组也排前，仍不精确）→ v3 直接数条目，最简单最准。
+                // 次键=启用上浮快照不变
                 .sortedWith(
                     compareByDescending<KeyGroup> { grp ->
-                        grp.ifc != null
+                        grp.entries.isNotEmpty()
                     }.thenByDescending { grp ->
                         floatSnapshot[grp.title] == true
                     }
