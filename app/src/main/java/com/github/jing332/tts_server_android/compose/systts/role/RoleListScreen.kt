@@ -1211,50 +1211,47 @@ private fun RoleRow(
                             }
                         }
                     }
-                    // ===== 第二行：注释行（displayName·插件名 左，标记 chip 钉行尾）=====
-                    // 11-09 用户令：第一二行联系要紧密——行距 3→1dp（显示名是标签的
-                    // 具体信息，紧贴标签框读起来是一组）；宽度封顶半屏（与名字列同规则，
-                    // 原 fill=false 按内容撑、长名横贯整行面积过大）
+                    // ===== 第二行：注释行（显示名·插件名 + emoji，整组右对齐）=====
+                    // 11-09 终版规则（用户令）：
+                    // ①「第二行就是最多占半屏」——Row 封顶 halfRow、内容宽超则块内压缩
+                    // ②「只缩减显示名，其他的都不缩减」——显示名 Text weight(1f,fill=false)
+                    //   吃剩余可截（Clip），插件名/emoji 独立钉住永不截
+                    // ③「第一二行联系要紧密」——行距 1dp
+                    // ④「第二行要右对齐」——Row 内容 End 排，组贴行尾
+                    // ⑤点注释行=选中角色（11-08「除标签外整行点击选中」）：本行 Row 自身
+                    //   挂整行点击处理（父级已挂整行 combinedClickable，这里无需重复挂——
+                    //   Text/emoji 不拦点击即冒泡到行）
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        // 11-09 用户令「第二行要右对齐」：整行 Row 挂 fillMaxWidth +
-                        // Arrangement.End，注释文字+chip 作为一组贴右缘（原 Row 只在
-                        // Column 内容宽内排，左对齐吊着）
+                        horizontalArrangement = Arrangement.End,
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(top = 1.dp)
                             .widthIn(max = halfRow),
-                        horizontalArrangement = Arrangement.End,
                     ) {
-                    // 注释行文本拆两段（11-09 用户令「省略的应该是显示名，而不是插件」）：
-                    // 旧 caption 把 displayName·插件名拼成一串整体 Clip——超宽时从尾部截，
-                    // 先截掉的恰是插件名，方向反了。拆开：显示名 Text 吃剩余可截（Clip），
-                    // 插件名独立 Text 钉住永不截；失效（查不到 displayName）时只显示名位
-                    // 落 tag 本身，同样可截
-                    Text(
-                        captionBase,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        // 直接截断不打「…」（用户令；截断只落在显示名上）
-                        overflow = TextOverflow.Clip,
-                        modifier = Modifier.weight(1f, fill = false),
-                    )
-                    if (pluginName != null) {
-                        Spacer(Modifier.width(4.dp))
+                        // 显示名（吃剩余宽度、唯一可被截的元素；失效=tag 本身）
                         Text(
-                            "· $pluginName",
+                            captionBase,
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
                             overflow = TextOverflow.Clip,
+                            modifier = Modifier.weight(1f, fill = false),
                         )
-                    }
+                        // 插件名（钉住永不截）
+                        if (pluginName != null) {
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                "· $pluginName",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Clip,
+                            )
+                        }
+                        // 已点亮标记 emoji（钉最右永不截；点击取消，QQ 式）
                         if (litMarks.isNotEmpty()) {
                             Spacer(Modifier.width(6.dp))
-                            // chip 逐枚渲染、点击即取消该枚标记（QQ 式——11-08 用户令「点 chip 取消」；
-                            // 原整串一个 Text 在行宽不够时会逐字折行竖排（图一实锤），拆枚+maxLines=1 后
-                            // 宽度压力全部转移到左侧 displayName 的 Ellipsis 上）
                             litMarks.forEach { (_, emojiText) ->
                                 Text(
                                     emojiText,
@@ -1265,7 +1262,8 @@ private fun RoleRow(
                                         .clickable { onToggleMark(emojiMarkOf(emojiText)) }
                                         .padding(horizontal = 6.dp, vertical = 2.dp),
                                 )
-                            }                        }
+                            }
+                        }
                     }
                 }
             }
