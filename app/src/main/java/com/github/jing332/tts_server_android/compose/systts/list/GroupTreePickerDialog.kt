@@ -92,9 +92,9 @@ fun GroupTreePickerDialog(
     }
 
     val finalCategoryPath = if (isCreatingNew) newSubGroupName.trim() else selectedCategoryPath
-    // 11-08 用户令「新建子分组只到二级」：手动输入含 / 的路径限两级（selectedCategoryPath
-    // 是从树上选的现成节点，天然 ≤ 已有深度，不需要拦）。树选择器入口与 CreateSubGroupDialog 同口径
-    val subNameTooDeep = isCreatingNew && newSubGroupName.trim().count { it == '/' } + 1 > 2
+    // 11-08 用户令「把斜杠功能删掉」：多级建组语法退役，新建子分组名拒收 /
+    // （selectedCategoryPath 是树上选的现成节点，不受影响）
+    val subNameHasSlash = isCreatingNew && newSubGroupName.contains('/')
     val selGroupName = groups.firstOrNull { it.id == selectedGroupId }?.name ?: ""
     // 目标大分组含子分组时，禁止确认根目录选中（只能选子分组或新建）
     val targetHasSubGroups = (subPathsByGroup[selectedGroupId] ?: emptyList()).isNotEmpty()
@@ -325,9 +325,11 @@ fun GroupTreePickerDialog(
                                 value = newSubGroupName,
                                 onValueChange = { newSubGroupName = it },
                                 label = { Text("子分组名称") },
-                                // 11-08 用户令「别提三级四级」：撤多级/层级文案，斜杠建组
-                                // 静默保留（超深时确认键仍拦截）。空文案占位防高度跳变
-                                supportingText = { Text("") },
+                                // 11-08 斜杠功能退役：输入 / 即时报错「名称不能包含 /」
+                                supportingText = {
+                                    Text(if (subNameHasSlash) "名称不能包含 /" else "")
+                                },
+                                isError = subNameHasSlash,
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(start = 64.dp, top = 4.dp),
@@ -406,7 +408,7 @@ fun GroupTreePickerDialog(
                 },
                 enabled = when {
                     isCreatingNewGroup -> newGroupName.isNotBlank()
-                    isCreatingNew -> newSubGroupName.isNotBlank() && !subNameTooDeep
+                    isCreatingNew -> newSubGroupName.isNotBlank() && !subNameHasSlash
                     else -> !isRootSelectedInvalid
                 }
             ) {

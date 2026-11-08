@@ -45,12 +45,9 @@ fun CreateSubGroupDialog(
     var selectedIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
     var searchQuery by remember { mutableStateOf("") }
 
-    // 11-08 用户令「新建子分组只到二级，不让建三级四级」：名称含 / 的多级语法
-    // 降级为提示警告（功能仍可用但确认键会拦）——三级+子分组让列表过深难读。
-    // 层级上限=2：输入「花花/世界」在一级分组下即到二级顶格，允许；再深（a/b/c）拦截。
-    val depthLimit = 2
-    val inputDepth = subGroupName.trim().count { it == '/' } + 1
-    val tooDeep = inputDepth > depthLimit
+    // 11-08 用户令「把斜杠功能删掉」：多级建组语法退役——输入框直接拒收 / 字符，
+    // 子分组名不再可能含路径分隔符（three 处入口同口径；树选择器见 GroupTreePickerDialog）
+    val hasSlash = subGroupName.contains('/')
 
     val filteredItems = remember(searchQuery, ungroupedItems) {
         if (searchQuery.isBlank()) ungroupedItems
@@ -79,10 +76,11 @@ fun CreateSubGroupDialog(
                     value = subGroupName,
                     onValueChange = { subGroupName = it },
                     label = { Text("子分组名称") },
-                    // 11-08 用户令「别提三级四级，不提示谁知道斜杠能建多级」：撤掉多级语法
-                    // 提示与层级上限文案——斜杠建组功能保留但静默（输入超深时确认键仍拦截，
-                    // 无解释文案）。supportingText 留空占位高度，避免弹窗高度跳变
-                    supportingText = { Text("") },
+                    // 11-08 斜杠功能退役：输入 / 即时报错「名称不能包含 /」
+                    supportingText = {
+                        Text(if (hasSlash) "名称不能包含 /" else "")
+                    },
+                    isError = hasSlash,
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
                 )
@@ -185,12 +183,12 @@ fun CreateSubGroupDialog(
         confirmButton = {
             TextButton(
                 onClick = {
-                    if (subGroupName.isNotBlank() && !tooDeep) {
+                    if (subGroupName.isNotBlank() && !hasSlash) {
                         val selected = ungroupedItems.filter { selectedIds.contains(it.id) }
                         onConfirm(subGroupName.trim(), selected)
                     }
                 },
-                enabled = subGroupName.isNotBlank() && !tooDeep
+                enabled = subGroupName.isNotBlank() && !hasSlash
             ) {
                 Text("确认")
             }
