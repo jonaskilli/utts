@@ -1117,17 +1117,6 @@ fun VoicePickerDialog(
                             // 注释行（名字先缩、插件名钉住）不一致
                             modifier = Modifier.weight(1f, fill = false),
                         )
-                        if (topPluginName != null) {
-                            Text(
-                                "· $topPluginName",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Clip,
-                                // 钉住不丢：不进 weight 名字池，名字再长也只缩自己
-                                modifier = Modifier.padding(start = 4.dp),
-                            )
-                        }
                         val topEmoji = VoiceMarksFile.emojiOf(topMarks)
                         if (topEmoji.isNotEmpty()) {
                             Text(
@@ -1248,6 +1237,20 @@ fun VoicePickerDialog(
                 // 上下各 2dp（用户 09-11：顶部三行是紧密信息，行距收小，与音频参数弹窗同步）
                 modifier = Modifier.padding(top = 2.dp, bottom = 2.dp),
             )
+            // 插件名独立一行（11-09 用户令「放第二行，换个不明显的颜色」）：
+            // 从名字行挪下来、贴在终值行下；色取 outline（比 onSurfaceVariant 更淡一档的
+            // 描边灰——M3 色阶里 outline 本就是"不显眼的辅助信息"用色，弱化到几乎融入背景，
+            // 但深浅色主题都保底可读）；字号仍 labelSmall 11sp
+            if (topPluginName != null) {
+                Text(
+                    "· $topPluginName",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline,
+                    maxLines = 1,
+                    overflow = TextOverflow.Clip,
+                    modifier = Modifier.padding(top = 1.dp, bottom = 2.dp),
+                )
+            }
             } // if (!addMode) 顶部块收尾
 
             // 分段两区（用户 09-11 下午「完全 MD3 版」终裁：官方 SegmentedButton 全 app 统一）：
