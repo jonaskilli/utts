@@ -53,6 +53,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -1415,8 +1416,20 @@ fun VoicePickerDialog(
                             val rowMarks = marksMap[tag] ?: emptyList()
                             // 已被其他角色占用 → 行内「已用」徽章（占用≠禁用，仍可点选改绑）
                             val usedByOthers = voiceOwners[tag].orEmpty().any { it != bindingKey }
+                            // 插件名（11-09 用户令）：该标签启用配置项的插件名前 4 码点
+                            //（config 静态类型 IConfiguration 无 source，先 as? TtsConfigurationDTO——
+                            //  CI 实锤过同款错误）；查不到（含音效槽位）=null 不显示
+                            val rowPluginName = remember(tag, dataVersion, rowVersion) {
+                                (enabledConfigEntityByTag(tag)?.config as? TtsConfigurationDTO)
+                                    ?.source as? PluginTtsSource
+                                    ?.let { dbm.pluginDao.getMetaByPluginId(it.pluginId)?.name }
+                                    ?.replace('|', '｜')
+                                    ?.take(4)
+                                    ?.takeUnless { it.isBlank() }
+                            }
                             CandidateRow(
                                 text = rowText,
+                                pluginName = rowPluginName,
                                 isCurrent = isCurrent,
                                 isPending = isPending,
                                 usedBadge = usedByOthers,
@@ -1599,8 +1612,17 @@ fun VoicePickerDialog(
                             // 标记键=voice（同一 tag 下多条配置靠 voice 区分；与角色行 tag 键同口径）
                             // 标记取内存表（10-05 性能：原逐行读整文件）
                             val rowMarks = marksMap[v] ?: emptyList()
+                            // 插件名（11-09 用户令）：旁白候选行同样缀插件名前 4 码点
+                            val rowPluginName = remember(v, cfgEntity.id, dataVersion) {
+                                (cfgEntity.config as? TtsConfigurationDTO)?.source as? PluginTtsSource
+                                    ?.let { dbm.pluginDao.getMetaByPluginId(it.pluginId)?.name }
+                                    ?.replace('|', '｜')
+                                    ?.take(4)
+                                    ?.takeUnless { it.isBlank() }
+                            }
                             CandidateRow(
                                 text = limitName(cfgEntity.displayName),
+                                pluginName = rowPluginName,
                                 isCurrent = isCurrent,
                                 isPending = isPending,
                                 nameColor = if (isPending && !isCurrent) MaterialTheme.colorScheme.primary
@@ -1821,6 +1843,10 @@ private fun VoiceOverflowMenu(
 @Composable
 private fun CandidateRow(
     text: String,
+    // 插件名（11-09 用户令「插件名+可点标记 chip（重）」）：名字后缀「· 插件名(前4字)」
+    // 小字灰，独立 Text 钉住不参与省略（与顶部当前发音人/角色列表注释行同口径）；
+    // null=不显示（音效槽位等无插件场景）
+    pluginName: String?,
     isCurrent: Boolean,
     isPending: Boolean,
     nameColor: Color,
@@ -1877,12 +1903,31 @@ private fun CandidateRow(
                     maxLines = 1,
                 )
             }
-            val emoji = VoiceMarksFile.emojiOf(marks)
-            if (emoji.isNotEmpty()) {
+            // 插件名钉住（11-09 用户令）：在名字 Text 之外独立渲染——名字吃剩余先缩，
+            // 插件名永不挤掉；与顶部当前发音人/角色列表注释行同款行为
+            if (pluginName != null) {
                 Text(
-                    emoji,
-                    modifier = Modifier.padding(start = 4.dp),
-                    style = MaterialTheme.typography.labelMedium,
+                    "· $pluginName",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Clip,
+                    modifier = Modifier.padding(start = 3.dp),
+                )
+            }
+            // 已点亮标记 chip（11-09 用户令「重」方案）：逐枚渲染、点击即取消该枚（QQ 式，
+            // 与角色列表注释行同款）；⋮ 菜单保留加标记/取消入口（两处同落库通道）
+            val litMarks = VoiceMarksFile.MARK_ITEMS.filter { it.first in marks }
+            litMarks.forEach { (_, emojiText) ->
+                Text(
+                    emojiText,
+                    fontSize = 13.sp,
+                    maxLines = 1,
+                    modifier = Modifier
+                        .padding(start = 3.dp)
+                        .clip(RoundedCornerShape(9.dp))
+                        .clickable { onToggleMark(pickerEmojiMarkOf(emojiText)) }
+                        .padding(horizontal = 5.dp, vertical = 2.dp),
                 )
             }
         }
@@ -1905,6 +1950,10 @@ private fun CandidateRow(
         )
     }
 }
+
+/** 标记 emoji → mark id 反查（chip 点击取消用；与 RoleListScreen.emojiMarkOf 同口径，两处各一份避免跨文件耦合） */
+private fun pickerEmojiMarkOf(emoji: String): String =
+    VoiceMarksFile.MARK_ITEMS.firstOrNull { it.second == emoji }?.first ?: ""
 
 /**
  * 本地音效槽位的两种形态：
