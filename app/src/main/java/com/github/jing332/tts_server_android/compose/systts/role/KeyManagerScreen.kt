@@ -1638,14 +1638,16 @@ fun KeyManagerScreen(tagRuleId: String, onBack: () -> Unit) {
                 groups
                 // 11-08 用户令「带模型的分组放前面，不带的放后面」：在启用上浮之上再分一档——
                 // 主排序键=接口组且真拉过模型（ifc.models 非空）优先；次排序键=启用上浮快照。
-                // 两档内部各自保持原相对顺序（sortedByDescending 稳定）。
-                .sortedByDescending { grp ->
-                    val hasModels = grp.ifc?.models?.isNotEmpty() == true
-                    val floating = floatSnapshot[grp.title] == true
-                    // 带模型 > 不带；同级内启用的浮上（floating 布尔参与同键比较，
-                    // true 排前）；其余顺序不变
-                    hasModels to floating
-                }.forEach { grp ->
+                // 两档内部各自保持原相对顺序（稳定排序）。
+                // 11-08 二改：sortedByDescending+Pair 键在 CI 报 Cannot infer type（a26a7aa 红），
+                // 改 sortedWith(compareByDescending, compareByDescending) 显式双键
+                .sortedWith(
+                    compareByDescending<KeyGroup> { grp ->
+                        grp.ifc?.models?.isNotEmpty() == true
+                    }.thenByDescending { grp ->
+                        floatSnapshot[grp.title] == true
+                    }
+                ).forEach { grp ->
                     val isCollapsed = collapsed?.contains(grp.title) == true
                     // 组内删除模式（菜单第二项「多选删除子项」）：只对该组生效，组保留
                     val isDeleting = deleteModeGroup == grp.title

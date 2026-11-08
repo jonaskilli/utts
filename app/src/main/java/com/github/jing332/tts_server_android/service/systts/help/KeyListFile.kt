@@ -1439,6 +1439,12 @@ object KeyListFile {
                     site.orEmpty()
                 }
             } else custom
+            // 11-08 用户令（限流治理 A 方案）：试探发与发之间 400ms 错峰——AUTO 无锁定时
+            // 最多 7 发连珠是限流最大来源；同站继承/厂家档命中即走（1~2 发）几乎无感，
+            // 全量试探模型总时长约 +2.4s。400ms 与组测错峰同值（口径统一）。
+            // 用 Thread.sleep 非 delay：本函数非 suspend（调用方 withIO 内跑在 IO 线程，
+            // 阻塞模型与 testOnce 的 HttpURLConnection 一致，不混 suspend）
+            if (idx > 0) Thread.sleep(400)
             val (ok, off, msg) = testOnce(t, m, mCustom)
             lastMsg = "$m：$msg"
             if (!ok) {
