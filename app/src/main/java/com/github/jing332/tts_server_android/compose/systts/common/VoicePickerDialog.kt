@@ -1101,35 +1101,11 @@ fun VoicePickerDialog(
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                // 第一行（11-09 用户令终稿）：分类标签框 + 已点亮标记 emoji + ▶ + ⋮。
+                // 标签框**单击无任何效果**（用户令「单击不要有任何效果」）、长按=随机换同分类；
+                // 标记 emoji 挪回第一行（跟标签并列，QQ 式点击取消）
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    // 名字+标记包一层 weight(1f)：名字左对齐可省略、▶ 仍钉在行尾（不因标记数量漂移）
-                    Row(
-                        modifier = Modifier.weight(1f),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        // 性别色圆点（10-05 方案A）：当前发音人的分类性别，一眼可辨
-                        Spacer(
-                            Modifier
-                                .padding(end = 7.dp)
-                                .size(7.dp)
-                                .background(genderDotColor(topMarkKey), CircleShape)
-                        )
-                        Text(
-                            currentVoiceName,
-                            style = MaterialTheme.typography.titleMedium.copy(
-                                fontWeight = FontWeight.SemiBold
-                            ),
-                            maxLines = 1,
-                            // 省略时直接截断不打「…」（11-09 用户令，与角色列表口径一致）
-                            overflow = TextOverflow.Clip,
-                            // 名字吃剩余宽度先缩：插件名/标记已沉到第二行，名字行只留名字
-                            modifier = Modifier.weight(1f, fill = false),
-                        )
-                    }
-                    // 分类标签框（11-09 用户令：替代 🎲 直键——「不要那个骰子按键了，
-                    // 直接就是长按标签随机换」）：照角色列表标签框同款（同底色/圆角/手势）。
-                    // 点=同当前绑定提示（与旧口径一致）；长按=随机换同分类（仅绑定模式响应，
-                    // 池子有候选才挂长按；单例类别长按照角色列表口径=无动作不挂）
+                    // 分类标签框（照角色列表同款样式；仅绑定模式渲染）
                     if (topCategoryClickable) {
                         Surface(
                             shape = RoundedCornerShape(8.dp),
@@ -1139,14 +1115,8 @@ fun VoicePickerDialog(
                             ),
                             modifier = Modifier
                                 .combinedClickable(
-                                    onClick = {
-                                        // 点标签=当前绑定（候选行同款提示，选了角色无法确认的口径）
-                                        Toast.makeText(
-                                            context,
-                                            context.getString(R.string.voice_picker_same_voice),
-                                            Toast.LENGTH_SHORT,
-                                        ).show()
-                                    },
+                                    // 单击无任何效果（用户令）；长按=随机换同分类
+                                    onClick = {},
                                     onLongClick = {
                                         applyRandomPick(
                                             pickRandomIn(effectiveCategory, tagSearch, topMarkKey),
@@ -1169,10 +1139,33 @@ fun VoicePickerDialog(
                             )
                         }
                     }
+                    // 已点亮标记 emoji（第一行跟标签并列；点击取消，QQ 式）
+                    val topLitMarks1 = VoiceMarksFile.MARK_ITEMS.filter { it.first in topMarks }
+                    topLitMarks1.forEach { (_, emojiText) ->
+                        Text(
+                            emojiText,
+                            fontSize = 13.sp,
+                            maxLines = 1,
+                            modifier = Modifier
+                                .padding(start = 4.dp)
+                                .clip(RoundedCornerShape(9.dp))
+                                .clickable {
+                                    val markId = VoiceMarksFile.MARK_ITEMS
+                                        .firstOrNull { it.second == emojiText }?.first
+                                    if (markId != null && topMarkKey.isNotBlank() &&
+                                        VoiceMarksFile.toggle(config.speechRule.tagRuleId, topMarkKey, markId)
+                                    ) {
+                                        marksVersion++
+                                        onChanged?.invoke("marked", topMarkKey)
+                                        if (sharedVM != null) sharedVM.voiceMarksVersion.value += 1
+                                    }
+                                }
+                                .padding(horizontal = 4.dp, vertical = 1.dp),
+                        )
+                    }
+                    Spacer(Modifier.weight(1f))
                     // ▶ 同候选行方案A：裸字符可点替代 TextButton（单字符占 58dp 底座，顶栏紧巴巴），
                     // 16dp 字形+两侧 12dp ≈40dp，上下 12dp 凑满 48dp 触控高
-                    // padding 照 CandidateRow 同款（10-05 竖列对齐：原顶行 ▶ 无水平 12dp，
-                    // 与列表行 ▶ 差半列宽；补齐后 ▶/⋮ 上下贯通）
                     Text(
                         previewLabel(PREVIEW_KEY_CURRENT),
                         color = previewLabelColor(PREVIEW_KEY_CURRENT),
@@ -1234,44 +1227,29 @@ fun VoicePickerDialog(
                         onDelete = { topDeleteTarget?.let { deleteConfirmTarget = it } },
                     )
                 }
-                // 插件名第二行（11-09 用户令「参照角色列表」终态）：紧跟名字行下；
-                // 标记 emoji 也沉到这行（点击取消，QQ 式）。色=outline 最淡辅助灰；
-                // start 18dp=与名字文字对齐（圆点 7dp+间距 7dp+行首约 4dp 既有缩进线）
-                if (topPluginName != null || topMarks.isNotEmpty()) {
+                // 第二行小字（11-09 用户令终稿）：发音人名 · 插件名（无前缀点、无标记——
+                // 标记已挪第一行）。发音人名吃剩余先缩、插件名钉住；色=outline 最淡灰；
+                // start 18dp=与标签框文字对齐
+                if (currentVoiceName.isNotBlank() || topPluginName != null) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.padding(start = 18.dp, top = 1.dp),
                     ) {
+                        Text(
+                            currentVoiceName,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.outline,
+                            maxLines = 1,
+                            overflow = TextOverflow.Clip,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
                         if (topPluginName != null) {
                             Text(
-                                topPluginName,
+                                " · $topPluginName",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.outline,
                                 maxLines = 1,
                                 overflow = TextOverflow.Clip,
-                            )
-                        }
-                        val topLitMarks = VoiceMarksFile.MARK_ITEMS.filter { it.first in topMarks }
-                        topLitMarks.forEachIndexed { i, (_, emojiText) ->
-                            Text(
-                                emojiText,
-                                fontSize = 13.sp,
-                                maxLines = 1,
-                                modifier = Modifier
-                                    .padding(start = if (i == 0 && topPluginName == null) 0.dp else 4.dp)
-                                    .clip(RoundedCornerShape(9.dp))
-                                    .clickable {
-                                        val markId = VoiceMarksFile.MARK_ITEMS
-                                            .firstOrNull { it.second == emojiText }?.first
-                                        if (markId != null && topMarkKey.isNotBlank() &&
-                                            VoiceMarksFile.toggle(config.speechRule.tagRuleId, topMarkKey, markId)
-                                        ) {
-                                            marksVersion++
-                                            onChanged?.invoke("marked", topMarkKey)
-                                            if (sharedVM != null) sharedVM.voiceMarksVersion.value += 1
-                                        }
-                                    }
-                                    .padding(horizontal = 4.dp, vertical = 1.dp),
                             )
                         }
                     }
