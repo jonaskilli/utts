@@ -1104,24 +1104,29 @@ fun VoicePickerDialog(
                                 .background(genderDotColor(topMarkKey), CircleShape)
                         )
                         Text(
-                            buildAnnotatedString {
-                                append(currentVoiceName)
-                                if (topPluginName != null) {
-                                    withStyle(SpanStyle(
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        fontSize = 11.sp,
-                                    )) {
-                                        append(" · $topPluginName")
-                                    }
-                                }
-                            },
+                            currentVoiceName,
                             style = MaterialTheme.typography.titleMedium.copy(
                                 fontWeight = FontWeight.SemiBold
                             ),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
+                            // 名字吃剩余宽度先缩（11-09 用户拍板「拆两个 Text」）：
+                            // 插件名独立 Text 钉在名字后不参与省略——一体 AnnotatedString 时
+                            // 整串一起 Ellipsis，名字长会先把插件名截掉，行为与角色列表
+                            // 注释行（名字先缩、插件名钉住）不一致
                             modifier = Modifier.weight(1f, fill = false),
                         )
+                        if (topPluginName != null) {
+                            Text(
+                                "· $topPluginName",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Clip,
+                                // 钉住不丢：不进 weight 名字池，名字再长也只缩自己
+                                modifier = Modifier.padding(start = 4.dp),
+                            )
+                        }
                         val topEmoji = VoiceMarksFile.emojiOf(topMarks)
                         if (topEmoji.isNotEmpty()) {
                             Text(
