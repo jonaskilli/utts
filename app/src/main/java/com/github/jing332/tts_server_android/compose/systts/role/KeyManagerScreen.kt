@@ -643,16 +643,10 @@ private fun GroupEnablePill(
     val context = LocalContext.current
     val allOn = enabled == total && total > 0
     val noneOn = enabled == 0
-    val bg = when {
-        allOn -> MaterialTheme.colorScheme.primary
-        noneOn -> Color.Transparent
-        else -> MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-    }
-    val fg = when {
-        allOn -> MaterialTheme.colorScheme.onPrimary
-        noneOn -> MaterialTheme.colorScheme.onSurfaceVariant
-        else -> MaterialTheme.colorScheme.primary
-    }
+    // 11-08 用户令「没启用就不填充，有一个启用就全绿」：撤三态的中间档（primary 12%
+    // 浅绿底），二态化——全启/部分=primary 实心+onPrimary 字，全停=透明+灰描边
+    val bg = if (noneOn) Color.Transparent else MaterialTheme.colorScheme.primary
+    val fg = if (noneOn) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onPrimary
     Box(
         Modifier
             .clip(RoundedCornerShape(50))
@@ -839,13 +833,13 @@ private fun GroupHeaderBlock(
                             )
                             if (!selectionMode) {
                                 Spacer(Modifier.width(6.dp))
-                                // 组启用胶囊（10-07 用户定稿）：组名后方原位、字号收小（10sp）；
-                                // 点击=整组启停（全停→全部启用，其余→全部停用）
+                                // 组启用胶囊：11-08 用户令「不要点击全部启用/全部取消」——
+                                // 纯显示（onClick=null），启停逐条勾；组头 🗑 菜单里的批量入口也在
+                                // 0919 已撤，现在整组启停无快捷键（用户裁定接受）
                                 GroupEnablePill(
                                     enabled = enabledCount,
                                     total = grp.entries.size,
                                     groupTitle = grp.title,
-                                    onClick = { onSetGroupEnabled(enabledCount == 0) }
                                 )
                             }
                         }
@@ -1636,14 +1630,14 @@ fun KeyManagerScreen(tagRuleId: String, onBack: () -> Unit) {
                 // floatSnapshot（进页快照）排序：两档内部保持原相对顺序（稳定排序），
                 // 页内启停不再触发重排（消除编辑中分组跳走）
                 groups
-                // 11-08 用户令「带模型的分组放前面，不带的放后面」：在启用上浮之上再分一档——
-                // 主排序键=接口组且真拉过模型（ifc.models 非空）优先；次排序键=启用上浮快照。
-                // 两档内部各自保持原相对顺序（稳定排序）。
-                // 11-08 二改：sortedByDescending+Pair 键在 CI 报 Cannot infer type（a26a7aa 红），
-                // 改 sortedWith(compareByDescending, compareByDescending) 显式双键
+                // 11-08 用户令「带模型的分组放前面，不带的放后面」；二轮修正判据——
+                // 首版用 ifc.models 非空，但手动建 key 的接口组 models 可能仍空（拉取/手动
+                // 加模型才写 models），云之声这类组被误判「不带」垫底。改为：接口组
+                // （ifc != null，即拉取模型流程建的）就算「带模型档」，未分组（手填裸 Key）
+                // 垫底。次键=启用上浮快照不变
                 .sortedWith(
                     compareByDescending<KeyGroup> { grp ->
-                        grp.ifc?.models?.isNotEmpty() == true
+                        grp.ifc != null
                     }.thenByDescending { grp ->
                         floatSnapshot[grp.title] == true
                     }
