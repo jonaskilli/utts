@@ -1880,8 +1880,9 @@ private fun CandidateRow(
             Text(
                 (if (isCurrent) "✓ " else "") + text,
                 modifier = Modifier.weight(1f, fill = false),
-                // 选择列表行名 15sp（10-07 归档：与书籍列表行同档，条目名 15 一线）
-                style = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp),
+                // 选择列表行名 14sp（11-09 用户令「字号改小点」，原 15sp——加插件名/chip 后
+                // 行内容变多，缩一号腾宽度；与 labelSmall 注释行 11sp 拉开层级）
+                style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 color = nameColor,
