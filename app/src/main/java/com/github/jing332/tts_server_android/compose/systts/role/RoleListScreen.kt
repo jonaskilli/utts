@@ -1218,18 +1218,23 @@ private fun RoleRow(
                     // 原 fill=false 按内容撑、长名横贯整行面积过大）
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
+                        // 11-09 用户令「第二行要右对齐」：整行 Row 挂 fillMaxWidth +
+                        // Arrangement.End，注释文字+chip 作为一组贴右缘（原 Row 只在
+                        // Column 内容宽内排，左对齐吊着）
                         modifier = Modifier
+                            .fillMaxWidth()
                             .padding(top = 1.dp)
                             .widthIn(max = halfRow),
+                        horizontalArrangement = Arrangement.End,
                     ) {
                         Text(
                             caption,
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
-                            // 宽度不够先削 displayName（11-08 用户令）：注释文字吃剩余、
-                            // 超宽尾部截断；chip/第一行控件永不被挤
-                            overflow = TextOverflow.Ellipsis,
+                            // 省略时直接截断不打「…」（11-09 用户令再令：说了不要省略号
+                            // 依然有——上一版仍是 Ellipsis，改 Clip 与角色列表全链口径一致）
+                            overflow = TextOverflow.Clip,
                             modifier = Modifier.weight(1f, fill = false),
                         )
                         if (litMarks.isNotEmpty()) {
