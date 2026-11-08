@@ -1104,6 +1104,8 @@ fun VoicePickerDialog(
                 // 「往右移，给左边空点位置」——按钮收窄右移，见下方各键 padding 注释）
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     // 显示名（大字半粗；吃剩余宽度先缩，emoji/骰/▶/⋮ 钉右不参与省略）
+                    // 11-09 用户令一行式：插件名缀在显示名后（「显示名 · 插件名」一行放完，
+                    // 用户怕字号大放不下——超宽时只缩显示名，插件名 outline 小字钉住永不截）
                     Text(
                         currentVoiceName,
                         style = MaterialTheme.typography.titleMedium.copy(
@@ -1114,6 +1116,16 @@ fun VoicePickerDialog(
                         overflow = TextOverflow.Clip,
                         modifier = Modifier.weight(1f, fill = false),
                     )
+                    if (topPluginName != null) {
+                        Text(
+                            "· $topPluginName",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.outline,
+                            maxLines = 1,
+                            overflow = TextOverflow.Clip,
+                            modifier = Modifier.padding(start = 4.dp),
+                        )
+                    }
                     // 已点亮标记 emoji（紧跟显示名后；点击取消，QQ 式）
                     val topLitMarks1 = VoiceMarksFile.MARK_ITEMS.filter { it.first in topMarks }
                     topLitMarks1.forEach { (_, emojiText) ->
@@ -1223,18 +1235,10 @@ fun VoicePickerDialog(
                         onDelete = { topDeleteTarget?.let { deleteConfirmTarget = it } },
                     )
                 }
-                // 第二行小字（11-09 用户令装机版终稿）：只放插件名（显示名已上第一行）。
-                // 色=outline 最淡灰；start 18dp 保持既有缩进线
-                if (topPluginName != null) {
-                    Text(
-                        topPluginName,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.outline,
-                        maxLines = 1,
-                        overflow = TextOverflow.Clip,
-                        modifier = Modifier.padding(start = 18.dp, top = 1.dp),
-                    )
-                }
+                // 第二行小字（11-09 用户令改一行式）：插件名并入第一行——
+                // 「显示名 · 插件名」一行放完（用户担心字号大放不下，处理=显示名
+                // titleMedium 半粗可截，插件名 outline 小字钉在后面永不截，
+                // 超宽时只缩显示名；原第二行插件名行撤）
             }
 
             // ===== 终值（播放链同源三层乘积；三维恒显，用户 09-10）=====

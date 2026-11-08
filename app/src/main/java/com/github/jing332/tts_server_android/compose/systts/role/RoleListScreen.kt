@@ -1040,8 +1040,6 @@ private fun RoleRow(
         previewSynthesizing -> "…"
         else -> "■"
     }
-    // 注释行文本（拆两段后只保留 displayName 位；插件名在渲染处独立 Text 钉住）
-    val captionBase = displayName?.replace('|', '｜')?.takeIf { it.isNotBlank() } ?: rec.voice
     // 已点亮标记 chip（固定顺序，每枚一个 chip；未点亮不渲染）
     val litMarks = VoiceMarksFile.MARK_ITEMS.filter { it.first in marks }
     Surface(
@@ -1123,24 +1121,24 @@ private fun RoleRow(
                 //   （Row 无 fillMaxWidth，宽=min(内容,半屏) 不打架），Column 撤 widthIn
                 //   恢复 weight(1f) 占剩余；第一行 Row 保留 fillMaxWidth 贴右缘
                 Column(Modifier.weight(1f), horizontalAlignment = Alignment.End) {
-                    // ===== 第一行：标签框 + ▶ + ⋮（贴右缘）=====
-                    // 11-09 用户令「第一行的对齐——角色名和第一行」：Row 改 Top 对齐——
-                    // 标签框顶部与第一行角色名顶部齐（原 CenterVertically + 标签框
-                    // minimumInteractiveComponentSize 的 48dp 最小高把框垂直撑高，
-                    // 框文字上浮高过名字第一行，实机截图「男主2」高于「谢凛」实锤）
+                    // ===== 第一行：显示名标签框 + ▶ + ⋮（贴右缘）=====
+                    // 11-09 用户令终稿（层级重排讨论定案「显示名做成标签，分类做纯文字
+                    // 标注」）：标签框内容从分类 tag 换成**显示名**——显示名是重要信息
+                    // （这个角色用哪个发音人），标签框底色给它视觉重量；长按随机换声
+                    // 手势随信息主体回归。分类降级第二行纯文字标注。
+                    // 字号 14sp（预览验收：16sp 放底色块里太重）；失效标签灰底+红 ⚠。
+                    // 宽度封顶半屏（与预览 max-width:100% 一致），放不下 Clip 截断
                     Row(
                         Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.End,
                         verticalAlignment = Alignment.Top,
                     ) {
-                        // 发音人标签框（只放分类 tag）：点=换声弹窗、长按=随机换声
-                        // （仅 14 类可换类别响应，单例类别长按无动作）；失效标签加红 ⚠。
-                        // 宽度：内容宽（上限 220dp），放不下按像素 Clip 截断——
-                        // 11-08 用户令撤「15 字预算预切」（TAG_BUDGET）：名字列短时
-                        // 右边明明有空间却照切是 bug（图二实锤），改按实际框宽截
+                        // 显示名标签框：点=换声弹窗、长按=随机换声
+                        // （仅 14 类可换类别响应，单例类别长按无动作）；失效标签灰底+红 ⚠
                         Surface(
                             shape = RoundedCornerShape(8.dp),
-                            color = lerp(softContainerColor(), MaterialTheme.colorScheme.surfaceContainerLow, 0.25f),
+                            color = if (voiceName == null) Color(0xFFEDEDED)
+                                    else lerp(softContainerColor(), MaterialTheme.colorScheme.surfaceContainerLow, 0.25f),
                             modifier = Modifier
                                 .combinedClickable(
                                     onClick = onTagClick,
@@ -1149,24 +1147,25 @@ private fun RoleRow(
                                     },
                                     onLongClickLabel = stringResource(R.string.role_menu_reassign),
                                 )
+                                .widthIn(max = halfRow)
                                 .minimumInteractiveComponentSize(),
                         ) {
                             Text(
                                 buildAnnotatedString {
-                                    append(rec.voice)
+                                    append(displayName?.replace('|', '｜') ?: rec.voice)
                                     if (voiceName == null) {
                                         withStyle(SpanStyle(color = MaterialTheme.colorScheme.error)) {
                                             append(" ⚠")
                                         }
                                     }
                                 },
-                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp),
-                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp),
+                                color = if (voiceName == null) Color(0xFF9E9E9E)
+                                        else MaterialTheme.colorScheme.onSecondaryContainer,
                                 maxLines = 1,
                                 overflow = TextOverflow.Clip,
                                 modifier = Modifier
-                                    .padding(horizontal = 10.dp, vertical = 5.dp)
-                                    .widthIn(max = 220.dp)
+                                    .padding(horizontal = 10.dp, vertical = 6.dp)
                             )
                         }
                         // ▶ 试听（与换声弹窗顶部试听同链）：无锚点配置项（失效标签）不渲染
@@ -1231,49 +1230,31 @@ private fun RoleRow(
                             }
                         }
                     }
-                    // ===== 第二行：注释行（显示名·插件名 + emoji）=====
-                    // 11-09 终版规则（预览验收通过后落码）：
-                    // ①「第二行就是最多占半屏」——半屏上限挂右列 Column（widthIn
-                    //   max=halfRow），本行撤 fillMaxWidth（上一版与半屏打架，fill 赢了失效）
-                    // ②「只缩减显示名，其他的都不缩减」——显示名 Text weight(1f,fill=false)
-                    //   吃剩余可截（Clip），插件名/emoji 独立排、钉住永不截
-                    // ③「第一二行联系要紧密」——行距 1dp
-                    // ④「左缘对齐第一行，右边留空就留空」——Row 默认 Start 排列，
-                    //   内容从标签框左缘起自然排，撤 End（不硬撑块宽、不推插件名到最右）
-                    // ⑤点注释行=选中角色（父级已挂整行 combinedClickable，冒泡到行）
-                    // ⑥「显示名+插件名+emoji 加一块不能超过半屏」——halfRow 挂本 Row
-                    //   （Row 无 fillMaxWidth：宽=min(内容,半屏)，不与上限打架）；
-                    //   weight(1f,fill=false) 的显示名在这半屏内吃剩余、被截的只有它
+                    // ===== 第二行：标注行（分类纯文字 · 插件名 + emoji）=====
+                    // 11-09 用户令终稿（「显示名做成标签，把女青年什么什么做成普通的
+                    // 文字当成标注」）：显示名已升第一行标签框，本行=分类+插件名合并
+                    // 纯文字灰标注（两个底色块挤一行太闹，全撤底色）+ emoji 钉行尾。
+                    // 整行不可单独点（纯信息，点击冒泡到行=选中）。
+                    // 宽度：整行钉住不截（显示名截断压力已在第一行标签框上）
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .padding(top = 1.dp)
-                            .widthIn(max = halfRow),
+                        modifier = Modifier.padding(top = 1.dp),
                     ) {
-                        // 显示名（吃剩余宽度、唯一可被截的元素；失效=tag 本身）
+                        // 分类 · 插件名（纯文字灰标注；分类=tag id「女青年29」）
                         Text(
-                            captionBase,
+                            buildString {
+                                append(rec.voice)
+                                if (pluginName != null) append(" · $pluginName")
+                            },
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
                             overflow = TextOverflow.Clip,
-                            modifier = Modifier.weight(1f, fill = false),
+                            modifier = Modifier.widthIn(max = halfRow),
                         )
-                        // 插件名（钉住永不截）
-                        if (pluginName != null) {
-                            Spacer(Modifier.width(4.dp))
-                            Text(
-                                "· $pluginName",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Clip,
-                            )
-                        }
-                        // 已点亮标记 emoji（钉最右永不截；点击取消，QQ 式）
-                        // 11-09 装机二轮复盘①：emoji 13sp 字形全高渲染会把第二行撑高
-                        // （有 emoji 的行第一行与角色名错位的根因）——固定行高 16sp
-                        // （与 labelSmall 行高一致），emoji 视觉大小不变、高度不再撑行
+                        // 已点亮标记 emoji（钉行尾永不截；点击取消，QQ 式）
+                        // 固定行高 16sp：emoji 13sp 字形全高渲染会把本行撑高
+                        //（装机实锤「有 emoji 的行第一行与角色名错位」根因）
                         if (litMarks.isNotEmpty()) {
                             Spacer(Modifier.width(6.dp))
                             litMarks.forEach { (_, emojiText) ->
