@@ -55,6 +55,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.offset
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -1111,7 +1112,17 @@ private fun RoleRow(
                 //   Column 内容宽内 End，名字短时整组吊在名字旁边不贴右）
                 // ③标签区域宽度规则不变=「行宽−名字列宽」，名字列仍按内容占宽封顶半屏
                 //   （widthIn(max=halfRow)，上方名字列注释）——标签区域大小由名字长度间接决定
-                Column(Modifier.weight(1f)) {
+                // 11-09 终版（预览验收通过）：右列=一个整体块——
+                // ①块封顶半屏（widthIn max=halfRow 挂本 Column：块内所有行共享上限，
+                //   撤第二行 Row 上的 fillMaxWidth+widthIn——上一版两者打架，fill 赢了失效）
+                // ②块整体贴行尾（horizontalAlignment=End：第一行 Row fillMaxWidth 占满
+                //   后内部 End 贴线；▶/⋮ 另有 offset(x=6.dp) 视觉右移贴线——按键触控盒
+                //   居中留白会让图标右缘距内容线 12dp，显「第一行右侧留空」）
+                // ③块内两行左对齐自然排（第二行内容从标签框左缘起，右边留空就留空）
+                Column(
+                    Modifier.weight(1f).widthIn(max = halfRow),
+                    horizontalAlignment = Alignment.End,
+                ) {
                     // ===== 第一行：标签框 + ▶ + ⋮（贴右缘）=====
                     // 11-09 用户令「第一行的对齐——角色名和第一行」：Row 改 Top 对齐——
                     // 标签框顶部与第一行角色名顶部齐（原 CenterVertically + 标签框
@@ -1159,6 +1170,9 @@ private fun RoleRow(
                             )
                         }
                         // ▶ 试听（与换声弹窗顶部试听同链）：无锚点配置项（失效标签）不渲染
+                        // 11-09 用户令「第一行右侧都留空了」：▶/⋮ 按键 12dp 水平内边距+触控盒
+                        // 居中，图标右缘距内容线约 12dp 空白——收窄至 8dp+offset(x=6.dp)
+                        // 视觉右移贴线（触控区不动）
                         if (hasAnchor) {
                             Text(
                                 previewLabel,
@@ -1166,7 +1180,8 @@ private fun RoleRow(
                                 style = MaterialTheme.typography.titleMedium,
                                 modifier = Modifier
                                     .clickable(onClick = onPreview)
-                                    .padding(horizontal = 12.dp, vertical = 12.dp),
+                                    .padding(horizontal = 8.dp, vertical = 12.dp)
+                                    .offset(x = 6.dp),
                             )
                             // ⋮ 菜单（与换声弹窗 VoiceOverflowMenu 同款）：
                             // 标记三项 toggle（点亮打勾、菜单不关可连点）+ 删除配置项
@@ -1177,7 +1192,8 @@ private fun RoleRow(
                                     style = MaterialTheme.typography.titleMedium,
                                     modifier = Modifier
                                         .clickable { menuOpen = true }
-                                        .padding(horizontal = 12.dp, vertical = 12.dp),
+                                        .padding(horizontal = 8.dp, vertical = 12.dp)
+                                        .offset(x = 6.dp),
                                 )
                                 DropdownMenu(
                                     expanded = menuOpen,
@@ -1215,23 +1231,19 @@ private fun RoleRow(
                             }
                         }
                     }
-                    // ===== 第二行：注释行（显示名·插件名 + emoji，整组右对齐）=====
-                    // 11-09 终版规则（用户令）：
-                    // ①「第二行就是最多占半屏」——Row 封顶 halfRow、内容宽超则块内压缩
+                    // ===== 第二行：注释行（显示名·插件名 + emoji）=====
+                    // 11-09 终版规则（预览验收通过后落码）：
+                    // ①「第二行就是最多占半屏」——半屏上限挂右列 Column（widthIn
+                    //   max=halfRow），本行撤 fillMaxWidth（上一版与半屏打架，fill 赢了失效）
                     // ②「只缩减显示名，其他的都不缩减」——显示名 Text weight(1f,fill=false)
-                    //   吃剩余可截（Clip），插件名/emoji 独立钉住永不截
+                    //   吃剩余可截（Clip），插件名/emoji 独立排、钉住永不截
                     // ③「第一二行联系要紧密」——行距 1dp
-                    // ④「第二行要右对齐」——Row 内容 End 排，组贴行尾
-                    // ⑤点注释行=选中角色（11-08「除标签外整行点击选中」）：本行 Row 自身
-                    //   挂整行点击处理（父级已挂整行 combinedClickable，这里无需重复挂——
-                    //   Text/emoji 不拦点击即冒泡到行）
+                    // ④「左缘对齐第一行，右边留空就留空」——Row 默认 Start 排列，
+                    //   内容从标签框左缘起自然排，撤 End（不硬撑块宽、不推插件名到最右）
+                    // ⑤点注释行=选中角色（父级已挂整行 combinedClickable，冒泡到行）
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.End,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 1.dp)
-                            .widthIn(max = halfRow),
+                        modifier = Modifier.padding(top = 1.dp),
                     ) {
                         // 显示名（吃剩余宽度、唯一可被截的元素；失效=tag 本身）
                         Text(
