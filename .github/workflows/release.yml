@@ -128,8 +128,9 @@ jobs:
           name: ${{ env.ver_name }}
           tag_name: ${{ env.ver_name }}
           target_commitish: ${{ github.sha }}
-          generate_release_notes: true
-          draft: false
+          # 11-08 用户令：撤 generate_release_notes（每次都在尾部生成「Full Changelog」
+          # 大链接看着碍眼）——Release 页只留 APK 文件列表，说明进 commit 历史看。
+          # draft: false
           # 只有「推 1.26.* tag」或「手动触发时勾了 is_official」才算正式版（进 Latest）；
           # 其余手动触发（默认）= 修改包，打 GitHub「Pre-release」橙标，Release 页一眼可分。
           # 用户 10-07 令：「我这不是实验、是 bug 不断的修改包，别被误解成能用的版本」
@@ -139,22 +140,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Delete artifacts to free storage
-        # APK 已发布到 Release(不占 Actions 存储配额), artifact 仅是中转, 发布完立即删除
-        if: success()
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              run_id: context.runId
-            });
-            for (const a of artifacts.data.artifacts) {
-              await github.rest.actions.deleteArtifact({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                artifact_id: a.id
-              });
-              core.info(`已删除 artifact: ${a.name}`);
-            }
+      # 11-08 用户令：撤 artifact 自动删除——Actions 运行详情页保留 APK 可下载。
+      # （原步骤在发布后立即删 artifact 省存储配额；代价是 Actions 页每次都看不到包，
+      # 用户实拍困惑「打包文件被删了」。配额消耗：约 20MB/次，2GB 免费额度约可存 100 次，
+      # 满了去 Actions 页手动清旧 artifact 即可。）
