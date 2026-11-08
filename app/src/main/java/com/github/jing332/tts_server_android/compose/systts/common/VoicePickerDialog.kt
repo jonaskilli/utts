@@ -2,7 +2,6 @@ package com.github.jing332.tts_server_android.compose.systts.common
 
 import android.widget.Toast
 import androidx.compose.foundation.background
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -45,7 +44,6 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -57,7 +55,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.SpanStyle
@@ -157,7 +154,6 @@ import kotlinx.coroutines.launch
  */
 @OptIn(
     androidx.compose.material3.ExperimentalMaterial3Api::class,
-    androidx.compose.foundation.ExperimentalFoundationApi::class,
     // decorFitsSystemWindows（全屏弹窗铺满到系统栏后面）在部分 Compose 版本仍标着实验注解。
     // 本项目未开 warnings-as-errors，冗余 opt-in 至多是条警告，换来的是跨版本都能编过。
     androidx.compose.ui.ExperimentalComposeUiApi::class,
@@ -1065,8 +1061,8 @@ fun VoicePickerDialog(
             // 键与标记同源（绑定=绑定/暂存 tag，非绑定=当前 voice）；照角色列表口径
             // 只放分类 tag id（女青年01），点击=确认把暂存落到该标签（同无操作提示）、
             // 长按=随机换同分类（🎲 直键退役，长按即入口）；单例类别/非绑定无候选不响应
-            val topCategoryTag = topMarkKey
-            val topCategoryClickable = isBindingMode && topCategoryTag.isNotBlank()
+            // （11-09 装机版终稿：分类标签框/长按随机换声均退役——topCategoryTag/
+            // topCategoryClickable 已删；随机换声走恢复的 🎲 直键）
             // 插件名缀尾（11-08 用户令「换声面板也需要插件名…显示插件的四个字」）：
             // 与角色列表注释行同口径——前 4 码点、全角｜替换；随暂存目标走（跟随目标配置项
             // 的插件，暂存换了发音人但同插件则不变；查不到插件/本地音效=不显示）
@@ -1101,45 +1097,24 @@ fun VoicePickerDialog(
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                // 第一行（11-09 用户令终稿）：分类标签框 + 已点亮标记 emoji + ▶ + ⋮。
-                // 标签框**单击无任何效果**（用户令「单击不要有任何效果」）、长按=随机换同分类；
-                // 标记 emoji 挪回第一行（跟标签并列，QQ 式点击取消）
+                // 第一行（11-09 用户令装机版终稿）：显示名 + 已点亮标记 emoji + 🎲 + ▶ + ⋮。
+                // 分类/标签框彻底撤掉（用户令「分类也不能要，直接显示显示名」）；🎲 恢复
+                // （长按标签随机换声作废）；无对勾（当前发音人不标 ✓）；标记 emoji 紧跟
+                // 显示名后（点击取消，QQ 式）；▶/⋮ 经 Spacer weight 钉行尾（11-09 用户令
+                // 「往右移，给左边空点位置」——按钮收窄右移，见下方各键 padding 注释）
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    // 分类标签框（照角色列表同款样式；仅绑定模式渲染）
-                    if (topCategoryClickable) {
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = lerp(
-                                MaterialTheme.colorScheme.secondaryContainer,
-                                MaterialTheme.colorScheme.surfaceContainerLow, 0.25f
-                            ),
-                            modifier = Modifier
-                                .combinedClickable(
-                                    // 单击无任何效果（用户令）；长按=随机换同分类
-                                    onClick = {},
-                                    onLongClick = {
-                                        applyRandomPick(
-                                            pickRandomIn(effectiveCategory, tagSearch, topMarkKey),
-                                            silentIfEmpty = false,
-                                        )
-                                    },
-                                    onLongClickLabel = stringResource(R.string.role_menu_reassign),
-                                )
-                                .minimumInteractiveComponentSize(),
-                        ) {
-                            Text(
-                                topCategoryTag,
-                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp),
-                                color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                maxLines = 1,
-                                overflow = TextOverflow.Clip,
-                                modifier = Modifier
-                                    .padding(horizontal = 10.dp, vertical = 5.dp)
-                                    .widthIn(max = 220.dp)
-                            )
-                        }
-                    }
-                    // 已点亮标记 emoji（第一行跟标签并列；点击取消，QQ 式）
+                    // 显示名（大字半粗；吃剩余宽度先缩，emoji/骰/▶/⋮ 钉右不参与省略）
+                    Text(
+                        currentVoiceName,
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.SemiBold
+                        ),
+                        maxLines = 1,
+                        // 省略时直接截断不打「…」（11-09 用户令，与角色列表口径一致）
+                        overflow = TextOverflow.Clip,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    // 已点亮标记 emoji（紧跟显示名后；点击取消，QQ 式）
                     val topLitMarks1 = VoiceMarksFile.MARK_ITEMS.filter { it.first in topMarks }
                     topLitMarks1.forEach { (_, emojiText) ->
                         Text(
@@ -1164,8 +1139,27 @@ fun VoicePickerDialog(
                         )
                     }
                     Spacer(Modifier.weight(1f))
-                    // ▶ 同候选行方案A：裸字符可点替代 TextButton（单字符占 58dp 底座，顶栏紧巴巴），
-                    // 16dp 字形+两侧 12dp ≈40dp，上下 12dp 凑满 48dp 触控高
+                    // 🎲 一键换恢复（11-09 用户令「长按随机换也不要了，还是后面加骰子」）：
+                    // 在当前分类+搜索范围内随机换一个（排除当前暂存/绑定），结果落暂存；
+                    // 按键收窄右移（用户令「▶/⋮ 往右移给左边空位置」同款）：horizontal 12→8
+                    if (isBindingMode) {
+                        Text(
+                            "🎲",
+                            modifier = Modifier
+                                .clickable(
+                                    indication = null,
+                                    interactionSource = remember { MutableInteractionSource() },
+                                ) {
+                                    applyRandomPick(
+                                        pickRandomIn(effectiveCategory, tagSearch, topMarkKey),
+                                        silentIfEmpty = false,
+                                    )
+                                }
+                                .padding(horizontal = 8.dp, vertical = 12.dp),
+                            style = MaterialTheme.typography.titleLarge,
+                        )
+                    }
+                    // ▶ 裸字符键；按键收窄右移（horizontal 12→8，与 🎲 同款）
                     Text(
                         previewLabel(PREVIEW_KEY_CURRENT),
                         color = previewLabelColor(PREVIEW_KEY_CURRENT),
@@ -1206,11 +1200,13 @@ fun VoicePickerDialog(
                                     )
                                 }
                             }
-                            .padding(horizontal = 12.dp, vertical = 12.dp),
+                            .padding(horizontal = 8.dp, vertical = 12.dp),
                     )
                     // ⋮ 菜单（用户 09-17 方案A）：打开面板想删当前这条配置项，得关掉面板回列表翻半天，
                     // 就地给一个入口。菜单项与候选行同源（标记 + 删除配置项），零学习成本。
-                    // 宽度账：360dp 屏 − 面板左右 32dp − ▶ 40dp − ⋮ 48dp ⇒ 名字区仍有约 240dp，单行省略
+                    // ⋮ 图标内边距收紧右移（用户令「▶/⋮ 往右移给左边空位置」同款），
+                    // VoiceOverflowMenu 是共用组件不能动尺寸，这里用外层 padding 补偿不可行——
+                    // 顶部 ⋮ 用 padding(start=0) 收紧即可（字形自带少量留白）
                     VoiceOverflowMenu(
                         marks = topMarks,
                         onToggleMark = { mark ->
@@ -1227,32 +1223,17 @@ fun VoicePickerDialog(
                         onDelete = { topDeleteTarget?.let { deleteConfirmTarget = it } },
                     )
                 }
-                // 第二行小字（11-09 用户令终稿）：发音人名 · 插件名（无前缀点、无标记——
-                // 标记已挪第一行）。发音人名吃剩余先缩、插件名钉住；色=outline 最淡灰；
-                // start 18dp=与标签框文字对齐
-                if (currentVoiceName.isNotBlank() || topPluginName != null) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
+                // 第二行小字（11-09 用户令装机版终稿）：只放插件名（显示名已上第一行）。
+                // 色=outline 最淡灰；start 18dp 保持既有缩进线
+                if (topPluginName != null) {
+                    Text(
+                        topPluginName,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline,
+                        maxLines = 1,
+                        overflow = TextOverflow.Clip,
                         modifier = Modifier.padding(start = 18.dp, top = 1.dp),
-                    ) {
-                        Text(
-                            currentVoiceName,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.outline,
-                            maxLines = 1,
-                            overflow = TextOverflow.Clip,
-                            modifier = Modifier.weight(1f, fill = false),
-                        )
-                        if (topPluginName != null) {
-                            Text(
-                                " · $topPluginName",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.outline,
-                                maxLines = 1,
-                                overflow = TextOverflow.Clip,
-                            )
-                        }
-                    }
+                    )
                 }
             }
 
@@ -1896,11 +1877,9 @@ private fun CandidateRow(
             .padding(vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // ===== 左列两行（11-09 用户令「参照角色列表」）：第一行=名字+▶+⋮ 同排；
-        // 第二行小字=插件名·标记 emoji。插件名/标记从名字行沉到第二行，
-        // 名字行只留名字+选中态，视觉与角色列表「标签框行+注释行」同构 =====
-        // 11-09 用户令（参照角色列表图一版式）：左列 Top 对齐——第一行名字与 ▶/⋮
-        // 顶对齐（原 Center 使 ▶/⋮ 垂直居中于两行，与第一行名字错位）
+        // ===== 左列两行（11-09 用户令装机版终稿）：第一行=✓前缀+显示名(+已用)+标记 emoji；
+        // 第二行小字=插件名。emoji 从第二行挪回显示名后（用户令「Emoji 就放显示名之后」），
+        // 第二行只剩插件名。Top 对齐（第一行名字与 ▶/⋮ 顶齐）
         Column(Modifier.weight(1f)) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -1930,49 +1909,42 @@ private fun CandidateRow(
                         maxLines = 1,
                     )
                 }
-            }
-            // 第二行注释：插件名（outline 最淡灰）+ 已点亮标记 chip（点击取消，QQ 式）；
-            // 两者都空则整行不渲染（不占高度）
-            if (pluginName != null || marks.isNotEmpty()) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(top = 2.dp),
-                ) {
-                    if (pluginName != null) {
-                        Text(
-                            pluginName,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.outline,
-                            maxLines = 1,
-                            overflow = TextOverflow.Clip,
-                        )
-                    }
-                    val litMarks = VoiceMarksFile.MARK_ITEMS.filter { it.first in marks }
-                    litMarks.forEachIndexed { i, (_, emojiText) ->
-                        Text(
-                            emojiText,
-                            fontSize = 13.sp,
-                            maxLines = 1,
-                            modifier = Modifier
-                                .padding(start = if (i == 0 && pluginName == null) 0.dp else 4.dp)
-                                .clip(RoundedCornerShape(9.dp))
-                                .clickable { onToggleMark(pickerEmojiMarkOf(emojiText)) }
-                                .padding(horizontal = 4.dp, vertical = 1.dp),
-                        )
-                    }
+                // 已点亮标记 emoji（紧跟显示名/已用徽章后；点击取消，QQ 式）
+                val litMarks = VoiceMarksFile.MARK_ITEMS.filter { it.first in marks }
+                litMarks.forEach { (_, emojiText) ->
+                    Text(
+                        emojiText,
+                        fontSize = 13.sp,
+                        maxLines = 1,
+                        modifier = Modifier
+                            .padding(start = 4.dp)
+                            .clip(RoundedCornerShape(9.dp))
+                            .clickable { onToggleMark(pickerEmojiMarkOf(emojiText)) }
+                            .padding(horizontal = 4.dp, vertical = 1.dp),
+                    )
                 }
             }
+            // 第二行注释：只放插件名（outline 最淡灰）；空则不渲染（不占高度）
+            if (pluginName != null) {
+                Text(
+                    pluginName,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline,
+                    maxLines = 1,
+                    overflow = TextOverflow.Clip,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
         }
-        // ▶ 用裸字符可点替代 TextButton（用户 09-13 方案A）：TextButton 单字符却占 58dp
-        // 按钮底座，缩成「16dp 字形+两侧 12dp」≈40dp 宽、上下 12dp 凑满 48dp 触控高；
-        // 颜色沿用调用方（播放中=tertiary，默认走 LocalContentColor）
+        // ▶ 裸字符键（用户 09-13 方案A）；按键收窄右移（11-09 用户令「▶/⋮ 往右移
+        // 给左边空位置」：horizontal 12→8）
         Text(
             previewText,
             color = previewColor,
             style = MaterialTheme.typography.titleMedium,
             modifier = Modifier
                 .clickable(onClick = onPreview)
-                .padding(horizontal = 12.dp, vertical = 12.dp),
+                .padding(horizontal = 8.dp, vertical = 12.dp),
         )
         VoiceOverflowMenu(
             marks = marks,
