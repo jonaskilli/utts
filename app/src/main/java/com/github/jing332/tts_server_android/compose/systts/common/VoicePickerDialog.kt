@@ -1112,20 +1112,9 @@ fun VoicePickerDialog(
                             maxLines = 1,
                             // 省略时直接截断不打「…」（11-09 用户令，与角色列表口径一致）
                             overflow = TextOverflow.Clip,
-                            // 名字吃剩余宽度先缩（11-09 用户拍板「拆两个 Text」）：
-                            // 插件名独立 Text 钉在名字后不参与省略——一体 AnnotatedString 时
-                            // 整串一起 Ellipsis，名字长会先把插件名截掉，行为与角色列表
-                            // 注释行（名字先缩、插件名钉住）不一致
+                            // 名字吃剩余宽度先缩：插件名/标记已沉到第二行，名字行只留名字
                             modifier = Modifier.weight(1f, fill = false),
                         )
-                        val topEmoji = VoiceMarksFile.emojiOf(topMarks)
-                        if (topEmoji.isNotEmpty()) {
-                            Text(
-                                topEmoji,
-                                modifier = Modifier.padding(start = 4.dp),
-                                style = MaterialTheme.typography.labelMedium,
-                            )
-                        }
                     }
                     // 一键换（10-06 用户令：从分类行挪到「当前发音人」这里）：在当前分类+搜索
                     // 范围内随机换一个（排除当前暂存/绑定），结果落暂存、顶部名字跟显，确认才落库。
@@ -1216,21 +1205,47 @@ fun VoicePickerDialog(
                         onDelete = { topDeleteTarget?.let { deleteConfirmTarget = it } },
                     )
                 }
-                // 插件名第二行（11-09 用户令「放第二行，换个不明显的颜色」+ 追令
-                // 「身份信息跟名字走，不缀参数行后」）：紧跟「当前发音人」名字行下；
-                // 终值行（语速/音量/音高）是参数信息、插件名是身份信息，不混排。
-                // 色=outline（M3 最淡辅助灰，弱化近融入背景、深浅色保底可读）；
-                // 无前缀分隔点（行首「·」像列表符号，纯文字干净）；start 18dp=与名字
-                // 文字对齐（圆点 7dp+间距 7dp+行首约 4dp 的既有缩进线）
-                if (topPluginName != null) {
-                    Text(
-                        topPluginName,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.outline,
-                        maxLines = 1,
-                        overflow = TextOverflow.Clip,
+                // 插件名第二行（11-09 用户令「参照角色列表」终态）：紧跟名字行下；
+                // 标记 emoji 也沉到这行（点击取消，QQ 式）。色=outline 最淡辅助灰；
+                // start 18dp=与名字文字对齐（圆点 7dp+间距 7dp+行首约 4dp 既有缩进线）
+                if (topPluginName != null || topMarks.isNotEmpty()) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.padding(start = 18.dp, top = 1.dp),
-                    )
+                    ) {
+                        if (topPluginName != null) {
+                            Text(
+                                topPluginName,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.outline,
+                                maxLines = 1,
+                                overflow = TextOverflow.Clip,
+                            )
+                        }
+                        val topLitMarks = VoiceMarksFile.MARK_ITEMS.filter { it.first in topMarks }
+                        topLitMarks.forEachIndexed { i, (_, emojiText) ->
+                            Text(
+                                emojiText,
+                                fontSize = 13.sp,
+                                maxLines = 1,
+                                modifier = Modifier
+                                    .padding(start = if (i == 0 && topPluginName == null) 0.dp else 4.dp)
+                                    .clip(RoundedCornerShape(9.dp))
+                                    .clickable {
+                                        val markId = VoiceMarksFile.MARK_ITEMS
+                                            .firstOrNull { it.second == emojiText }?.first
+                                        if (markId != null && topMarkKey.isNotBlank() &&
+                                            VoiceMarksFile.toggle(config.speechRule.tagRuleId, topMarkKey, markId)
+                                        ) {
+                                            marksVersion++
+                                            onChanged?.invoke("marked", topMarkKey)
+                                            if (sharedVM != null) sharedVM.voiceMarksVersion.value += 1
+                                        }
+                                    }
+                                    .padding(horizontal = 4.dp, vertical = 1.dp),
+                            )
+                        }
+                    }
                 }
             }
 
@@ -1871,71 +1886,72 @@ private fun CandidateRow(
         Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            // 水平 6→0（10-05 用户：换声面板竖列对齐——上方当前发音人/最终/分类行全在
-            // 内容区 16 线上，行自带 6dp 缩进让整块列表（名字/▶/⋮ 三列）错位 6dp；
-            // 归零后名字回到 16 线、▶/⋮ 与顶行同列。09-13「省宽度」诉求由行内容承担）
             .padding(vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // 名字+标记包一层 weight(1f)：操作键钉在行尾，不随标记数量漂移
-        Row(
-            modifier = Modifier.weight(1f),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                (if (isCurrent) "✓ " else "") + text,
-                modifier = Modifier.weight(1f, fill = false),
-                // 选择列表行名 14sp（11-09 用户令「字号改小点」，原 15sp——加插件名/chip 后
-                // 行内容变多，缩一号腾宽度；与 labelSmall 注释行 11sp 拉开层级）
-                style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp),
-                maxLines = 1,
-                // 省略时直接截断不打「…」（11-09 用户令，与角色列表口径一致）
-                overflow = TextOverflow.Clip,
-                color = nameColor,
-            )
-            if (usedBadge) {
-                // 「已用」徽章（方案A）：主色淡底圆角 chip，10sp，与角色管理
-                // 插件「已分配」徽章同语义；占用≠禁用，行仍可点选改绑
+        // ===== 左列两行（11-09 用户令「参照角色列表」）：第一行=名字+▶+⋮ 同排；
+        // 第二行小字=插件名·标记 emoji。插件名/标记从名字行沉到第二行，
+        // 名字行只留名字+选中态，视觉与角色列表「标签框行+注释行」同构 =====
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Text(
-                    "已用",
-                    modifier = Modifier
-                        .padding(start = 4.dp)
-                        .background(
-                            MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
-                            RoundedCornerShape(9.dp),
-                        )
-                        .padding(horizontal = 6.dp, vertical = 2.dp),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    maxLines = 1,
-                )
-            }
-            // 插件名钉住（11-09 用户令）：在名字 Text 之外独立渲染——名字吃剩余先缩，
-            // 插件名永不挤掉；与顶部当前发音人/角色列表注释行同款行为
-            if (pluginName != null) {
-                Text(
-                    "· $pluginName",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    (if (isCurrent) "✓ " else "") + text,
+                    modifier = Modifier.weight(1f, fill = false),
+                    // 选择列表行名 14sp（11-09 用户令「字号改小点」）；省略时直接截断不打「…」
+                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp),
                     maxLines = 1,
                     overflow = TextOverflow.Clip,
-                    modifier = Modifier.padding(start = 3.dp),
+                    color = nameColor,
                 )
+                if (usedBadge) {
+                    // 「已用」徽章（方案A）：主色淡底圆角 chip；占用≠禁用，行仍可点选改绑
+                    Text(
+                        "已用",
+                        modifier = Modifier
+                            .padding(start = 4.dp)
+                            .background(
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
+                                RoundedCornerShape(9.dp),
+                            )
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                    )
+                }
             }
-            // 已点亮标记 chip（11-09 用户令「重」方案）：逐枚渲染、点击即取消该枚（QQ 式，
-            // 与角色列表注释行同款）；⋮ 菜单保留加标记/取消入口（两处同落库通道）
-            val litMarks = VoiceMarksFile.MARK_ITEMS.filter { it.first in marks }
-            litMarks.forEach { (_, emojiText) ->
-                Text(
-                    emojiText,
-                    fontSize = 13.sp,
-                    maxLines = 1,
-                    modifier = Modifier
-                        .padding(start = 3.dp)
-                        .clip(RoundedCornerShape(9.dp))
-                        .clickable { onToggleMark(pickerEmojiMarkOf(emojiText)) }
-                        .padding(horizontal = 5.dp, vertical = 2.dp),
-                )
+            // 第二行注释：插件名（outline 最淡灰）+ 已点亮标记 chip（点击取消，QQ 式）；
+            // 两者都空则整行不渲染（不占高度）
+            if (pluginName != null || marks.isNotEmpty()) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(top = 2.dp),
+                ) {
+                    if (pluginName != null) {
+                        Text(
+                            pluginName,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.outline,
+                            maxLines = 1,
+                            overflow = TextOverflow.Clip,
+                        )
+                    }
+                    val litMarks = VoiceMarksFile.MARK_ITEMS.filter { it.first in marks }
+                    litMarks.forEachIndexed { i, (_, emojiText) ->
+                        Text(
+                            emojiText,
+                            fontSize = 13.sp,
+                            maxLines = 1,
+                            modifier = Modifier
+                                .padding(start = if (i == 0 && pluginName == null) 0.dp else 4.dp)
+                                .clip(RoundedCornerShape(9.dp))
+                                .clickable { onToggleMark(pickerEmojiMarkOf(emojiText)) }
+                                .padding(horizontal = 4.dp, vertical = 1.dp),
+                        )
+                    }
+                }
             }
         }
         // ▶ 用裸字符可点替代 TextButton（用户 09-13 方案A）：TextButton 单字符却占 58dp
