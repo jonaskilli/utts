@@ -61,7 +61,6 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -1574,10 +1573,11 @@ fun KeyManagerScreen(tagRuleId: String, onBack: () -> Unit) {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues),
-            // 10-07 二改（用户令：边距回 16）——容器 start 4→12，容器 12 + 组卡 4 = 卡缘 16，
-            // 对齐全站 16 内容线（行首箭头取消后组名文字线 = 卡缘）。
-            // end 保持 8（右线不动：条目图标右缘对卡右缘、组头图标区右缘同列的校准全在行内相对值里）
-            contentPadding = PaddingValues(start = 12.dp, end = 8.dp, top = 4.dp, bottom = 12.dp)
+            // 11-08 用户令「密钥卡左缘与主界面卡一样」：容器 start 12→4，容器 4 + 组卡 4 =
+            // 卡缘 8dp，对齐主界面配置卡（行内 horizontal 8）。10-07 的 16dp 口径因主界面卡
+            // 后来落到 8dp 而悬空，本笔归一。end 保持 8（右线不动：条目图标右缘对卡右缘、
+            // 组头图标区右缘同列的校准全在行内相对值里，卡左移不影响）
+            contentPadding = PaddingValues(start = 4.dp, end = 8.dp, top = 4.dp, bottom = 12.dp)
         ) {
             item(key = "ops") {
                     // 操作行三键（10-08 用户拍板乙案）：键宽内容自适应（0919 weight 均分折行坑
@@ -1608,7 +1608,9 @@ fun KeyManagerScreen(tagRuleId: String, onBack: () -> Unit) {
                             Text(stringResource(R.string.role_key_fetch), maxLines = 1, style = MaterialTheme.typography.labelLarge)
                         }
                         // 启用池子页入口：调轮换顺序 / 移出 / 整批测试在那边做
-                        FilledTonalButton(
+                        // 11-08 用户令「填充色去掉，跟拉取模型一样」：FilledTonalButton（灰填充）
+                        // → OutlinedButton（描边），操作行三键形态归一
+                        OutlinedButton(
                             onClick = { showPool = true },
                             modifier = Modifier.heightIn(min = 44.dp),
                             contentPadding = PaddingValues(horizontal = 18.dp, vertical = 11.dp)
