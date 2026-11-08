@@ -14,7 +14,7 @@ import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.automirrored.filled.DriveFileMove
 import androidx.compose.material.icons.filled.DriveFileRenameOutline
-import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Output
@@ -111,7 +111,8 @@ fun SubGroupHeader(
             // 官方 Badge outlined 变体，容器带色时的标准形态）均不动。
             .background(Color.Transparent)
             .drawBehind {
-                // 缩进参考线画在行左缘：2dp 宽、全高（与组内卡片左线对齐）
+                // 11-08 参考线内缩（用户令「贴边不行」）：x=0 贴屏缘 → x=14dp，
+                // 落在卡片左侧内容带（卡片左线 16dp 往左 2dp），与卡缘呼应不顶屏幕
                 drawRoundRect(
                     color = outlineVariantColor,
                     topLeft = Offset(14.dp.toPx(), 0f),
@@ -132,8 +133,10 @@ fun SubGroupHeader(
             ),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        // 11-08 折叠键改实心三角（与一级分组行 GroupItem 同批同款：ArrowDropDown 旋转，
+        // onSurfaceVariant 中性灰；两级同规格——20dp 一致，层级只靠缩进表达）
         Icon(
-            imageVector = Icons.Default.ExpandMore,
+            imageVector = Icons.Default.ArrowDropDown,
             contentDescription = if (isExpanded) "收起" else "展开",
             modifier = Modifier
                 .size(20.dp)
