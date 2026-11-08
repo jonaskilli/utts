@@ -1118,13 +1118,13 @@ fun VoicePickerDialog(
                     )
                     if (topPluginName != null) {
                         Text(
-                            // 括号灰字（11-09 用户令「用括号括住，用灰字显示」）：
-                            // 与显示名同字号同档（titleMedium 系），灰字弱化但括号隔出边界；
-                            // 紧跟显示名（贴右无空隙浪费），超宽只缩显示名
-                            "（$topPluginName）",
-                            style = MaterialTheme.typography.titleMedium.copy(
-                                fontWeight = FontWeight.SemiBold
-                            ),
+                            // 分隔点灰字（11-09 用户令「还是别用括号，用分隔点将名字和
+                            // 插件名分开」+「中间为啥有空格」）：撤括号与 start padding——
+                            // 分隔点直接缀在显示名后（「· 剪映」），空隙只剩分隔点自带
+                            // 半字宽；插件名 11sp 灰字（显示名空间恢复的关键：插件名不再
+                            // 同字号占宽）。超宽只缩显示名
+                            "· $topPluginName",
+                            style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
                             overflow = TextOverflow.Clip,
@@ -1901,6 +1901,19 @@ private fun CandidateRow(
                     overflow = TextOverflow.Clip,
                     color = nameColor,
                 )
+                // 插件名（11-09 用户令「已用和 emoji 标签应该在插件名之后」）：
+                // 顺序=显示名 · 插件名 · 已用 · emoji——插件名分隔点灰字（11sp）
+                // 紧跟显示名；已用/emoji 挪到其后
+                if (pluginName != null) {
+                    Text(
+                        "· $pluginName",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Clip,
+                        modifier = Modifier.padding(start = 4.dp),
+                    )
+                }
                 if (usedBadge) {
                     // 「已用」徽章（方案A）：主色淡底圆角 chip；占用≠禁用，行仍可点选改绑
                     Text(
@@ -1917,7 +1930,7 @@ private fun CandidateRow(
                         maxLines = 1,
                     )
                 }
-                // 已点亮标记 emoji（紧跟显示名/已用徽章后；点击取消，QQ 式）
+                // 已点亮标记 emoji（钉最后；点击取消，QQ 式）
                 val litMarks = VoiceMarksFile.MARK_ITEMS.filter { it.first in marks }
                 litMarks.forEach { (_, emojiText) ->
                     Text(
@@ -1929,20 +1942,6 @@ private fun CandidateRow(
                             .clip(RoundedCornerShape(9.dp))
                             .clickable { onToggleMark(pickerEmojiMarkOf(emojiText)) }
                             .padding(horizontal = 4.dp, vertical = 1.dp),
-                    )
-                }
-                // 插件名（11-09 用户令「显示名和插件应该放一行…用括号括住，用灰字显示」）：
-                // 并入第一行——括号灰字、同字号（14sp），跟在显示名/emoji 后；
-                // 名字 Text weight(1f,fill=false) 超宽被压缩时它被挤出可见区？不会——
-                // 它无 weight 按内容宽，名字吃剩余被截、插件名完整（与面板顶部同逻辑）
-                if (pluginName != null) {
-                    Text(
-                        "（$pluginName）",
-                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Clip,
-                        modifier = Modifier.padding(start = 2.dp),
                     )
                 }
             }
