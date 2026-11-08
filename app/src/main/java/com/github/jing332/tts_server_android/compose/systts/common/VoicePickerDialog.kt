@@ -1118,12 +1118,16 @@ fun VoicePickerDialog(
                     )
                     if (topPluginName != null) {
                         Text(
-                            "· $topPluginName",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.outline,
+                            // 括号灰字（11-09 用户令「用括号括住，用灰字显示」）：
+                            // 与显示名同字号同档（titleMedium 系），灰字弱化但括号隔出边界；
+                            // 紧跟显示名（贴右无空隙浪费），超宽只缩显示名
+                            "（$topPluginName）",
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.SemiBold
+                            ),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
                             overflow = TextOverflow.Clip,
-                            modifier = Modifier.padding(start = 4.dp),
                         )
                     }
                     // 已点亮标记 emoji（紧跟显示名后；点击取消，QQ 式）
@@ -1881,9 +1885,9 @@ private fun CandidateRow(
             .padding(vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // ===== 左列两行（11-09 用户令装机版终稿）：第一行=✓前缀+显示名(+已用)+标记 emoji；
-        // 第二行小字=插件名。emoji 从第二行挪回显示名后（用户令「Emoji 就放显示名之后」），
-        // 第二行只剩插件名。Top 对齐（第一行名字与 ▶/⋮ 顶齐）
+        // ===== 左列（11-09 用户令终稿）：一行式=✓前缀+显示名+已用徽章+标记 emoji
+        // +（插件名括号灰字）；插件名并入第一行（用户令「显示名和插件应该放一行」），
+        // Column 保留作 weight 容器（Top 对齐语义不再关键，单行内 Center 即可）
         Column(Modifier.weight(1f)) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -1927,17 +1931,20 @@ private fun CandidateRow(
                             .padding(horizontal = 4.dp, vertical = 1.dp),
                     )
                 }
-            }
-            // 第二行注释：只放插件名（outline 最淡灰）；空则不渲染（不占高度）
-            if (pluginName != null) {
-                Text(
-                    pluginName,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.outline,
-                    maxLines = 1,
-                    overflow = TextOverflow.Clip,
-                    modifier = Modifier.padding(top = 2.dp),
-                )
+                // 插件名（11-09 用户令「显示名和插件应该放一行…用括号括住，用灰字显示」）：
+                // 并入第一行——括号灰字、同字号（14sp），跟在显示名/emoji 后；
+                // 名字 Text weight(1f,fill=false) 超宽被压缩时它被挤出可见区？不会——
+                // 它无 weight 按内容宽，名字吃剩余被截、插件名完整（与面板顶部同逻辑）
+                if (pluginName != null) {
+                    Text(
+                        "（$pluginName）",
+                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Clip,
+                        modifier = Modifier.padding(start = 2.dp),
+                    )
+                }
             }
         }
         // ▶ 裸字符键（用户 09-13 方案A）；按键收窄右移（11-09 用户令「▶/⋮ 往右移

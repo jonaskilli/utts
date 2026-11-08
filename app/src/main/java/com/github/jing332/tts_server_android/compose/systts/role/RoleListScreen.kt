@@ -1135,10 +1135,14 @@ private fun RoleRow(
                     ) {
                         // 显示名标签框：点=换声弹窗、长按=随机换声
                         // （仅 14 类可换类别响应，单例类别长按无动作）；失效标签灰底+红 ⚠
+                        // 11-09 用户令「显示名卡片的不好看…首选框是一定要的」：框形态保留，
+                        // 底色浅绿→灰底（surfaceContainerHighest，与换声弹窗分类字段同款
+                        // 灰底），文字换主色绿加粗——灰底中性+绿字与主题 accent 同族，
+                        // 十主题深浅色自动成立
                         Surface(
                             shape = RoundedCornerShape(8.dp),
                             color = if (voiceName == null) Color(0xFFEDEDED)
-                                    else lerp(softContainerColor(), MaterialTheme.colorScheme.surfaceContainerLow, 0.25f),
+                                    else MaterialTheme.colorScheme.surfaceContainerHighest,
                             modifier = Modifier
                                 .combinedClickable(
                                     onClick = onTagClick,
@@ -1159,9 +1163,12 @@ private fun RoleRow(
                                         }
                                     }
                                 },
-                                style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp),
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                ),
                                 color = if (voiceName == null) Color(0xFF9E9E9E)
-                                        else MaterialTheme.colorScheme.onSecondaryContainer,
+                                        else MaterialTheme.colorScheme.primary,
                                 maxLines = 1,
                                 overflow = TextOverflow.Clip,
                                 modifier = Modifier
