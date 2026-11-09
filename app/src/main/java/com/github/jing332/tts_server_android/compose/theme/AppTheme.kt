@@ -6,8 +6,8 @@ import com.github.jing332.tts_server_android.R
 /**
  * 主题清单（11-10 重做，用户令「按推荐方案开工」）。
  *
- * 八套静态主题 + 动态颜色：青竹（原绿）/ 藕粉（原粉）/ 暮紫（原紫）为老主题重调，
- * 雾蓝 / 黛青 / 松石 / 琥珀 / 石墨 为 11-10 按 dsh-Go 的配色体系新增。
+ * 七套静态主题 + 动态颜色：青竹（原绿）/ 藕粉（原粉）/ 暮紫（原紫）为老主题重调，
+ * 雾蓝 / 黛青 / 松石 / 石墨 为 11-10 按 dsh-Go 的配色体系新增（琥珀同日删除）。
  * 每套的色板由同一张 OKLCH 明度表推出（见 Color2.kt 顶部注释），新增一套 =
  * ①本枚举加项 ②Color2 加色板 ③SurfaceTones 加两行 ④AppThemeConfiguration 加函数
  * ⑤Theme.kt when 加分支 ⑥strings.xml 中英加名字（六处，缺一处编译或运行就断）。
@@ -28,10 +28,9 @@ enum class AppTheme(val id: String, val stringResId: Int = -1, val color: Color)
     PINK("pink", R.string.theme_pink, pink_seed),
     PURPLE("purple", R.string.theme_purple, purple_seed),
 
-    // —— 新增（五套，色相/彩度取自 dsh-Go）——
+    // —— 新增（四套，色相/彩度取自 dsh-Go；琥珀 11-10 用户令删除，嫌难看）——
     MIST("mist", R.string.theme_mist, mist_seed),
     DAIQING("daiqing", R.string.theme_daiqing, daiqing_seed),
     TURQUOISE("turquoise", R.string.theme_turquoise, turquoise_seed),
-    AMBER("amber", R.string.theme_amber, amber_seed),
     GRAPHITE("graphite", R.string.theme_graphite, graphite_seed),
 }

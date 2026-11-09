@@ -26,7 +26,6 @@ internal val lightSurfaceTones: Map<AppTheme, List<Color>> = mapOf(
     AppTheme.MIST to listOf(Color(0xFFFAFCFF), Color(0xFFF6F9FF), Color(0xFFEDF1FB), Color(0xFFE6EBF6), Color(0xFFDEE3EE), Color(0xFFE4E8F1), Color(0xFFFAFCFF)),
     AppTheme.DAIQING to listOf(Color(0xFFF9FDFF), Color(0xFFF5FAFD), Color(0xFFEBF2F7), Color(0xFFE5ECF1), Color(0xFFDDE4EA), Color(0xFFE2E9ED), Color(0xFFFAFDFF)),
     AppTheme.TURQUOISE to listOf(Color(0xFFF9FDFC), Color(0xFFF5FAFA), Color(0xFFECF3F2), Color(0xFFE5EDEC), Color(0xFFDDE5E4), Color(0xFFE3E9E8), Color(0xFFFAFDFD)),
-    AppTheme.AMBER to listOf(Color(0xFFFEFCF9), Color(0xFFFCF8F4), Color(0xFFF5F0EB), Color(0xFFF0EAE4), Color(0xFFE8E2DC), Color(0xFFECE7E2), Color(0xFFFEFCFA)),
     AppTheme.GRAPHITE to listOf(Color(0xFFFBFCFE), Color(0xFFF8F9FC), Color(0xFFEFF1F5), Color(0xFFE9EBEF), Color(0xFFE1E3E8), Color(0xFFE6E8EC), Color(0xFFFCFCFE)),
 )
 
@@ -37,6 +36,5 @@ internal val darkSurfaceTones: Map<AppTheme, List<Color>> = mapOf(
     AppTheme.MIST to listOf(Color(0xFF121418), Color(0xFF1D1F24), Color(0xFF25282E), Color(0xFF2D3037), Color(0xFF373A42), Color(0xFF15171C), Color(0xFF45484E)),
     AppTheme.DAIQING to listOf(Color(0xFF121416), Color(0xFF1C2022), Color(0xFF24282B), Color(0xFF2D3134), Color(0xFF363B3F), Color(0xFF14181A), Color(0xFF44484B)),
     AppTheme.TURQUOISE to listOf(Color(0xFF121414), Color(0xFF1D2020), Color(0xFF242928), Color(0xFF2D3131), Color(0xFF373C3B), Color(0xFF141817), Color(0xFF444948)),
-    AppTheme.AMBER to listOf(Color(0xFF151311), Color(0xFF211F1C), Color(0xFF2A2724), Color(0xFF33302C), Color(0xFF3E3A36), Color(0xFF191714), Color(0xFF4A4744)),
     AppTheme.GRAPHITE to listOf(Color(0xFF131415), Color(0xFF1E1F21), Color(0xFF26282A), Color(0xFF2F3033), Color(0xFF393A3D), Color(0xFF161719), Color(0xFF46484A)),
 )

@@ -39,7 +39,6 @@ fun appTheme(
         AppTheme.MIST -> mistTheme(darkTheme)
         AppTheme.DAIQING -> daiqingTheme(darkTheme)
         AppTheme.TURQUOISE -> turquoiseTheme(darkTheme)
-        AppTheme.AMBER -> amberTheme(darkTheme)
         AppTheme.GRAPHITE -> graphiteTheme(darkTheme)
     }
     // 动态取色（Android 12+ 壁纸派生）：浅色同样走纯白底（与静态主题同口径），深色用官方暗表现算
