@@ -570,7 +570,7 @@ internal fun LogScreen(
         //   换主题也不会与任何状态色撞，所以保持固定（信息类别色）。
         //
         // 改主色后：绿色主题下是绿（明度 0.612，比成功绿 0.673 接近，需靠位置区分），
-        // 暮紫/雾蓝/石墨下色相彻底不同，一眼可分。
+        // 紫色/蓝色/深灰下色相彻底不同，一眼可分。
         //
         // ## 沿革
         // 老日志绿（与成功丸撞）→ 靛蓝 #3949AB（10-11 装机嫌突兀）→ 纯绿 #009908
@@ -688,7 +688,7 @@ internal fun LogScreen(
                                         // 绿 → #DAF2E2（L=0.939 / C=0.033，与旧值 #DAF1E1
                                         // L=0.937 / C=0.032 基本重合）。
                                         // 四套主题同一算式，各自带自己的色相（紫 #EFE7FE /
-                                        // 蓝 #E1ECFE / 黑 #EBECEF 仍近中性，符合黑色主题无彩定位）。
+                                        // 蓝 #E1ECFE / 深灰 #EBECEF 仍近中性，符合深灰主题无彩定位）。
                                         lerp(
                                             MaterialTheme.colorScheme.secondaryContainer,
                                             MaterialTheme.colorScheme.surfaceContainerLow,

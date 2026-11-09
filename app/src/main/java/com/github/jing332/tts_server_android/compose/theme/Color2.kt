@@ -137,7 +137,7 @@ val purple_md_theme_dark_inverseSurface = Color(0xFFE5E4E7)
 val purple_md_theme_dark_inverseOnSurface = Color(0xFF201E24)
 val purple_md_theme_dark_inversePrimary = Color(0xFF6D5B8C)
 
-// ---------- 雾蓝（新增：dsh-Go 默认配色）----------
+// ---------- 蓝色（新增：dsh-Go 默认配色）----------
 // OKLCH: L=0.508 C=0.126 H=267；浅色主色对标签底 8.15:1，白字 5.95:1
 val mist_seed = Color(0xFF4560AD)
 val mist_md_theme_light_primaryContainer = Color(0xFFD8E7FF)
@@ -185,7 +185,7 @@ val mist_md_theme_dark_inverseSurface = Color(0xFFE2E4EA)
 val mist_md_theme_dark_inverseOnSurface = Color(0xFF1B1F28)
 val mist_md_theme_dark_inversePrimary = Color(0xFF4560AD)
 
-// ---------- 石墨（新增：dsh-Go 黑白档）----------
+// ---------- 深灰（新增：dsh-Go 黑白档；11-10 原名石墨）----------
 // 11-10 十二改（用户令「黑色太深了，跟黑煤块一样」）：主色 L 0.301 → 0.400。
 // 三处大面积填充都吃 primary——对勾、开关轨道、密钥池的 1/1 徽章，近黑铺开像煤块。
 // 现 #44484E：仍是深灰、白字对比 9.20 足够醒目，但不再压抑。

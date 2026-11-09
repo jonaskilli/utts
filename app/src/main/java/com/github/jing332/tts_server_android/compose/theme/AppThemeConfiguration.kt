@@ -184,7 +184,7 @@ fun purpleTheme(
         )
 
 /**
- * 雾蓝
+ * 蓝色
  */
 @Composable
 fun mistTheme(
@@ -256,7 +256,7 @@ fun mistTheme(
         )
 
 /**
- * 石墨
+ * 深灰
  */
 @Composable
 fun graphiteTheme(
