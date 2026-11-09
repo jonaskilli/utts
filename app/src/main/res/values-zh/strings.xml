@@ -442,11 +442,8 @@
     <string name="theme_default">默认</string>
     <string name="dynamic_color">动态颜色</string>
     <string name="theme_green">青竹</string>
-    <string name="theme_pink">藕粉</string>
     <string name="theme_purple">暮紫</string>
     <string name="theme_mist">雾蓝</string>
-    <string name="theme_daiqing">黛青</string>
-    <string name="theme_turquoise">松石</string>
     <string name="theme_graphite">石墨</string>
     <string name="dark_mode_title">深浅模式</string>
     <string name="dark_mode_follow">跟随系统</string>
