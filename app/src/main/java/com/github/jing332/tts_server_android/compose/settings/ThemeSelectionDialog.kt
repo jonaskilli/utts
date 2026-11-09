@@ -76,13 +76,13 @@ fun ThemeSelectionDialog(
                     // 11-08 用户令「主题只留动态颜色和绿色」：红/粉/蓝/青/橙/紫/棕/灰八套退役，
                     // 存量选了被删主题的由 AppConfig 读取处兜底改选绿色。「默认」档 10-12 已退役不列出。
                     AppTheme.values().filter { it != AppTheme.DEFAULT }.forEach {
-                        val leadingIcon: @Composable () -> Unit =
-                            { Icon(Icons.Default.Check, stringResource(R.string.theme)) }
                         val selected = currentTheme.id == it.id
                         FilterChip(
                             selected,
                             modifier = Modifier.padding(horizontal = 2.dp),
-                            leadingIcon = if (selected) leadingIcon else null,
+                            // 11-10 用户令「选中后的这个对勾也删掉」：撤 leadingIcon 对勾，
+                            // 选中态只靠 FilterChip 自带的底色/描边表达
+                            leadingIcon = null,
                             onClick = {
                                 if (it == AppTheme.DYNAMIC_COLOR && Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
                                     showWarn = true
