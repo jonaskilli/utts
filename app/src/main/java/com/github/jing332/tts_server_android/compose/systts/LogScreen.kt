@@ -29,6 +29,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckBox
 import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
@@ -59,6 +60,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
@@ -79,7 +81,6 @@ import androidx.compose.ui.unit.sp
 import androidx.core.text.HtmlCompat
 import com.github.jing332.tts_server_android.compose.theme.isAppInDarkTheme
 import com.github.jing332.tts_server_android.compose.theme.AppShapes
-import com.github.jing332.common.ACCENT_GREEN
 import com.github.jing332.common.LogEntry
 import com.github.jing332.common.LogLevel
 import com.github.jing332.common.toLogLevelChar
@@ -546,7 +547,7 @@ internal fun LogScreen(
         // 退役——行流恢复级别色/来源色（插件灰青/规则灰紫可见）
         val darkTheme = isAppInDarkTheme()
         // 10-10 行流改版：卡片容器全撤，cardBg 三档随卡同亡；报错信号改由
-        // 失败红字+红原因字承担（StatusText）
+        // 失败红胶囊+红原因字承担（StatusPill，11-10 四改恢复胶囊）
         // 获取成功前缀：石板灰 Blue Grey 800/200
         // 发音人信息：棕褐 #7D6B5D / 深色主题 #A08B7A
         // 11-10 二改（用户实锤「声音信息当时有原本的颜色」）：这四色**是信息类别色**，
@@ -743,11 +744,11 @@ internal fun LogScreen(
                                         // 切备用、失败主行=失败——失败链单条化后丸跟着各行走；
                                         // 插件/规则/系统消息/源错误子行裸行 pillOf 返回 null 不渲染
                                         pillOf(log, item.index)?.let {
-                                            Box(Modifier.padding(start = 8.dp)) { StatusText(it) }
+                                            Box(Modifier.padding(start = 6.dp)) { StatusPill(it) }
                                         }
                                     }
                                     // ⚠️ 级别字母（I/W/E）整删（10-10 用户令「W,I 这种字母都删除」）：
-                                    // 状态字已承担状态表达,字母冗余
+                                    // 胶囊已承担状态表达,字母冗余
                                     // 「回原位」定位键（10-10 装机反馈用户令，10-11 用户令换显示）：
                                     // 筛选/搜索态裸行同样可跳回完整流原位（此前只有请求组头行有，
                                     // 插件/规则日志搜到后没键回不去）；弹簧顶最右，样式同组头行。
@@ -919,31 +920,30 @@ internal fun LogScreen(
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                         // 状态链（10-12 三改，用户令「这个乘几是不是错误的改法…干脆去掉吧；
-                                        // 重试要不要另外起一行，你来定吧」；11-10 撤胶囊改纯文字）：
+                                        // 重试要不要另外起一行，你来定吧」；11-10 三改撤过胶囊、同日四改已恢复）：
                                         // ①所有丸一律不带 ×N（两套语义打架，理由见 pillOf 上方注释）；
-                                        // ②重试字**不另起一行**，仍并排在状态字后——用户 10-12 上午刚定过
+                                        // ②重试字**不另起一行**，仍并排在状态胶囊后——用户 10-12 上午刚定过
                                         //   「重试和失败是紧密联系的，别单独占一行」，另起行会把一次失败
                                         //   撑成三行，听书时刷屏；并排时「失败 重试」已把过程说清。
                                         // ③「失败×N」第三枚累计丸整撤（它就是用户点名那个乘几）。
-                                        // 元素次序维持「时间 → 状态 → 尾串」（10-12 用户令「其他不变」）：
+                                        // 元素次序维持「时间 → 胶囊 → 尾串」（10-12 用户令「其他不变」）：
                                         // 曾把成功字提到时间前，用户明确否掉，别再动。
                                         val retryPill = if (item.retryCount > 0)
                                             LogPill(LogPillKind.RETRY, "重试") else null
                                         pillShown?.let {
-                                            Box(Modifier.padding(start = 8.dp)) { StatusText(it) }
+                                            Box(Modifier.padding(start = 6.dp)) { StatusPill(it) }
                                         }
                                         // 成功但重试过：过程同样要看得见 → 「成功 重试」
                                         retryPill?.let {
-                                            Box(Modifier.padding(start = 8.dp)) { StatusText(it) }
+                                            Box(Modifier.padding(start = 6.dp)) { StatusPill(it) }
                                         }
-                                        // 状态字后的灰字（成功=「耗时，大小」/失败主行=截短原因），留 8dp 隙。
-                                        // 11-10 三改：撤胶囊后状态与尾串之间**只用空格分隔**（用户定）——
-                                        // 不加逗号也不加中点。理由：尾串内部已有中文逗号分隔耗时/大小，
-                                        // 外面再来一层符号会把「状态 + 一组数据」读成三个并列项。
+                                        // 胶囊后的灰字（成功=「耗时，大小」/失败主行=截短原因），留 6dp 隙。
+                                        // 11-10 四改恢复胶囊后，胶囊与尾串之间靠 6dp 间隙分隔（不再靠空格）；
+                                        // 三改期间"只用空格"的口径随胶囊一起作废。
                                         // 10-12 用户令「后两项交换下位置，并用逗号隔开，其他不变」：
                                         // 重排已在 tailTextOfRow 里做完（1.2s，103.0 KB），此处只管画。
                                         // 10-13 深夜用户令「胶囊后边的文字大小跟时间大小不一致」：13sp→12sp，
-                                        // 与同一行的时间栏（12sp）和状态字（12sp）统一。
+                                        // 与同一行的时间栏（12sp）和胶囊内文字（12sp）统一。
                                         // 失败原因红=旧正宗红 #F44336（10-10 用户令「错误的红色要用
                                         // 以前正宗的红色」——colorScheme.error 在动态取色下偏暗紫红）
                                         if (tailText != null) {
@@ -1189,54 +1189,69 @@ private fun tailTextOfRow(e: LogEntry): String? {
 internal enum class LogPillKind { OK, FAIL, RETRY, STANDBY }
 internal data class LogPill(val kind: LogPillKind, val text: String)
 
-// 状态药丸（10-10 行流定稿）：丸只装状态字，成功绿/失败红/重试灰/切备用黄；
+// 状态药丸（10-10 行流定稿；11-10 四改：成功改主题主色，其余三态不变）：丸只装状态字；
 // 丸后灰字（耗时·大小/失败原因）由调用方另排。
 // ⚠️ 不用 Pair 解构（when 分支混用 to 与 if 表达式时编译器推成 Any）——分两个 when
 /**
- * 行头状态字（11-10 三改，用户令「成功或失败都不要这个胶囊了」）。
+ * 行头状态胶囊（11-10 深夜四改：用户令「只把胶囊加回去，成功的颜色改成主题色」）。
  *
- * ## 为什么撤掉胶囊
+ * ## 沿革（别再反复）
  *
- * 胶囊的作用是「从混排里把某个状态拎出来，做成一块可扫视的凸起」。这里两个前提都不成立：
+ * 10-11 淡底重字定稿 → 11-10 三改撤胶囊改纯文字 → **11-10 四改恢复胶囊**。
+ * 三改的撤除理由是「多数派不需要色块」，但用户实机看完一圈（含纯文字对比图）后
+ * 明确要回胶囊形态——胶囊是这套日志的识别特征，撤掉后行头散、不好扫。已按用户令恢复。
+ * ⚠️ 不要再自作主张撤掉。
  *
- * - **没有混排**：行头是「时间 / 状态 / 耗时大小」三段，本来就靠间距分开，不需要底色块
- *   来切分边界。
- * - **是多数派而非少数派**：一屏 7~8 条里 95% 以上是成功。底色块只给"少见的那一行"加重量
- *   才有突出作用；每一行都挂，等于在最常见的位置上加了最重的形态，反而变成一条竖排的
- *   规律色带——压过眼睛、却不传递信息。
+ * ## 成功 = 主题主色（本次唯一改色项）
  *
- * 去掉后状态靠**字色**表达（成功绿/失败红/重试灰/切备用琥珀），"突出"改由色相与稀有度
- * 承担：一屏白纸里冒出一段红，比一堆绿块里夹一段红显眼得多。
+ * 原成功字 #4CAF50 是固定绿、不跟主题，在紫/蓝/黑主题下与界面割裂。改取
+ * `colorScheme.primary`，换主题时整排「成功」跟着变。
  *
- * ## 形态
+ * 代价如实记录：绿色主题下主色 #109D58 对淡底只有约 3.2:1（低于正文 4.5），
+ * 这是**用户明确选择**的结果，不是疏漏，别再顺手"修正"回 #4CAF50。
  *
- * 纯文字 + 12sp（与时间栏同档），与后随尾串之间只用**空格**分隔（用户 11-10 定：
- * 不加逗号也不加中点——尾串内部已有中文逗号分隔耗时/大小，再加符号会把两层结构读成
- * 三个并列项）。间距由调用方 padding 给。
- *
- * ⚠️ 别再改回胶囊：用户明确否过。四态共用本函数，要改一起改。
+ * 胶囊底同理跟着主色走（页底混 8% 主色），否则蓝主题会出现"蓝字压淡绿底"的撞色。
+ * 失败/重试/切备用三态**完全不动**：语义色（红=错）不随主题漂。
  */
 @Composable
-private fun StatusText(pill: LogPill) {
+private fun StatusPill(pill: LogPill) {
     val dark = isAppInDarkTheme()
+    val primary = MaterialTheme.colorScheme.primary
     val fg = when (pill.kind) {
-        // 成功字色（10-13 用户定稿，11-10 保留）：全站强调绿 ACCENT_GREEN。
-        // 注：该绿对白底 2.78:1 偏低，但用户 10-13 明确点过这个绿、11-10 撤胶囊后
-        // 实机也未提异议——**别擅自换**，要改先问。
-        LogPillKind.OK -> Color(ACCENT_GREEN)
+        // 成功 = 主题主色（11-10 四改，用户令）。深浅由主题自己给（深色主题的 primary
+        // 本身就是提亮档），不再另配深色值。
+        LogPillKind.OK -> primary
         LogPillKind.FAIL -> Color(0xFFC62828)
         LogPillKind.RETRY -> if (dark) Color(0xFF9AA0A8) else Color(0xFF4A5568)
         LogPillKind.STANDBY -> if (dark) Color(0xFFC9A94E) else Color(0xFF9A7B14)
     }
-    Text(
-        text = pill.text,
-        style = MaterialTheme.typography.labelSmall.copy(
-            fontSize = 12.sp,
-            lineHeight = 12.sp,
-            fontWeight = FontWeight.Medium,
-        ),
-        color = fg,
-    )
+    val bg = when (pill.kind) {
+        // 成功底随主色：页底混 8% 主色，自动带当前主题色相（原固定淡绿 #F2F8F4 在
+        // 蓝/紫主题下会与主色字撞色）
+        LogPillKind.OK -> lerp(MaterialTheme.colorScheme.background, primary, 0.08f)
+        LogPillKind.FAIL -> Color(0xFFFDEEED)
+        LogPillKind.RETRY -> if (dark) Color(0xFF2A2D33) else Color(0xFFF3F5F8)
+        LogPillKind.STANDBY -> if (dark) Color(0xFF3A3226) else Color(0xFFFDF7E7)
+    }
+    // Box 居中（10-12 用户令「字一定要居中对齐」）：Text 直接挂 padding 时字形上下留白
+    // 随字重/基线浮动，视觉偏上；Box(contentAlignment=Center) + 内衬给 Box 才几何居中。
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(bg)
+            .padding(horizontal = 10.dp, vertical = 3.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = pill.text,
+            style = MaterialTheme.typography.labelSmall.copy(
+                fontSize = 12.sp,
+                lineHeight = 12.sp,
+                fontWeight = FontWeight.Medium,
+            ),
+            color = fg,
+        )
+    }
 }
 
 // 单条日志正文渲染：HTML → AnnotatedString + 哨兵色重映射，级别色或指定色
