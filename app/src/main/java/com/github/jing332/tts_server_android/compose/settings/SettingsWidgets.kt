@@ -119,8 +119,9 @@ internal fun DividerPreference(title: @Composable () -> Unit) {
                 .align(Alignment.Start)
         ) {
             CompositionLocalProvider(
+                // 11-10 八改（C 方案）：分区标题 primary → 中性深灰，与 SettingsGroup 头部同口径
                 LocalTextStyle provides MaterialTheme.typography.titleSmall.copy(
-                    color = MaterialTheme.colorScheme.primary
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 ),
             ) {
                 title()
@@ -165,12 +166,18 @@ internal fun SettingsGroup(
     // 折叠态用 rememberSaveable：转屏/进程重启后保持用户当场的选择
     var expanded by rememberSaveable { mutableStateOf(defaultExpanded) }
     Column(modifier.fillMaxWidth()) {
-        // 分区小标题：titleSmall + primary（与 DividerPreference 同款，本页现成的分区习语）
+        // 分区小标题（11-10 八改，用户选 C 方案）：primary → onSurfaceVariant 中性深灰。
+        //
+        // 原来是一屏里第三处主题色（图标列、分区标题、底栏选中态），三处抢注意力。
+        // 图标是「功能标识」，染主题色合理（它代表 App 身份）；而分区标题只是分组标签，
+        // 不需要也带色——压成中性后 6 行彩色图标反而更突出，符合 C 方案
+        //「内容面一律中性、主题色只留该留的」基调。
+        //
         // 卡片外、左缘与卡片边对齐（卡边 8 + 4）
         if (showHeader) {
             CompositionLocalProvider(
                 LocalTextStyle provides MaterialTheme.typography.titleSmall.copy(
-                    color = MaterialTheme.colorScheme.primary
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 ),
             ) {
                 Row(
