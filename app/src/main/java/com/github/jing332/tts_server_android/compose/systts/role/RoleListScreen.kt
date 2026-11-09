@@ -166,6 +166,32 @@ private val BOOK_NAME_COLOR = Color(0xFF333333)
 @Composable
 internal fun softContainerColor(): Color = MaterialTheme.colorScheme.secondaryContainer
 
+/**
+ * 浅色填充条（书籍框 / 显示名标签框共用·11-10 十四改）。
+ *
+ * ## 为什么抽成一个函数
+ *
+ * 用户令「书籍框调成和标签框一样的中淡绿」。两者在角色页上是相邻的两个可点条状物，
+ * 浓度必须**永远一致**——写成两处 `lerp(..., 0.10f)` 也能跑，但以后调浓度时
+ * 极容易只改一处，又变成"一大一小两档绿"（这正是 12 改之前的毛病）。
+ * 抽成单源后，改浓度只改下面这个 0.10f。
+ *
+ * ## 公式
+ *
+ * 卡底（surfaceContainerLow，中性灰·用户 04:39 定）往主色混 10%。
+ * - 起点是**卡底**而不是 Highest：Highest 本身 L≈0.92，再混主色会掉到 0.86，发暗发脏。
+ * - 混的是 primary 而不是从 secondaryContainer 取：用户 06:10 从五档里选定的
+ *   就是「卡底混 10%」这一档（绿 ≈ #E2F0E9），这里只是把它复用给书籍框。
+ *
+ * 四套主题自动成立，各自带自己色相（绿 #E2F0E9 / 紫 / 蓝 / 深灰）。
+ */
+@Composable
+internal fun softFillBarColor(): Color = lerp(
+    MaterialTheme.colorScheme.surfaceContainerLow,
+    MaterialTheme.colorScheme.primary,
+    0.10f
+)
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun RoleListScreen(
@@ -310,20 +336,25 @@ fun RoleListScreen(
         }
         Surface(
             shape = AppShapes.lg,
-            // 书栏底色（11-10 十二改，用户令「三处都恢复以前的绿」）：
-            // 回到 10-13 定稿的公式 lerp(secondaryContainer, surfaceContainerLow, 0.25f)，
-            // GREEN 浅色 ≈ #DFF3E6（旧版显示 #DEF4E5，差 1 个色阶，肉眼无差）。
+            // 书栏底色（11-10 十四改，用户令「调成和标签框一样的中淡绿」）：
+            // 与角色行显示名标签框**同一个公式、同一个浓度**——
+            // lerp(surfaceContainerLow, primary, 0.10f)，GREEN 浅色 ≈ #E2F0E9
+            //（L=0.943 / C=0.018）。
             //
-            // ## 为什么是 secondaryContainer 而不是 secondaryContainer 混 primary
+            // ## 为什么改成和标签框一致
             //
-            // 六改/十改两次都走"卡底混 primary"，结果绿淡到 C=0.010~0.018（以前的 1/2~1/3），
-            // 用户实拍「填充色也得回原来」。根因：**primary 是深色、混进浅底只会稀释**，
-            // 而 secondaryContainer 本身就是主题色的浅容器档（绿 #D6F1DF / 紫 #EEE5FF /
-            // 蓝 #DEEAFF），它就是为"浅而有彩"设计的槽。从它推导，四套主题自动成立。
+            // 十二改曾用 10-13 旧公式 lerp(secondaryContainer, Low, 0.25f) → #DFF3E6。
+            // 那个值**彩度其实不低（0.027）、但明度 0.946 是几档里最亮的**，
+            // 所以用户实拍「书籍框这个填充色太浅了」——问题在明度不在彩度。
+            // 统一成标签框那档后：明度降到 0.943、与标签完全同色，
+            // 页面上"书籍条 / 标签"两个可点块连成一套语汇，不再一大一小两档绿。
+            //
+            // ⚠️ 抽成 bookBarFillColor() 是为了让标签框和书籍框**永远同步**：
+            // 以后调浓度只改这一处，不会出现"改了标签忘了书籍框"。
             //
             // 卡底（surfaceContainerLow）保持中性灰不动——那是用户 04:39 定下的；
             // 本处只是"从灰卡底上浮起一块带主题色的条"，不改卡底本身。
-            color = lerp(softContainerColor(), MaterialTheme.colorScheme.surfaceContainerLow, 0.25f),
+            color = softFillBarColor(),
             modifier = Modifier
                 .fillMaxWidth()
                 // 卡缘 = ListGutter 16（v3 边距统一）：与搜索框描边/列表行同线，
@@ -1173,19 +1204,19 @@ private fun RoleRow(
                         // 同时与 TTS 列表的分类标签（Item.kt TagScreen，原 6dp）统一到同一档。
                         Surface(
                             shape = AppShapes.md,
-                            // 标签底（11-10 十二改，用户令「三处都恢复以前的绿」）：
-                            // 回到旧版口径 secondaryContainer 本色（绿 #D6F1DF / 紫 #EEE5FF /
-                            // 蓝 #DEEAFF / 黑 #E9EAEE）——就是 11-08 实拍里那块淡绿。
+                            // 标签底（11-10 十三改：**恢复用户自己选的档位**）：
+                            // 这是 06:10 用户从五个候选里明确选定「③ 中淡绿」的产物——
+                            // **卡底混 primary 10%**，绿主题 ≈ #E2F0E9（L=0.943 / C=0.018）。
                             //
-                            // 九改曾改成"卡底混 primary 10%"（#E2F0E9，C=0.018），
-                            // 只有以前的 1/2 彩度，用户实拍嫌淡。根因同书籍框：
-                            // primary 是深色，混进浅底只会把颜色稀释成灰绿。
-                            // secondaryContainer 是主题色自带的**浅容器档**，直接用即可。
+                            // ⚠️ 十二改曾误把它改回 secondaryContainer 本色 #D6F1DF，
+                            // 理由写的是"恢复以前的绿"，但用户澄清：「显示名的填充色我没有
+                            // 问题，这个我还专门调过」——它不属"要恢复"的范围，是已定稿项。
+                            // 已按用户令回退。**别再动这个值。**
                             //
                             // 失效标签（voiceName==null）仍走 surfaceContainer：失效态本就该
                             // 无彩，与可换声的彩色标签形成区分，这个反差不该抹掉。
                             color = if (voiceName == null) MaterialTheme.colorScheme.surfaceContainer
-                                    else softContainerColor(),
+                                    else softFillBarColor(),
                             modifier = Modifier
                                 .combinedClickable(
                                     onClick = onTagClick,
