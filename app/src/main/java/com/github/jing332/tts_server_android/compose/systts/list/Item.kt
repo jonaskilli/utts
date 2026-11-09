@@ -225,7 +225,12 @@ internal fun Item(
 
                 HtmlText(
                     text = params,
-                    style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant),
+                    // 11-10 十一改（用户令「就参照以前 hunyuan 分支的来改」）：
+                    // onSurfaceVariant → onBackground，与上方 desc 同级。
+                    // 混元分支的 desc 与 params 都是 onBackground——两者同属「卡的正文信息」，
+                    // 不该分两档灰。此前 params 被压成 onSurfaceVariant（中灰），
+                    // 造成同一张卡里正文两种深浅。
+                    style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onBackground),
                 )
             }
 
@@ -396,13 +401,12 @@ internal fun Item(
                 Text(
                     text = type.limitLength(12, "…"),
                     style = MaterialTheme.typography.labelMedium,
-                    // 插件名（11-10 十改，用户选 A 方案）：tertiary → secondary。
-                    // 原因：C 方案把卡底从「带绿 #F4FBF6」改成「纯灰 #F9F9F9」后，
-                    // 原来被绿底调和掉的青蓝 tertiary（色相 216°，比主题绿 152° 偏 64 度）
-                    // 成了整张卡唯一的异色，看着"都不一样"。
-                    // 改 secondary（绿灰 151°）后全卡统一主题色相，只靠明度分层
-                    //（标题 onBackground → 参数行 onSurfaceVariant → 采样率/插件 secondary）。
-                    color = MaterialTheme.colorScheme.secondary,
+                    // 插件名（11-10 十一改，回混元口径）：secondary → tertiary。
+                    // 十改曾为「统一卡内色相」改成 secondary，但那偏离了混元分支的原始设计——
+                    // 混元里插件名就是 tertiary（青蓝），与分类标签的 secondary（绿灰）本就分属两类：
+                    // 插件名是「来源标识」，分类标签是「归属标识」，色相不同是有意为之。
+                    // 用户令「就参照以前 hunyuan 分支的来改」，故回 tertiary。
+                    color = MaterialTheme.colorScheme.tertiary,
                     // 插件名按字符数截短（12字+省略号，中文字符宽度统一可预测），
                     // 右侧留 8dp 空隙避免与左侧采样率标签贴死
                     maxLines = 1,
