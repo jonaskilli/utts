@@ -674,9 +674,26 @@ internal fun LogScreen(
                                 modifier = Modifier
                                     .padding(start = 7.dp, top = 10.dp, bottom = 4.dp)
                                     .background(
-                                        // 10-10 纯白表归位：日期签=信息标签走灰阶 #EEEEEE，
-                                        // surfaceVariant 未被新管线覆写、绿主题下带绿灰
-                                        MaterialTheme.colorScheme.surfaceContainerHighest,
+                                        // 日期签底色（11-10 十二改，用户令「三处都恢复以前的绿」）。
+                                        //
+                                        // 直接取 surfaceContainerHighest 是错的：该槽在 04:39
+                                        // 中性化后四套主题全被压成 C=0.002 的灰（绿 #E4E6E5 /
+                                        // 紫 #E6E5E7 / 蓝 #E5E5E7 / 黑 #E5E5E5），以前是
+                                        // 绿 #DAF1E1 / 紫 #F0DEFB，彩度差 13 倍。
+                                        //
+                                        // 但**不能改 Highest 槽本身**——它还同时供给
+                                        // TtsLogScreen 的 UNKNOWN 级别色、VoicePickerDialog 的
+                                        // 只读字段底，一改三处一起变。故日期签单独推导：
+                                        // secondaryContainer（主题浅容器档）往卡底混 10%，
+                                        // 绿 → #DAF2E2（L=0.939 / C=0.033，与旧值 #DAF1E1
+                                        // L=0.937 / C=0.032 基本重合）。
+                                        // 四套主题同一算式，各自带自己的色相（紫 #EFE7FE /
+                                        // 蓝 #E1ECFE / 黑 #EBECEF 仍近中性，符合黑色主题无彩定位）。
+                                        lerp(
+                                            MaterialTheme.colorScheme.secondaryContainer,
+                                            MaterialTheme.colorScheme.surfaceContainerLow,
+                                            0.10f
+                                        ),
                                         AppShapes.md
                                     )
                                     .padding(horizontal = 9.dp, vertical = 2.dp)

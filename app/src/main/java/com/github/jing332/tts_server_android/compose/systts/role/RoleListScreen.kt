@@ -310,20 +310,20 @@ fun RoleListScreen(
         }
         Surface(
             shape = AppShapes.lg,
-            // 书栏底色（11-10 六改，用户令「绿色主题的书籍框填充色我不满意」→ 改中性灰）：
-            // 原为 lerp(secondaryContainer, surfaceContainerLow, 0.25f)，GREEN 下是淡绿 #DEF3E5，
-            // 与 C 方案「内容面一律中性」的基调冲突——页面里只有这一块还带主题色，显眼且突兀。
-            // 11-10 十改（用户令「标签给了颜色，上面的书籍框也得换」）：
-            // 纯中性灰 → 极淡主题色。原方案下页面里"标签有色、书籍框无色"是断裂的——
-            // 两者都是可点条状物，却一灰一彩。
-            // 按**面积定浓淡**排三层：书籍框最宽最淡（混 5.5%，绿≈#F1F6F2，C=0.010）
-            // → 标签中等（混 10%，#E2F0E9，C=0.018）→ 分组序号最实（secondaryContainer，
-            // C=0.037，且与底部导航选中胶囊同源）。面积越小越浓，是正确方向。
-            color = lerp(
-                MaterialTheme.colorScheme.surfaceContainerLow,
-                MaterialTheme.colorScheme.primary,
-                0.055f
-            ),
+            // 书栏底色（11-10 十二改，用户令「三处都恢复以前的绿」）：
+            // 回到 10-13 定稿的公式 lerp(secondaryContainer, surfaceContainerLow, 0.25f)，
+            // GREEN 浅色 ≈ #DFF3E6（旧版显示 #DEF4E5，差 1 个色阶，肉眼无差）。
+            //
+            // ## 为什么是 secondaryContainer 而不是 secondaryContainer 混 primary
+            //
+            // 六改/十改两次都走"卡底混 primary"，结果绿淡到 C=0.010~0.018（以前的 1/2~1/3），
+            // 用户实拍「填充色也得回原来」。根因：**primary 是深色、混进浅底只会稀释**，
+            // 而 secondaryContainer 本身就是主题色的浅容器档（绿 #D6F1DF / 紫 #EEE5FF /
+            // 蓝 #DEEAFF），它就是为"浅而有彩"设计的槽。从它推导，四套主题自动成立。
+            //
+            // 卡底（surfaceContainerLow）保持中性灰不动——那是用户 04:39 定下的；
+            // 本处只是"从灰卡底上浮起一块带主题色的条"，不改卡底本身。
+            color = lerp(softContainerColor(), MaterialTheme.colorScheme.surfaceContainerLow, 0.25f),
             modifier = Modifier
                 .fillMaxWidth()
                 // 卡缘 = ListGutter 16（v3 边距统一）：与搜索框描边/列表行同线，
@@ -1173,20 +1173,19 @@ private fun RoleRow(
                         // 同时与 TTS 列表的分类标签（Item.kt TagScreen，原 6dp）统一到同一档。
                         Surface(
                             shape = AppShapes.md,
-                            // 标签底（11-10 九改，用户从五档里选定「③ 中淡绿」）：
-                            // 不能直接抬高 surfaceContainerHighest 的彩度——那个槽还被日志日期签、
-                            // 换声弹窗分类字段、标记 chip、Switch 轨道等 6 处共用，一改全绿，
-                            // 与 C 方案「内容面一律中性」冲突。
-                            // 故标签单独推导：**卡片底往主色混 10%**，绿主题 ≈ #E2F0E9
-                            //（L=0.943 / C=0.018，约为旧版淡绿 #DAF1E1 的 6 成）。
-                            // ⚠️ 基准必须是 surfaceContainerLow（卡底，最亮的内容面）而不是 Highest：
-                            // Highest 本身 L≈0.92，再混主色会掉到 0.86 附近，标签发暗发脏。
+                            // 标签底（11-10 十二改，用户令「三处都恢复以前的绿」）：
+                            // 回到旧版口径 secondaryContainer 本色（绿 #D6F1DF / 紫 #EEE5FF /
+                            // 蓝 #DEEAFF / 黑 #E9EAEE）——就是 11-08 实拍里那块淡绿。
+                            //
+                            // 九改曾改成"卡底混 primary 10%"（#E2F0E9，C=0.018），
+                            // 只有以前的 1/2 彩度，用户实拍嫌淡。根因同书籍框：
+                            // primary 是深色，混进浅底只会把颜色稀释成灰绿。
+                            // secondaryContainer 是主题色自带的**浅容器档**，直接用即可。
+                            //
+                            // 失效标签（voiceName==null）仍走 surfaceContainer：失效态本就该
+                            // 无彩，与可换声的彩色标签形成区分，这个反差不该抹掉。
                             color = if (voiceName == null) MaterialTheme.colorScheme.surfaceContainer
-                                    else lerp(
-                                        MaterialTheme.colorScheme.surfaceContainerLow,
-                                        MaterialTheme.colorScheme.primary,
-                                        0.10f
-                                    ),
+                                    else softContainerColor(),
                             modifier = Modifier
                                 .combinedClickable(
                                     onClick = onTagClick,
