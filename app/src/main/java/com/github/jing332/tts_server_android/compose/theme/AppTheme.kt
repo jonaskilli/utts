@@ -4,17 +4,34 @@ import androidx.compose.ui.graphics.Color
 import com.github.jing332.tts_server_android.R
 
 /**
- * 11-08 用户令（三轮收敛后终态）：红/蓝退役，保留绿/粉/橙/青/紫/棕/灰 + 动态颜色八档，
- * 存量选了被删主题的由 AppConfig 读取处兜底改选绿色。
+ * 主题清单（11-10 重做，用户令「按推荐方案开工」）。
+ *
+ * 八套静态主题 + 动态颜色：青竹（原绿）/ 藕粉（原粉）/ 暮紫（原紫）为老主题重调，
+ * 雾蓝 / 黛青 / 松石 / 琥珀 / 石墨 为 11-10 按 dsh-Go 的配色体系新增。
+ * 每套的色板由同一张 OKLCH 明度表推出（见 Color2.kt 顶部注释），新增一套 =
+ * ①本枚举加项 ②Color2 加色板 ③SurfaceTones 加两行 ④AppThemeConfiguration 加函数
+ * ⑤Theme.kt when 加分支 ⑥strings.xml 中英加名字（六处，缺一处编译或运行就断）。
  *
  * DEFAULT（id=""）保留在枚举里但任何 UI 都不列出：它是存量数据「最早版本无主题设置」
  * 的占位值，删掉会让 AppConfig 的 values().find 对旧存量返回 null 走 GREEN 兜底——
  * 结果一样但每次启动都丢一次持久化值；留着则升级路径平直。
+ *
+ * color 字段=主题选择器上那个小色点（取浅色主色）：
+ * 旧版这里放的是各主题原始 seed，粉 #FA7298 亮到在白底卡片上看不清；现统一取新 seed。
  */
 enum class AppTheme(val id: String, val stringResId: Int = -1, val color: Color) {
     DEFAULT("", R.string.theme_default, green_seed),
     DYNAMIC_COLOR("dynamicColor", R.string.dynamic_color, Color.Unspecified),
-    GREEN("green", R.string.green, green_seed),
-    PINK("pink", R.string.pink, pink_seed),
-    PURPLE("purple", R.string.purple, purple_seed),
+
+    // —— 老主题重调（三套）——
+    GREEN("green", R.string.theme_green, green_seed),
+    PINK("pink", R.string.theme_pink, pink_seed),
+    PURPLE("purple", R.string.theme_purple, purple_seed),
+
+    // —— 新增（五套，色相/彩度取自 dsh-Go）——
+    MIST("mist", R.string.theme_mist, mist_seed),
+    DAIQING("daiqing", R.string.theme_daiqing, daiqing_seed),
+    TURQUOISE("turquoise", R.string.theme_turquoise, turquoise_seed),
+    AMBER("amber", R.string.theme_amber, amber_seed),
+    GRAPHITE("graphite", R.string.theme_graphite, graphite_seed),
 }

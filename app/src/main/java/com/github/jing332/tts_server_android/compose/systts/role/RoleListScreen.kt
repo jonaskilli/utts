@@ -77,7 +77,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.lerp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.drake.net.utils.withIO
-import com.github.jing332.common.ACCENT_GREEN
 import com.github.jing332.compose.widgets.ControlBottomBarVisibility
 import com.github.jing332.database.dbm
 import com.github.jing332.database.entities.systts.SystemTtsV2
@@ -1141,7 +1140,9 @@ private fun RoleRow(
                         // 十主题深浅色自动成立
                         Surface(
                             shape = RoundedCornerShape(8.dp),
-                            color = if (voiceName == null) Color(0xFFEDEDED)
+                            // 11-10 主题化：失效态的 #EDEDED 没有深色分支（深色主题上是块刺眼的白），
+                            // 改 surfaceContainerHigh——它已经在 SurfaceTones 里按主题算过深浅两档
+                            color = if (voiceName == null) MaterialTheme.colorScheme.surfaceContainerHigh
                                     else MaterialTheme.colorScheme.surfaceContainerHighest,
                             modifier = Modifier
                                 .combinedClickable(
@@ -1168,7 +1169,10 @@ private fun RoleRow(
                                     // 11-09 用户令「标签内的字重太重了」：撤 SemiBold
                                     // 回 normal——灰底已提供块感，加粗叠加太重
                                 ),
-                                color = if (voiceName == null) Color(0xFF9E9E9E)
+                                // 11-10：字色维持 primary。实测 secondary 压在标签底上只有 3.58:1
+                                // （低于 4.5），primary 是 4.63——标签是承载信息的主体，宁可同色也不降可读。
+                                // 与 ▶/全选 撞色无妨：它们面积小、且不在同一视觉带。
+                                color = if (voiceName == null) MaterialTheme.colorScheme.onSurfaceVariant
                                         else MaterialTheme.colorScheme.primary,
                                 maxLines = 1,
                                 overflow = TextOverflow.Clip,
@@ -1329,7 +1333,9 @@ private fun ReleaseDialog(
                                 processed.value = processed.value + name
                                 onFix(rec.name, name)
                             }) {
-                                Text(stringResource(R.string.role_release_fix), color = Color(ACCENT_GREEN))
+                                // 11-10 主题化：原为写死的全站绿 #4CAF50（紫主题下仍绿），
+                                // 改主题主色——这是"修复"这个正向动作，用主色比语义绿更贴界面
+                                Text(stringResource(R.string.role_release_fix), color = MaterialTheme.colorScheme.primary)
                             }
                             TextButton(onClick = {
                                 processed.value = processed.value + name

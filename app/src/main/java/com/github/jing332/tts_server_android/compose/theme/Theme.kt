@@ -28,11 +28,18 @@ fun appTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     context: Context = LocalContext.current,
 ): ColorScheme {
+    // 11-10：静态主题从 3 套扩到 8 套。when 必须穷举（AppTheme 是 enum），
+    // 新增主题时这里漏写一支 = 编译期直接报 when exhaustiveness，不会静默漏掉
     val base = when (themeType) {
         AppTheme.DEFAULT, AppTheme.GREEN -> greenTheme(darkTheme)
         AppTheme.DYNAMIC_COLOR -> dynamicColorTheme(darkTheme, context)
         AppTheme.PINK -> pinkTheme(darkTheme)
         AppTheme.PURPLE -> purpleTheme(darkTheme)
+        AppTheme.MIST -> mistTheme(darkTheme)
+        AppTheme.DAIQING -> daiqingTheme(darkTheme)
+        AppTheme.TURQUOISE -> turquoiseTheme(darkTheme)
+        AppTheme.AMBER -> amberTheme(darkTheme)
+        AppTheme.GRAPHITE -> graphiteTheme(darkTheme)
     }
     // 动态取色（Android 12+ 壁纸派生）：浅色同样走纯白底（与静态主题同口径），深色用官方暗表现算
     return if (themeType == AppTheme.DYNAMIC_COLOR) dynamicNeutral(base, darkTheme) else themedNeutral(base, themeType, darkTheme)

@@ -15,8 +15,19 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 
+/* ============================================================================
+ * 每套静态主题 → ColorScheme（11-10 重做）
+ *
+ * 八套主题的槽位全部由同一张 OKLCH 表推出（生成器=临时文件 gen2.py），
+ * 所以这里每个函数长得一模一样，只有前缀不同——**别在这手改色值**，
+ * 要调就改 Color2.kt / SurfaceTones.kt 的表，两边是同一批数。
+ *
+ * 与旧版的区别：旧版 lightColorScheme 的 primary 取 `*_seed`、
+ * 但表里还留着一份零引用的 `*_md_theme_light_primary`（误导）；本次只留 seed 一份。
+ * ========================================================================== */
+
 /**
- * 动态颜色主题（Android 12 以下无壁纸取色 API，回落绿色——11-08 起仅剩绿色+动态两档）
+ * 动态颜色主题（Android 12 以下无壁纸取色 API，回落青竹——与默认静态主题同观感）
  */
 @Composable
 fun dynamicColorTheme(
@@ -38,7 +49,13 @@ fun greenTheme(
     if (!darkTheme)
         lightColorScheme(
             primary = green_seed,
-            onPrimary = green_md_theme_light_onPrimary,
+            onPrimary = Color(0xFFFFFFFF),
+            error = md_theme_light_error,
+            onError = md_theme_light_onError,
+            errorContainer = md_theme_light_errorContainer,
+            onErrorContainer = md_theme_light_onErrorContainer,
+            surfaceTint = green_seed,
+            scrim = md_theme_scrim,
             primaryContainer = green_md_theme_light_primaryContainer,
             onPrimaryContainer = green_md_theme_light_onPrimaryContainer,
             secondary = green_md_theme_light_secondary,
@@ -49,23 +66,17 @@ fun greenTheme(
             onTertiary = green_md_theme_light_onTertiary,
             tertiaryContainer = green_md_theme_light_tertiaryContainer,
             onTertiaryContainer = green_md_theme_light_onTertiaryContainer,
-            error = green_md_theme_light_error,
-            errorContainer = green_md_theme_light_errorContainer,
-            onError = green_md_theme_light_onError,
-            onErrorContainer = green_md_theme_light_onErrorContainer,
             background = green_md_theme_light_background,
             onBackground = green_md_theme_light_onBackground,
-            outline = green_md_theme_light_outline,
-            inverseOnSurface = green_md_theme_light_inverseOnSurface,
-            inverseSurface = green_md_theme_light_inverseSurface,
-            inversePrimary = green_md_theme_light_inversePrimary,
-            surfaceTint = green_md_theme_light_surfaceTint,
-            outlineVariant = green_md_theme_light_outlineVariant,
-            scrim = green_md_theme_light_scrim,
             surface = green_md_theme_light_surface,
             onSurface = green_md_theme_light_onSurface,
             surfaceVariant = green_md_theme_light_surfaceVariant,
             onSurfaceVariant = green_md_theme_light_onSurfaceVariant,
+            outline = green_md_theme_light_outline,
+            outlineVariant = green_md_theme_light_outlineVariant,
+            inverseSurface = green_md_theme_light_inverseSurface,
+            inverseOnSurface = green_md_theme_light_inverseOnSurface,
+            inversePrimary = green_md_theme_light_inversePrimary,
         )
     else
         darkColorScheme(
@@ -81,23 +92,23 @@ fun greenTheme(
             onTertiary = green_md_theme_dark_onTertiary,
             tertiaryContainer = green_md_theme_dark_tertiaryContainer,
             onTertiaryContainer = green_md_theme_dark_onTertiaryContainer,
-            error = green_md_theme_dark_error,
-            errorContainer = green_md_theme_dark_errorContainer,
-            onError = green_md_theme_dark_onError,
-            onErrorContainer = green_md_theme_dark_onErrorContainer,
             background = green_md_theme_dark_background,
             onBackground = green_md_theme_dark_onBackground,
-            outline = green_md_theme_dark_outline,
-            inverseOnSurface = green_md_theme_dark_inverseOnSurface,
-            inverseSurface = green_md_theme_dark_inverseSurface,
-            inversePrimary = green_md_theme_dark_inversePrimary,
-            surfaceTint = green_md_theme_dark_surfaceTint,
-            outlineVariant = green_md_theme_dark_outlineVariant,
-            scrim = green_md_theme_dark_scrim,
             surface = green_md_theme_dark_surface,
             onSurface = green_md_theme_dark_onSurface,
             surfaceVariant = green_md_theme_dark_surfaceVariant,
             onSurfaceVariant = green_md_theme_dark_onSurfaceVariant,
+            outline = green_md_theme_dark_outline,
+            outlineVariant = green_md_theme_dark_outlineVariant,
+            inverseSurface = green_md_theme_dark_inverseSurface,
+            inverseOnSurface = green_md_theme_dark_inverseOnSurface,
+            inversePrimary = green_md_theme_dark_inversePrimary,
+            error = md_theme_dark_error,
+            onError = md_theme_dark_onError,
+            errorContainer = md_theme_dark_errorContainer,
+            onErrorContainer = md_theme_dark_onErrorContainer,
+            surfaceTint = green_md_theme_dark_primary,
+            scrim = md_theme_scrim,
         )
 
 /**
@@ -110,7 +121,13 @@ fun pinkTheme(
     if (!darkTheme)
         lightColorScheme(
             primary = pink_seed,
-            onPrimary = pink_md_theme_light_onPrimary,
+            onPrimary = Color(0xFFFFFFFF),
+            error = md_theme_light_error,
+            onError = md_theme_light_onError,
+            errorContainer = md_theme_light_errorContainer,
+            onErrorContainer = md_theme_light_onErrorContainer,
+            surfaceTint = pink_seed,
+            scrim = md_theme_scrim,
             primaryContainer = pink_md_theme_light_primaryContainer,
             onPrimaryContainer = pink_md_theme_light_onPrimaryContainer,
             secondary = pink_md_theme_light_secondary,
@@ -121,23 +138,17 @@ fun pinkTheme(
             onTertiary = pink_md_theme_light_onTertiary,
             tertiaryContainer = pink_md_theme_light_tertiaryContainer,
             onTertiaryContainer = pink_md_theme_light_onTertiaryContainer,
-            error = pink_md_theme_light_error,
-            errorContainer = pink_md_theme_light_errorContainer,
-            onError = pink_md_theme_light_onError,
-            onErrorContainer = pink_md_theme_light_onErrorContainer,
             background = pink_md_theme_light_background,
             onBackground = pink_md_theme_light_onBackground,
-            outline = pink_md_theme_light_outline,
-            inverseOnSurface = pink_md_theme_light_inverseOnSurface,
-            inverseSurface = pink_md_theme_light_inverseSurface,
-            inversePrimary = pink_md_theme_light_inversePrimary,
-            surfaceTint = pink_md_theme_light_surfaceTint,
-            outlineVariant = pink_md_theme_light_outlineVariant,
-            scrim = pink_md_theme_light_scrim,
             surface = pink_md_theme_light_surface,
             onSurface = pink_md_theme_light_onSurface,
             surfaceVariant = pink_md_theme_light_surfaceVariant,
             onSurfaceVariant = pink_md_theme_light_onSurfaceVariant,
+            outline = pink_md_theme_light_outline,
+            outlineVariant = pink_md_theme_light_outlineVariant,
+            inverseSurface = pink_md_theme_light_inverseSurface,
+            inverseOnSurface = pink_md_theme_light_inverseOnSurface,
+            inversePrimary = pink_md_theme_light_inversePrimary,
         )
     else
         darkColorScheme(
@@ -153,23 +164,23 @@ fun pinkTheme(
             onTertiary = pink_md_theme_dark_onTertiary,
             tertiaryContainer = pink_md_theme_dark_tertiaryContainer,
             onTertiaryContainer = pink_md_theme_dark_onTertiaryContainer,
-            error = pink_md_theme_dark_error,
-            errorContainer = pink_md_theme_dark_errorContainer,
-            onError = pink_md_theme_dark_onError,
-            onErrorContainer = pink_md_theme_dark_onErrorContainer,
             background = pink_md_theme_dark_background,
             onBackground = pink_md_theme_dark_onBackground,
-            outline = pink_md_theme_dark_outline,
-            inverseOnSurface = pink_md_theme_dark_inverseOnSurface,
-            inverseSurface = pink_md_theme_dark_inverseSurface,
-            inversePrimary = pink_md_theme_dark_inversePrimary,
-            surfaceTint = pink_md_theme_dark_surfaceTint,
-            outlineVariant = pink_md_theme_dark_outlineVariant,
-            scrim = pink_md_theme_dark_scrim,
             surface = pink_md_theme_dark_surface,
             onSurface = pink_md_theme_dark_onSurface,
             surfaceVariant = pink_md_theme_dark_surfaceVariant,
             onSurfaceVariant = pink_md_theme_dark_onSurfaceVariant,
+            outline = pink_md_theme_dark_outline,
+            outlineVariant = pink_md_theme_dark_outlineVariant,
+            inverseSurface = pink_md_theme_dark_inverseSurface,
+            inverseOnSurface = pink_md_theme_dark_inverseOnSurface,
+            inversePrimary = pink_md_theme_dark_inversePrimary,
+            error = md_theme_dark_error,
+            onError = md_theme_dark_onError,
+            errorContainer = md_theme_dark_errorContainer,
+            onErrorContainer = md_theme_dark_onErrorContainer,
+            surfaceTint = pink_md_theme_dark_primary,
+            scrim = md_theme_scrim,
         )
 
 /**
@@ -182,7 +193,13 @@ fun purpleTheme(
     if (!darkTheme)
         lightColorScheme(
             primary = purple_seed,
-            onPrimary = purple_md_theme_light_onPrimary,
+            onPrimary = Color(0xFFFFFFFF),
+            error = md_theme_light_error,
+            onError = md_theme_light_onError,
+            errorContainer = md_theme_light_errorContainer,
+            onErrorContainer = md_theme_light_onErrorContainer,
+            surfaceTint = purple_seed,
+            scrim = md_theme_scrim,
             primaryContainer = purple_md_theme_light_primaryContainer,
             onPrimaryContainer = purple_md_theme_light_onPrimaryContainer,
             secondary = purple_md_theme_light_secondary,
@@ -193,23 +210,17 @@ fun purpleTheme(
             onTertiary = purple_md_theme_light_onTertiary,
             tertiaryContainer = purple_md_theme_light_tertiaryContainer,
             onTertiaryContainer = purple_md_theme_light_onTertiaryContainer,
-            error = purple_md_theme_light_error,
-            errorContainer = purple_md_theme_light_errorContainer,
-            onError = purple_md_theme_light_onError,
-            onErrorContainer = purple_md_theme_light_onErrorContainer,
             background = purple_md_theme_light_background,
             onBackground = purple_md_theme_light_onBackground,
-            outline = purple_md_theme_light_outline,
-            inverseOnSurface = purple_md_theme_light_inverseOnSurface,
-            inverseSurface = purple_md_theme_light_inverseSurface,
-            inversePrimary = purple_md_theme_light_inversePrimary,
-            surfaceTint = purple_md_theme_light_surfaceTint,
-            outlineVariant = purple_md_theme_light_outlineVariant,
-            scrim = purple_md_theme_light_scrim,
             surface = purple_md_theme_light_surface,
             onSurface = purple_md_theme_light_onSurface,
             surfaceVariant = purple_md_theme_light_surfaceVariant,
             onSurfaceVariant = purple_md_theme_light_onSurfaceVariant,
+            outline = purple_md_theme_light_outline,
+            outlineVariant = purple_md_theme_light_outlineVariant,
+            inverseSurface = purple_md_theme_light_inverseSurface,
+            inverseOnSurface = purple_md_theme_light_inverseOnSurface,
+            inversePrimary = purple_md_theme_light_inversePrimary,
         )
     else
         darkColorScheme(
@@ -225,23 +236,383 @@ fun purpleTheme(
             onTertiary = purple_md_theme_dark_onTertiary,
             tertiaryContainer = purple_md_theme_dark_tertiaryContainer,
             onTertiaryContainer = purple_md_theme_dark_onTertiaryContainer,
-            error = purple_md_theme_dark_error,
-            errorContainer = purple_md_theme_dark_errorContainer,
-            onError = purple_md_theme_dark_onError,
-            onErrorContainer = purple_md_theme_dark_onErrorContainer,
             background = purple_md_theme_dark_background,
             onBackground = purple_md_theme_dark_onBackground,
-            outline = purple_md_theme_dark_outline,
-            inverseOnSurface = purple_md_theme_dark_inverseOnSurface,
-            inverseSurface = purple_md_theme_dark_inverseSurface,
-            inversePrimary = purple_md_theme_dark_inversePrimary,
-            surfaceTint = purple_md_theme_dark_surfaceTint,
-            outlineVariant = purple_md_theme_dark_outlineVariant,
-            scrim = purple_md_theme_dark_scrim,
             surface = purple_md_theme_dark_surface,
             onSurface = purple_md_theme_dark_onSurface,
             surfaceVariant = purple_md_theme_dark_surfaceVariant,
             onSurfaceVariant = purple_md_theme_dark_onSurfaceVariant,
+            outline = purple_md_theme_dark_outline,
+            outlineVariant = purple_md_theme_dark_outlineVariant,
+            inverseSurface = purple_md_theme_dark_inverseSurface,
+            inverseOnSurface = purple_md_theme_dark_inverseOnSurface,
+            inversePrimary = purple_md_theme_dark_inversePrimary,
+            error = md_theme_dark_error,
+            onError = md_theme_dark_onError,
+            errorContainer = md_theme_dark_errorContainer,
+            onErrorContainer = md_theme_dark_onErrorContainer,
+            surfaceTint = purple_md_theme_dark_primary,
+            scrim = md_theme_scrim,
+        )
+
+/**
+ * 雾蓝
+ */
+@Composable
+fun mistTheme(
+    darkTheme: Boolean
+): ColorScheme =
+    if (!darkTheme)
+        lightColorScheme(
+            primary = mist_seed,
+            onPrimary = Color(0xFFFFFFFF),
+            error = md_theme_light_error,
+            onError = md_theme_light_onError,
+            errorContainer = md_theme_light_errorContainer,
+            onErrorContainer = md_theme_light_onErrorContainer,
+            surfaceTint = mist_seed,
+            scrim = md_theme_scrim,
+            primaryContainer = mist_md_theme_light_primaryContainer,
+            onPrimaryContainer = mist_md_theme_light_onPrimaryContainer,
+            secondary = mist_md_theme_light_secondary,
+            onSecondary = mist_md_theme_light_onSecondary,
+            secondaryContainer = mist_md_theme_light_secondaryContainer,
+            onSecondaryContainer = mist_md_theme_light_onSecondaryContainer,
+            tertiary = mist_md_theme_light_tertiary,
+            onTertiary = mist_md_theme_light_onTertiary,
+            tertiaryContainer = mist_md_theme_light_tertiaryContainer,
+            onTertiaryContainer = mist_md_theme_light_onTertiaryContainer,
+            background = mist_md_theme_light_background,
+            onBackground = mist_md_theme_light_onBackground,
+            surface = mist_md_theme_light_surface,
+            onSurface = mist_md_theme_light_onSurface,
+            surfaceVariant = mist_md_theme_light_surfaceVariant,
+            onSurfaceVariant = mist_md_theme_light_onSurfaceVariant,
+            outline = mist_md_theme_light_outline,
+            outlineVariant = mist_md_theme_light_outlineVariant,
+            inverseSurface = mist_md_theme_light_inverseSurface,
+            inverseOnSurface = mist_md_theme_light_inverseOnSurface,
+            inversePrimary = mist_md_theme_light_inversePrimary,
+        )
+    else
+        darkColorScheme(
+            primary = mist_md_theme_dark_primary,
+            onPrimary = mist_md_theme_dark_onPrimary,
+            primaryContainer = mist_md_theme_dark_primaryContainer,
+            onPrimaryContainer = mist_md_theme_dark_onPrimaryContainer,
+            secondary = mist_md_theme_dark_secondary,
+            onSecondary = mist_md_theme_dark_onSecondary,
+            secondaryContainer = mist_md_theme_dark_secondaryContainer,
+            onSecondaryContainer = mist_md_theme_dark_onSecondaryContainer,
+            tertiary = mist_md_theme_dark_tertiary,
+            onTertiary = mist_md_theme_dark_onTertiary,
+            tertiaryContainer = mist_md_theme_dark_tertiaryContainer,
+            onTertiaryContainer = mist_md_theme_dark_onTertiaryContainer,
+            background = mist_md_theme_dark_background,
+            onBackground = mist_md_theme_dark_onBackground,
+            surface = mist_md_theme_dark_surface,
+            onSurface = mist_md_theme_dark_onSurface,
+            surfaceVariant = mist_md_theme_dark_surfaceVariant,
+            onSurfaceVariant = mist_md_theme_dark_onSurfaceVariant,
+            outline = mist_md_theme_dark_outline,
+            outlineVariant = mist_md_theme_dark_outlineVariant,
+            inverseSurface = mist_md_theme_dark_inverseSurface,
+            inverseOnSurface = mist_md_theme_dark_inverseOnSurface,
+            inversePrimary = mist_md_theme_dark_inversePrimary,
+            error = md_theme_dark_error,
+            onError = md_theme_dark_onError,
+            errorContainer = md_theme_dark_errorContainer,
+            onErrorContainer = md_theme_dark_onErrorContainer,
+            surfaceTint = mist_md_theme_dark_primary,
+            scrim = md_theme_scrim,
+        )
+
+/**
+ * 黛青
+ */
+@Composable
+fun daiqingTheme(
+    darkTheme: Boolean
+): ColorScheme =
+    if (!darkTheme)
+        lightColorScheme(
+            primary = daiqing_seed,
+            onPrimary = Color(0xFFFFFFFF),
+            error = md_theme_light_error,
+            onError = md_theme_light_onError,
+            errorContainer = md_theme_light_errorContainer,
+            onErrorContainer = md_theme_light_onErrorContainer,
+            surfaceTint = daiqing_seed,
+            scrim = md_theme_scrim,
+            primaryContainer = daiqing_md_theme_light_primaryContainer,
+            onPrimaryContainer = daiqing_md_theme_light_onPrimaryContainer,
+            secondary = daiqing_md_theme_light_secondary,
+            onSecondary = daiqing_md_theme_light_onSecondary,
+            secondaryContainer = daiqing_md_theme_light_secondaryContainer,
+            onSecondaryContainer = daiqing_md_theme_light_onSecondaryContainer,
+            tertiary = daiqing_md_theme_light_tertiary,
+            onTertiary = daiqing_md_theme_light_onTertiary,
+            tertiaryContainer = daiqing_md_theme_light_tertiaryContainer,
+            onTertiaryContainer = daiqing_md_theme_light_onTertiaryContainer,
+            background = daiqing_md_theme_light_background,
+            onBackground = daiqing_md_theme_light_onBackground,
+            surface = daiqing_md_theme_light_surface,
+            onSurface = daiqing_md_theme_light_onSurface,
+            surfaceVariant = daiqing_md_theme_light_surfaceVariant,
+            onSurfaceVariant = daiqing_md_theme_light_onSurfaceVariant,
+            outline = daiqing_md_theme_light_outline,
+            outlineVariant = daiqing_md_theme_light_outlineVariant,
+            inverseSurface = daiqing_md_theme_light_inverseSurface,
+            inverseOnSurface = daiqing_md_theme_light_inverseOnSurface,
+            inversePrimary = daiqing_md_theme_light_inversePrimary,
+        )
+    else
+        darkColorScheme(
+            primary = daiqing_md_theme_dark_primary,
+            onPrimary = daiqing_md_theme_dark_onPrimary,
+            primaryContainer = daiqing_md_theme_dark_primaryContainer,
+            onPrimaryContainer = daiqing_md_theme_dark_onPrimaryContainer,
+            secondary = daiqing_md_theme_dark_secondary,
+            onSecondary = daiqing_md_theme_dark_onSecondary,
+            secondaryContainer = daiqing_md_theme_dark_secondaryContainer,
+            onSecondaryContainer = daiqing_md_theme_dark_onSecondaryContainer,
+            tertiary = daiqing_md_theme_dark_tertiary,
+            onTertiary = daiqing_md_theme_dark_onTertiary,
+            tertiaryContainer = daiqing_md_theme_dark_tertiaryContainer,
+            onTertiaryContainer = daiqing_md_theme_dark_onTertiaryContainer,
+            background = daiqing_md_theme_dark_background,
+            onBackground = daiqing_md_theme_dark_onBackground,
+            surface = daiqing_md_theme_dark_surface,
+            onSurface = daiqing_md_theme_dark_onSurface,
+            surfaceVariant = daiqing_md_theme_dark_surfaceVariant,
+            onSurfaceVariant = daiqing_md_theme_dark_onSurfaceVariant,
+            outline = daiqing_md_theme_dark_outline,
+            outlineVariant = daiqing_md_theme_dark_outlineVariant,
+            inverseSurface = daiqing_md_theme_dark_inverseSurface,
+            inverseOnSurface = daiqing_md_theme_dark_inverseOnSurface,
+            inversePrimary = daiqing_md_theme_dark_inversePrimary,
+            error = md_theme_dark_error,
+            onError = md_theme_dark_onError,
+            errorContainer = md_theme_dark_errorContainer,
+            onErrorContainer = md_theme_dark_onErrorContainer,
+            surfaceTint = daiqing_md_theme_dark_primary,
+            scrim = md_theme_scrim,
+        )
+
+/**
+ * 松石
+ */
+@Composable
+fun turquoiseTheme(
+    darkTheme: Boolean
+): ColorScheme =
+    if (!darkTheme)
+        lightColorScheme(
+            primary = turquoise_seed,
+            onPrimary = Color(0xFFFFFFFF),
+            error = md_theme_light_error,
+            onError = md_theme_light_onError,
+            errorContainer = md_theme_light_errorContainer,
+            onErrorContainer = md_theme_light_onErrorContainer,
+            surfaceTint = turquoise_seed,
+            scrim = md_theme_scrim,
+            primaryContainer = turquoise_md_theme_light_primaryContainer,
+            onPrimaryContainer = turquoise_md_theme_light_onPrimaryContainer,
+            secondary = turquoise_md_theme_light_secondary,
+            onSecondary = turquoise_md_theme_light_onSecondary,
+            secondaryContainer = turquoise_md_theme_light_secondaryContainer,
+            onSecondaryContainer = turquoise_md_theme_light_onSecondaryContainer,
+            tertiary = turquoise_md_theme_light_tertiary,
+            onTertiary = turquoise_md_theme_light_onTertiary,
+            tertiaryContainer = turquoise_md_theme_light_tertiaryContainer,
+            onTertiaryContainer = turquoise_md_theme_light_onTertiaryContainer,
+            background = turquoise_md_theme_light_background,
+            onBackground = turquoise_md_theme_light_onBackground,
+            surface = turquoise_md_theme_light_surface,
+            onSurface = turquoise_md_theme_light_onSurface,
+            surfaceVariant = turquoise_md_theme_light_surfaceVariant,
+            onSurfaceVariant = turquoise_md_theme_light_onSurfaceVariant,
+            outline = turquoise_md_theme_light_outline,
+            outlineVariant = turquoise_md_theme_light_outlineVariant,
+            inverseSurface = turquoise_md_theme_light_inverseSurface,
+            inverseOnSurface = turquoise_md_theme_light_inverseOnSurface,
+            inversePrimary = turquoise_md_theme_light_inversePrimary,
+        )
+    else
+        darkColorScheme(
+            primary = turquoise_md_theme_dark_primary,
+            onPrimary = turquoise_md_theme_dark_onPrimary,
+            primaryContainer = turquoise_md_theme_dark_primaryContainer,
+            onPrimaryContainer = turquoise_md_theme_dark_onPrimaryContainer,
+            secondary = turquoise_md_theme_dark_secondary,
+            onSecondary = turquoise_md_theme_dark_onSecondary,
+            secondaryContainer = turquoise_md_theme_dark_secondaryContainer,
+            onSecondaryContainer = turquoise_md_theme_dark_onSecondaryContainer,
+            tertiary = turquoise_md_theme_dark_tertiary,
+            onTertiary = turquoise_md_theme_dark_onTertiary,
+            tertiaryContainer = turquoise_md_theme_dark_tertiaryContainer,
+            onTertiaryContainer = turquoise_md_theme_dark_onTertiaryContainer,
+            background = turquoise_md_theme_dark_background,
+            onBackground = turquoise_md_theme_dark_onBackground,
+            surface = turquoise_md_theme_dark_surface,
+            onSurface = turquoise_md_theme_dark_onSurface,
+            surfaceVariant = turquoise_md_theme_dark_surfaceVariant,
+            onSurfaceVariant = turquoise_md_theme_dark_onSurfaceVariant,
+            outline = turquoise_md_theme_dark_outline,
+            outlineVariant = turquoise_md_theme_dark_outlineVariant,
+            inverseSurface = turquoise_md_theme_dark_inverseSurface,
+            inverseOnSurface = turquoise_md_theme_dark_inverseOnSurface,
+            inversePrimary = turquoise_md_theme_dark_inversePrimary,
+            error = md_theme_dark_error,
+            onError = md_theme_dark_onError,
+            errorContainer = md_theme_dark_errorContainer,
+            onErrorContainer = md_theme_dark_onErrorContainer,
+            surfaceTint = turquoise_md_theme_dark_primary,
+            scrim = md_theme_scrim,
+        )
+
+/**
+ * 琥珀
+ */
+@Composable
+fun amberTheme(
+    darkTheme: Boolean
+): ColorScheme =
+    if (!darkTheme)
+        lightColorScheme(
+            primary = amber_seed,
+            onPrimary = Color(0xFFFFFFFF),
+            error = md_theme_light_error,
+            onError = md_theme_light_onError,
+            errorContainer = md_theme_light_errorContainer,
+            onErrorContainer = md_theme_light_onErrorContainer,
+            surfaceTint = amber_seed,
+            scrim = md_theme_scrim,
+            primaryContainer = amber_md_theme_light_primaryContainer,
+            onPrimaryContainer = amber_md_theme_light_onPrimaryContainer,
+            secondary = amber_md_theme_light_secondary,
+            onSecondary = amber_md_theme_light_onSecondary,
+            secondaryContainer = amber_md_theme_light_secondaryContainer,
+            onSecondaryContainer = amber_md_theme_light_onSecondaryContainer,
+            tertiary = amber_md_theme_light_tertiary,
+            onTertiary = amber_md_theme_light_onTertiary,
+            tertiaryContainer = amber_md_theme_light_tertiaryContainer,
+            onTertiaryContainer = amber_md_theme_light_onTertiaryContainer,
+            background = amber_md_theme_light_background,
+            onBackground = amber_md_theme_light_onBackground,
+            surface = amber_md_theme_light_surface,
+            onSurface = amber_md_theme_light_onSurface,
+            surfaceVariant = amber_md_theme_light_surfaceVariant,
+            onSurfaceVariant = amber_md_theme_light_onSurfaceVariant,
+            outline = amber_md_theme_light_outline,
+            outlineVariant = amber_md_theme_light_outlineVariant,
+            inverseSurface = amber_md_theme_light_inverseSurface,
+            inverseOnSurface = amber_md_theme_light_inverseOnSurface,
+            inversePrimary = amber_md_theme_light_inversePrimary,
+        )
+    else
+        darkColorScheme(
+            primary = amber_md_theme_dark_primary,
+            onPrimary = amber_md_theme_dark_onPrimary,
+            primaryContainer = amber_md_theme_dark_primaryContainer,
+            onPrimaryContainer = amber_md_theme_dark_onPrimaryContainer,
+            secondary = amber_md_theme_dark_secondary,
+            onSecondary = amber_md_theme_dark_onSecondary,
+            secondaryContainer = amber_md_theme_dark_secondaryContainer,
+            onSecondaryContainer = amber_md_theme_dark_onSecondaryContainer,
+            tertiary = amber_md_theme_dark_tertiary,
+            onTertiary = amber_md_theme_dark_onTertiary,
+            tertiaryContainer = amber_md_theme_dark_tertiaryContainer,
+            onTertiaryContainer = amber_md_theme_dark_onTertiaryContainer,
+            background = amber_md_theme_dark_background,
+            onBackground = amber_md_theme_dark_onBackground,
+            surface = amber_md_theme_dark_surface,
+            onSurface = amber_md_theme_dark_onSurface,
+            surfaceVariant = amber_md_theme_dark_surfaceVariant,
+            onSurfaceVariant = amber_md_theme_dark_onSurfaceVariant,
+            outline = amber_md_theme_dark_outline,
+            outlineVariant = amber_md_theme_dark_outlineVariant,
+            inverseSurface = amber_md_theme_dark_inverseSurface,
+            inverseOnSurface = amber_md_theme_dark_inverseOnSurface,
+            inversePrimary = amber_md_theme_dark_inversePrimary,
+            error = md_theme_dark_error,
+            onError = md_theme_dark_onError,
+            errorContainer = md_theme_dark_errorContainer,
+            onErrorContainer = md_theme_dark_onErrorContainer,
+            surfaceTint = amber_md_theme_dark_primary,
+            scrim = md_theme_scrim,
+        )
+
+/**
+ * 石墨
+ */
+@Composable
+fun graphiteTheme(
+    darkTheme: Boolean
+): ColorScheme =
+    if (!darkTheme)
+        lightColorScheme(
+            primary = graphite_seed,
+            onPrimary = Color(0xFFFFFFFF),
+            error = md_theme_light_error,
+            onError = md_theme_light_onError,
+            errorContainer = md_theme_light_errorContainer,
+            onErrorContainer = md_theme_light_onErrorContainer,
+            surfaceTint = graphite_seed,
+            scrim = md_theme_scrim,
+            primaryContainer = graphite_md_theme_light_primaryContainer,
+            onPrimaryContainer = graphite_md_theme_light_onPrimaryContainer,
+            secondary = graphite_md_theme_light_secondary,
+            onSecondary = graphite_md_theme_light_onSecondary,
+            secondaryContainer = graphite_md_theme_light_secondaryContainer,
+            onSecondaryContainer = graphite_md_theme_light_onSecondaryContainer,
+            tertiary = graphite_md_theme_light_tertiary,
+            onTertiary = graphite_md_theme_light_onTertiary,
+            tertiaryContainer = graphite_md_theme_light_tertiaryContainer,
+            onTertiaryContainer = graphite_md_theme_light_onTertiaryContainer,
+            background = graphite_md_theme_light_background,
+            onBackground = graphite_md_theme_light_onBackground,
+            surface = graphite_md_theme_light_surface,
+            onSurface = graphite_md_theme_light_onSurface,
+            surfaceVariant = graphite_md_theme_light_surfaceVariant,
+            onSurfaceVariant = graphite_md_theme_light_onSurfaceVariant,
+            outline = graphite_md_theme_light_outline,
+            outlineVariant = graphite_md_theme_light_outlineVariant,
+            inverseSurface = graphite_md_theme_light_inverseSurface,
+            inverseOnSurface = graphite_md_theme_light_inverseOnSurface,
+            inversePrimary = graphite_md_theme_light_inversePrimary,
+        )
+    else
+        darkColorScheme(
+            primary = graphite_md_theme_dark_primary,
+            onPrimary = graphite_md_theme_dark_onPrimary,
+            primaryContainer = graphite_md_theme_dark_primaryContainer,
+            onPrimaryContainer = graphite_md_theme_dark_onPrimaryContainer,
+            secondary = graphite_md_theme_dark_secondary,
+            onSecondary = graphite_md_theme_dark_onSecondary,
+            secondaryContainer = graphite_md_theme_dark_secondaryContainer,
+            onSecondaryContainer = graphite_md_theme_dark_onSecondaryContainer,
+            tertiary = graphite_md_theme_dark_tertiary,
+            onTertiary = graphite_md_theme_dark_onTertiary,
+            tertiaryContainer = graphite_md_theme_dark_tertiaryContainer,
+            onTertiaryContainer = graphite_md_theme_dark_onTertiaryContainer,
+            background = graphite_md_theme_dark_background,
+            onBackground = graphite_md_theme_dark_onBackground,
+            surface = graphite_md_theme_dark_surface,
+            onSurface = graphite_md_theme_dark_onSurface,
+            surfaceVariant = graphite_md_theme_dark_surfaceVariant,
+            onSurfaceVariant = graphite_md_theme_dark_onSurfaceVariant,
+            outline = graphite_md_theme_dark_outline,
+            outlineVariant = graphite_md_theme_dark_outlineVariant,
+            inverseSurface = graphite_md_theme_dark_inverseSurface,
+            inverseOnSurface = graphite_md_theme_dark_inverseOnSurface,
+            inversePrimary = graphite_md_theme_dark_inversePrimary,
+            error = md_theme_dark_error,
+            onError = md_theme_dark_onError,
+            errorContainer = md_theme_dark_errorContainer,
+            onErrorContainer = md_theme_dark_onErrorContainer,
+            surfaceTint = graphite_md_theme_dark_primary,
+            scrim = md_theme_scrim,
         )
 
 /**

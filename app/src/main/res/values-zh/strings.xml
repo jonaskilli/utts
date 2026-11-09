@@ -441,9 +441,14 @@
     <string name="no_audio_data_head_warn">⚠️ 该音频没有数据头，故无法获取信息。</string>
     <string name="theme_default">默认</string>
     <string name="dynamic_color">动态颜色</string>
-    <string name="green">绿色</string>
-    <string name="pink">粉色</string>
-    <string name="purple">紫色</string>
+    <string name="theme_green">青竹</string>
+    <string name="theme_pink">藕粉</string>
+    <string name="theme_purple">暮紫</string>
+    <string name="theme_mist">雾蓝</string>
+    <string name="theme_daiqing">黛青</string>
+    <string name="theme_turquoise">松石</string>
+    <string name="theme_amber">琥珀</string>
+    <string name="theme_graphite">石墨</string>
     <string name="desc_expand_group">展开分组：%1$s</string>
     <string name="desc_collapse_group">折叠分组：%1$s</string>
     <string name="label_speech_rate">语速：%1$s</string>

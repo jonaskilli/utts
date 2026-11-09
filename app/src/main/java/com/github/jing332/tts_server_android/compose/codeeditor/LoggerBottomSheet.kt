@@ -13,7 +13,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
-import com.github.jing332.tts_server_android.compose.theme.neutralSwitchUncheckedTrackColor
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -24,18 +23,19 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import com.github.jing332.common.toArgb
+import com.github.jing332.common.LogLevel
 import com.github.jing332.script.runtime.console.Console
 import com.github.jing332.script.runtime.console.LogListener
 import com.github.jing332.script.runtime.console.LogListenerManager
 import com.github.jing332.tts_server_android.compose.theme.AppTheme
+import com.github.jing332.tts_server_android.compose.theme.logLevelColor
+import com.github.jing332.tts_server_android.compose.theme.neutralSwitchUncheckedTrackColor
 
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -49,12 +49,33 @@ fun LoggerBottomSheet(
     var logText by remember { mutableStateOf(AnnotatedString("")) }
 
 
-    val listener = remember {
+    // 11-10 主题化：同 LoggerFloatingScreen——颜色先在 Composition 里算好再被回调捕获
+    // ⚠️ logLevelColor() 是 @Composable，不能直接在 remember {} 里调
+    //（remember 的 calculation 是 @DisallowComposableCalls）——先在 Composition 里求值，
+    // 再把结果当 remember 的 key。切换主题/深浅时这六个颜色变 → map 重建 → listener 换新。
+    val infoColor = logLevelColor(LogLevel.INFO)
+    val debugColor = logLevelColor(LogLevel.DEBUG)
+    val traceColor = logLevelColor(LogLevel.TRACE)
+    val warnColor = logLevelColor(LogLevel.WARN)
+    val errorColor = logLevelColor(LogLevel.ERROR)
+    val successColor = logLevelColor(LogLevel.SUCCESS)
+    val levelColors = remember(infoColor, debugColor, traceColor, warnColor, errorColor, successColor) {
+        mapOf(
+            LogLevel.INFO to infoColor,
+            LogLevel.DEBUG to debugColor,
+            LogLevel.TRACE to traceColor,
+            LogLevel.WARN to warnColor,
+            LogLevel.ERROR to errorColor,
+            LogLevel.SUCCESS to successColor,
+        )
+    }
+
+    val listener = remember(levelColors) {
         LogListener { entry ->
             logText = buildAnnotatedString {
                 append(logText)
 
-                withStyle(SpanStyle(color = Color(entry.level.toArgb(darkTheme)))) {
+                withStyle(SpanStyle(color = levelColors[entry.level] ?: levelColors.getValue(LogLevel.INFO))) {
                     appendLine(entry.message)
                 }
             }
