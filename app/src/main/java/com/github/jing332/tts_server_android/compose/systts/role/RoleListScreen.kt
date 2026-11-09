@@ -77,6 +77,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.lerp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.drake.net.utils.withIO
+import com.github.jing332.common.ACCENT_GREEN
 import com.github.jing332.tts_server_android.compose.theme.AppShapes
 import com.github.jing332.compose.widgets.ControlBottomBarVisibility
 import com.github.jing332.database.dbm
@@ -1334,9 +1335,9 @@ private fun ReleaseDialog(
                                 processed.value = processed.value + name
                                 onFix(rec.name, name)
                             }) {
-                                // 11-10 主题化：原为写死的全站绿 #4CAF50（紫主题下仍绿），
-                                // 改主题主色——这是"修复"这个正向动作，用主色比语义绿更贴界面
-                                Text(stringResource(R.string.role_release_fix), color = MaterialTheme.colorScheme.primary)
+                                // 11-10 二改回退：一改曾把这里从全站绿改成主题主色，属超范围。
+                                // 用户只点了日志规则行"该跟主题"，其余写死色一律不动。
+                                Text(stringResource(R.string.role_release_fix), color = Color(ACCENT_GREEN))
                             }
                             TextButton(onClick = {
                                 processed.value = processed.value + name

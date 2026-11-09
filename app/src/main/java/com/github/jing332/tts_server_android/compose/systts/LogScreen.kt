@@ -60,7 +60,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
@@ -81,6 +80,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.text.HtmlCompat
 import com.github.jing332.tts_server_android.compose.theme.isAppInDarkTheme
 import com.github.jing332.tts_server_android.compose.theme.AppShapes
+import com.github.jing332.common.ACCENT_GREEN
 import com.github.jing332.common.LogEntry
 import com.github.jing332.common.LogLevel
 import com.github.jing332.common.toLogLevelChar
@@ -88,9 +88,7 @@ import com.github.jing332.compose.ComposeExtensions.toAnnotatedString
 import com.github.jing332.compose.widgets.ControlBottomBarVisibility
 import com.github.jing332.tts_server_android.R
 import com.github.jing332.tts_server_android.compose.systts.role.softContainerColor
-import com.github.jing332.tts_server_android.compose.theme.LogSemantic
 import com.github.jing332.tts_server_android.compose.theme.logLevelColor
-import com.github.jing332.tts_server_android.compose.theme.semanticColor
 import com.github.jing332.tts_server_android.compose.LocalBottomBarBehavior
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
@@ -552,18 +550,20 @@ internal fun LogScreen(
         // 失败红丸+红原因字承担（StatusPill）
         // 获取成功前缀：石板灰 Blue Grey 800/200
         // 发音人信息：棕褐 #7D6B5D / 深色主题 #A08B7A
-        // 11-10 主题化：这四色原来是写死的（紫/蓝主题下日志仍是绿+棕+石板灰，跟界面打架）。
-        // 现在全部从主题取：前缀→主色（=规则行的色，一屏里最大面积）、发音人→tertiary、
-        // 角色牌→secondary、插件牌→onSurfaceVariant。语义色（成功/失败/重试/备用）不跟主题，
-        // 见 theme/LogColors.kt 顶部的说明。
-        val metaColor = MaterialTheme.colorScheme.onSurface
-        val voiceColor = MaterialTheme.colorScheme.tertiary
+        // 11-10 二改（用户实锤「声音信息当时有原本的颜色」）：这四色**是信息类别色**，
+        // 不是装饰色——发音人信息、角色名、插件名各有一个专属色，一眼分得清"谁在说话/
+        // 哪个是角色/哪个是插件"。11-10 一改曾把它们全换成主题槽，结果四类内容糊成同一色系
+        // （声音信息从棕褐变成主题绿，跟正文撞），已回退。
+        // ⚠️ 判据：**信息类别**（这一行是什么）用固定色；**结构/状态**（成功/失败/规则行）
+        // 才跟主题。别再把这两类混为一谈。
+        val metaColor = if (darkTheme) Color(0xFFB0BEC5) else Color(0xFF37474F)
+        val voiceColor = if (darkTheme) Color(0xFFA08B7A) else Color(0xFF7D6B5D)
         // 角色名小牌：用户调色台自选纯绿 #009908（10-14，浅色）/ 深色配对 #33CC33（同轴提亮）——
         // 演进：老日志绿（撞成功丸）→ 靛蓝 #3949AB（装机嫌突兀）→ 调色台自定纯绿。
         // 与成功丸的区分靠明度差：丸=淡底 #F2F8F4 + 浅草绿字，人名=深纯绿加粗。
         // 插件名小牌：灰青
-        val roleChipColor = MaterialTheme.colorScheme.secondary
-        val pluginChipColor = MaterialTheme.colorScheme.onSurfaceVariant
+        val roleChipColor = if (darkTheme) Color(0xFF33CC33) else Color(0xFF009908)
+        val pluginChipColor = if (darkTheme) Color(0xFF9AA0A8) else Color(0xFF5B6472)
 
         LazyColumn(
             Modifier
@@ -1182,25 +1182,24 @@ private fun StatusPill(pill: LogPill) {    val dark = isAppInDarkTheme()
     //   · 原案（M3 淡底+常规字）底浅字也浅，在米白页上信号偏弱
     //   · 另一案「加深」（底深一档+字加粗）更醒目，但丸的色块感重、一屏多丸时吵
     // 深色主题的 RETRY/STANDBY 原本就有各自的深底值，维持不动（本次只调浅色口径）
-    // 11-10 主题化：OK/FAIL 两档原来只有浅色值（#F2F8F4 / #FDEEED 无深色分支），
-    // 深色主题下是两块刺眼的近白胶囊。现在两档都按语义色往卡底混：
-    // 底=卡底混 8% 语义色（自动带主题色相），字=语义色本体（深浅各一档，见 LogColors.kt）。
-    val card = MaterialTheme.colorScheme.surfaceContainerLow
-    val okColor = semanticColor(LogSemantic.Success, LogSemantic.SuccessDark, dark)
-    val failColor = semanticColor(LogSemantic.Danger, LogSemantic.DangerDark, dark)
-    val retryColor = semanticColor(LogSemantic.Neutral, LogSemantic.NeutralDark, dark)
-    val standbyColor = semanticColor(LogSemantic.Amber, LogSemantic.AmberDark, dark)
+    // 11-10 二改：状态丸配色**整体回退**为原值。一改曾把底色改成"卡底混语义色"、字色
+    // 换成新的语义绿——状态丸是「成功/失败」这种**结果信号**，用户长期用惯了这几个色，
+    // 且它不跟主题是刻意的（换个主题"成功"还是绿）。要动只动一处：成功丸字的对比度，
+    // 见下方注释。
     val bg = when (pill.kind) {
-        LogPillKind.OK -> lerp(card, okColor, 0.08f)
-        LogPillKind.FAIL -> lerp(card, failColor, 0.08f)
-        LogPillKind.RETRY -> if (dark) Color(0xFF2A2D33) else lerp(card, retryColor, 0.06f)
-        LogPillKind.STANDBY -> if (dark) Color(0xFF3A3226) else lerp(card, standbyColor, 0.08f)
+        LogPillKind.OK -> Color(0xFFF2F8F4)
+        LogPillKind.FAIL -> Color(0xFFFDEEED)
+        LogPillKind.RETRY -> if (dark) Color(0xFF2A2D33) else Color(0xFFF3F5F8)
+        LogPillKind.STANDBY -> if (dark) Color(0xFF3A3226) else Color(0xFFFDF7E7)
     }
     val fg = when (pill.kind) {
-        LogPillKind.OK -> okColor
-        LogPillKind.FAIL -> failColor
-        LogPillKind.RETRY -> retryColor
-        LogPillKind.STANDBY -> standbyColor
+        // 成功丸字（10-13 用户定稿，11-10 二改恢复）：全站强调绿 ACCENT_GREEN。
+        // 注：该绿在淡底上实测 2.58:1（低于正文 4.5），但用户 10-13 明确点过这个绿、
+        // 11-10 实机也没提异议——**别擅自换**，要改先问。
+        LogPillKind.OK -> Color(ACCENT_GREEN)
+        LogPillKind.FAIL -> Color(0xFFC62828)
+        LogPillKind.RETRY -> if (dark) Color(0xFF9AA0A8) else Color(0xFF4A5568)
+        LogPillKind.STANDBY -> if (dark) Color(0xFFC9A94E) else Color(0xFF9A7B14)
     }
     // 丸内文字用 Box 居中（10-12 用户令「字一定要居中对齐」）：Text 直接挂 padding 时
     // 字形上下留白随字重/字体基线浮动，视觉偏上；Box(contentAlignment=Center) + Text 无内衬
@@ -1345,9 +1344,9 @@ private fun LogEntryBody(
         entry.level == LogLevel.SUCCESS -> metaColor
         // 排版实验 1008（C）：请求主行正文回默认色（前缀已单独染色），其余行照旧级别色
         isRequestHead -> MaterialTheme.colorScheme.onSurface
-        // 11-10 主题化：旧版走 lib-common 的 toArgb()（INFO 恒为 #4CAF50，
-        // 白底对比只有 2.78，且无论换什么主题都是绿的）。改由 logLevelColor() 取：
-        // INFO/DEBUG/TRACE 跟主题，WARN/ERROR 保持固定语义色。
+        // 11-10 主题化（范围已收紧到只有 INFO）：旧版走 lib-common 的 toArgb()，
+        // INFO 恒为 #4CAF50（白底 2.78:1）且换什么主题都是绿的——只把这一级改成主题主色。
+        // DEBUG/TRACE/WARN/ERROR/SUCCESS 保持各自原色，见 theme/LogColors.kt 顶部判据。
         else -> logLevelColor(entry.level)
     }
     val bodyStyle = MaterialTheme.typography.bodyMedium.copy(
