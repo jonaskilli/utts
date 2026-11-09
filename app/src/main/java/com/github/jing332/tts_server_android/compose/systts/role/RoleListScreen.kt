@@ -1246,6 +1246,11 @@ private fun RoleRow(
                                     // 的视觉层级冲突）→ **13sp（本次回退）**。
                                     // 角色名 16sp，13sp 正好低 3 档，主次分明。
                                     fontSize = 13.sp,
+                                    // 行高必须跟着字号一起回：bodyMedium 自带 lineHeight 20sp
+                                    //（M3 按 14sp 配的），只改 fontSize 不改行高的话，字小了但
+                                    // 行高仍 20sp —— 框比原版厚 4sp，视觉上"字变小了框却没小"。
+                                    // 原版 bodySmall 的行高就是 16sp，这里显式写回。
+                                    lineHeight = 16.sp,
                                     // 11-09 用户令「标签内的字重太重了」：撤 SemiBold
                                     // 回 normal——灰底已提供块感，加粗叠加太重
                                 ),
@@ -1256,8 +1261,11 @@ private fun RoleRow(
                                         else tagTextColor(),
                                 maxLines = 1,
                                 overflow = TextOverflow.Clip,
+                                // 内边距（11-10 十五改同批）：vertical 6→5dp，回到 bdaf2058 原值。
+                                // 6dp 是 11-09 03:50 随"内容换显示名+字号提 14sp"一起顺手的，
+                                // 与 13sp 字不配套——13sp 正文字配 5dp 上下衬才是原比例。
                                 modifier = Modifier
-                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                                    .padding(horizontal = 10.dp, vertical = 5.dp)
                             )
                         }
                         // ▶ 试听（与换声弹窗顶部试听同链）：无锚点配置项（失效标签）不渲染
