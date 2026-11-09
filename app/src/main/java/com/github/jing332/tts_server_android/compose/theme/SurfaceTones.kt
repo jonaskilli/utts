@@ -25,18 +25,12 @@ internal val lightSurfaceTones: Map<AppTheme, List<Color>> = mapOf(
     AppTheme.DEFAULT to listOf(Color(0xFFFBFEFD), Color(0xFFF4FBF7), Color(0xFFE6F7ED), Color(0xFFDCF3E7), Color(0xFFD0EFDF), Color(0xFFE6F7ED), Color(0xFFFBFEFD)),
     AppTheme.GREEN to listOf(Color(0xFFFBFEFC), Color(0xFFF4FBF6), Color(0xFFEAF7EF), Color(0xFFE2F4E8), Color(0xFFDAF1E1), Color(0xFFEAF7EF), Color(0xFFFBFEFC)),
     AppTheme.PINK to listOf(Color(0xFFFFFCFE), Color(0xFFFEF7FB), Color(0xFFFEE9F5), Color(0xFFFCE1F1), Color(0xFFFAD8ED), Color(0xFFFEE9F5), Color(0xFFFFFCFE)),
-    AppTheme.CYAN to listOf(Color(0xFFFAFDFE), Color(0xFFF2FAFB), Color(0xFFDEF7F9), Color(0xFFD2F3F7), Color(0xFFC4EFF4), Color(0xFFDEF7F9), Color(0xFFFAFDFE)),
     AppTheme.PURPLE to listOf(Color(0xFFFEFCFE), Color(0xFFFBF7FE), Color(0xFFF7EDFE), Color(0xFFF4E6FD), Color(0xFFF0DEFB), Color(0xFFF7EDFE), Color(0xFFFEFCFE)),
-    AppTheme.BROWN to listOf(Color(0xFFFEFDFC), Color(0xFFFCF9F6), Color(0xFFF6EEE7), Color(0xFFF2E8DF), Color(0xFFEEE1D4), Color(0xFFF6EEE7), Color(0xFFFEFDFC)),
-    AppTheme.GRAY to listOf(Color(0xFFFCFCFC), Color(0xFFF9F9F9), Color(0xFFF0F0F0), Color(0xFFEBEBEB), Color(0xFFE6E6E6), Color(0xFFF0F0F0), Color(0xFFFCFCFC)),
 )
 
 internal val darkSurfaceTones: Map<AppTheme, List<Color>> = mapOf(
     AppTheme.DEFAULT to listOf(Color(0xFF161814), Color(0xFF222420), Color(0xFF262824), Color(0xFF31332F), Color(0xFF3C3E3A), Color(0xFF1A1C18), Color(0xFF40433E)),
     AppTheme.GREEN to listOf(Color(0xFF141815), Color(0xFF202421), Color(0xFF242925), Color(0xFF2F3330), Color(0xFF3A3E3B), Color(0xFF181C19), Color(0xFF3E433F)),
     AppTheme.PINK to listOf(Color(0xFF1C1617), Color(0xFF282223), Color(0xFF2C2627), Color(0xFF373132), Color(0xFF423C3D), Color(0xFF201A1B), Color(0xFF474142)),
-    AppTheme.CYAN to listOf(Color(0xFF131917), Color(0xFF1F2524), Color(0xFF232928), Color(0xFF2D3432), Color(0xFF383F3D), Color(0xFF171D1B), Color(0xFF3D4342)),
     AppTheme.PURPLE to listOf(Color(0xFF19171B), Color(0xFF252327), Color(0xFF29272B), Color(0xFF343236), Color(0xFF3F3D41), Color(0xFF1D1B1F), Color(0xFF434246)),
-    AppTheme.BROWN to listOf(Color(0xFF1B1614), Color(0xFF282220), Color(0xFF2C2625), Color(0xFF37312F), Color(0xFF423C3A), Color(0xFF1F1A18), Color(0xFF47413F)),
-    AppTheme.GRAY to listOf(Color(0xFF13181B), Color(0xFF1F2427), Color(0xFF23292B), Color(0xFF2E3336), Color(0xFF393F41), Color(0xFF171C1F), Color(0xFF3E4346)),
 )

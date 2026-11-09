@@ -32,10 +32,7 @@ fun appTheme(
         AppTheme.DEFAULT, AppTheme.GREEN -> greenTheme(darkTheme)
         AppTheme.DYNAMIC_COLOR -> dynamicColorTheme(darkTheme, context)
         AppTheme.PINK -> pinkTheme(darkTheme)
-        AppTheme.CYAN -> cyanTheme(darkTheme)
         AppTheme.PURPLE -> purpleTheme(darkTheme)
-        AppTheme.BROWN -> brownTheme(darkTheme)
-        AppTheme.GRAY -> grayTheme(darkTheme)
     }
     // 动态取色（Android 12+ 壁纸派生）：浅色同样走纯白底（与静态主题同口径），深色用官方暗表现算
     return if (themeType == AppTheme.DYNAMIC_COLOR) dynamicNeutral(base, darkTheme) else themedNeutral(base, themeType, darkTheme)

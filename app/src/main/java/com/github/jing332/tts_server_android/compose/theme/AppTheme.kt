@@ -16,8 +16,5 @@ enum class AppTheme(val id: String, val stringResId: Int = -1, val color: Color)
     DYNAMIC_COLOR("dynamicColor", R.string.dynamic_color, Color.Unspecified),
     GREEN("green", R.string.green, green_seed),
     PINK("pink", R.string.pink, pink_seed),
-    CYAN("cyan", R.string.cyan, cyan_seed),
     PURPLE("purple", R.string.purple, purple_seed),
-    BROWN("brown", R.string.brown, brown_seed),
-    GRAY("gray", R.string.gray, gray_seed),
 }
