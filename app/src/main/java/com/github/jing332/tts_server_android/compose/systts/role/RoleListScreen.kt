@@ -91,8 +91,6 @@ import com.github.jing332.tts_server_android.R
 import com.github.jing332.tts_server_android.compose.ListGutter
 import com.github.jing332.tts_server_android.compose.LocalBottomBarBehavior
 import com.github.jing332.tts_server_android.compose.systts.common.VoicePickerDialog
-import com.github.jing332.tts_server_android.compose.theme.AppTheme
-import com.github.jing332.tts_server_android.compose.theme.getAppTheme
 import com.github.jing332.tts_server_android.service.systts.SystemTtsService
 import com.github.jing332.tts_server_android.service.systts.help.CharacterRecordsFile
 import com.github.jing332.tts_server_android.service.systts.help.KeyListFile
@@ -1018,23 +1016,20 @@ private fun emojiMarkOf(emoji: String): String =
 /**
  * 角色标签的文字色（11-10 五改，用户选定「浅胶囊」形态后配套定义）。
  *
- * ## 为什么绿色主题要单独一枚深绿
+ * ## 沿革（别再给绿色主题单独配色）
  *
- * 旧绿主色 #109D58 压在浅灰药丸底（surfaceContainerHigh）上只有 2.80:1。
- * 旧版「绿底 + 绿字」时是 2.95——用户当时接受，但既然形态从方框改药丸、
- * 底色也换浅了一档，这里顺手把字色加深到 #0A6E3B（5.07:1）：
- * **同色相、更沉一档，肉眼几乎看不出差别，但小字读起来不费劲**。
+ * 10-13 起：绿底绿字（secondaryContainer 底 + primary 字）。
+ * 11-10 五改：形态改浅胶囊后，我给绿色主题单独配了深绿 #0A6E3B
+ *（理由是"主色压灰底只 2.80:1，加深好读"）。
+ * **11-10 六改：撤销那枚 #0A6E3B，四套主题一律用 primary**——
+ * 用户明确要「发音人标签的绿改成和主题这个绿一样」，
+ * 那枚加深的深绿偏离了主题主色，看着发闷，不是他要的那个绿。
  *
- * 其余三套主题的 primary 本来就够深（暮紫 4.74 / 雾蓝 4.73 / 石墨 10.82），
- * 直接用 primary，不另配。
- *
- * ⚠️ 这是「标签专用」色，不要拿去替换 colorScheme.primary——主色另有用途
- *（▶、FAB、全选、规则行），改主色会牵动一大片。
+ * 代价如实记：绿色主题下 #109D58 压浅灰药丸底约 2.8~3.0:1，低于正文线 4.5。
+ * 这是**用户明确选择**的结果，不是疏漏，别再擅自加深或换色。
  */
 @Composable
-private fun tagTextColor(): Color =
-    if (getAppTheme() == AppTheme.GREEN) Color(0xFF0A6E3B)
-    else MaterialTheme.colorScheme.primary
+private fun tagTextColor(): Color = MaterialTheme.colorScheme.primary
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -1217,10 +1212,9 @@ private fun RoleRow(
                                     // 11-09 用户令「标签内的字重太重了」：撤 SemiBold
                                     // 回 normal——灰底已提供块感，加粗叠加太重
                                 ),
-                                // 11-10 五改：字色改「深绿」——药丸+浅灰底组合下，旧绿 #109D58
-                                // 只有 2.80（旧版绿底时是 2.95，用户接受），加深到 #0A6E3B 得 5.07，
-                                // 且与主色同色相、肉眼几乎看不出差别。其余三套主题直接用 primary
-                                //（它们本来就是深档，压灰底 4.7+）。
+                                // 11-10 六改：四套主题一律 primary（撤销五改给绿色单独配的深绿
+                                // #0A6E3B）——用户令「发音人标签的绿改成和主题这个绿一样」。
+                                // 绿色主题压灰底约 2.8:1，是用户明确选择的代价，别再加深。
                                 color = if (voiceName == null) MaterialTheme.colorScheme.onSurfaceVariant
                                         else tagTextColor(),
                                 maxLines = 1,

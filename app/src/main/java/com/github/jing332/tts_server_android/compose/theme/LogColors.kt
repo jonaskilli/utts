@@ -3,6 +3,7 @@ package com.github.jing332.tts_server_android.compose.theme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import com.github.jing332.common.ACCENT_GREEN
 import com.github.jing332.common.LogLevel
 
 /* ============================================================================
@@ -10,7 +11,8 @@ import com.github.jing332.common.LogLevel
  *
  * ## 一句话判据
  *
- * **只有 INFO（朗读规则/普通信息行）跟主题，其余一切保持原色。**
+ * **只有 INFO（朗读规则/普通信息行）跟主题，其余一切保持原色；
+ * 但绿色主题例外——INFO 用回老日志绿 #4CAF50。**
  *
  * ## 为什么只有 INFO
  *
@@ -32,18 +34,31 @@ import com.github.jing332.common.LogLevel
  * 所以本函数是 @Composable；lib-common 的 `toArgb()` 保留作**非 Composition 场景**
  * （如纯 Java 侧日志格式化）的兜底，两处的非 INFO 部分数值一致。
  *
+ * ## 11-10 五改：绿色主题例外（用户令「这个绿色就是精髓呀」）
+ *
+ * 四改前 INFO 一律取 `colorScheme.primary`，绿色主题下就变成主色 #109D58——
+ * 比老日志绿 #4CAF50 沉一档。用户看实机后指出「这个绿是精髓」，
+ * 也就是说：**绿色主题下的 INFO 本来就该是那颗老绿，不该跟着主色走**。
+ *
+ * 实现=只给 GREEN 一个例外：其余三套（紫/蓝/黑）继续跟主题主色，
+ * 用户原意是"紫蓝黑下别一片绿"，绿色主题下"本来就是绿"不构成割裂。
+ *
  * ⚠️ 别再扩大范围：新增级别或想改某级别色，先确认它是「一屏占比最大的那类」还是
  *    「含义固定的信号色」。后者一律不动。
  * ========================================================================== */
 
-/** 日志正文的级别色：INFO 跟主题，其余保持原色。 */
+/** 日志正文的级别色：INFO 跟主题（绿色主题例外，用回老日志绿），其余保持原色。 */
 @Composable
 fun logLevelColor(level: Int): Color {
     val dark = isAppInDarkTheme()
     return when (level) {
-        // 唯一的主题化级别：规则行/普通信息。原为 ACCENT_GREEN #4CAF50（白底 2.78:1），
-        // 换成主题主色后各主题 5.7~5.8，且换主题时整片规则行跟着变——这是用户要的那条。
-        LogLevel.INFO -> MaterialTheme.colorScheme.primary
+        // 主题化级别：规则行/普通信息。
+        // 绿色主题=老日志绿 #4CAF50（11-10 五改，用户令「这个绿色就是精髓」）：
+        // 该主题下 INFO 本来就是绿，跟主色走反而变沉、丢了原味。
+        // 其余主题=主题主色，解决"紫/蓝/黑界面里一片绿"的割裂（用户 11-10 原始诉求）。
+        LogLevel.INFO ->
+            if (getAppTheme() == AppTheme.GREEN) Color(ACCENT_GREEN)
+            else MaterialTheme.colorScheme.primary
         // 以下全部回退为原值（11-10 二改）。
         LogLevel.TRACE -> if (dark) Color(0xFFB0BEC5) else Color(0xFF9E9E9E)
         LogLevel.DEBUG -> if (dark) Color(0xFF64B5F6) else Color(0xFF2196F3)
