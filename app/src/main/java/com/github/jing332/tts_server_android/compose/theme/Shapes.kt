@@ -51,8 +51,11 @@ object AppShapes {
     /** 卡片、整行可点块、按压高亮。 */
     val lg = RoundedCornerShape(12.dp)
 
-    /** 对话框。 */
-    val xl = RoundedCornerShape(28.dp)
+    /** 底部弹层、大卡（M3 官方 large）。 */
+    val xl = RoundedCornerShape(16.dp)
+
+    /** 对话框（M3 官方 extraLarge）。 */
+    val xxl = RoundedCornerShape(28.dp)
 
     /** 真胶囊：状态丸、筛选 chip、签名条、性别色点兜底。 */
     val pill = RoundedCornerShape(50)
@@ -62,25 +65,35 @@ object AppShapes {
     val smDp = 6.dp
     val mdDp = 8.dp
     val lgDp = 12.dp
-    val xlDp = 28.dp
+    val xlDp = 16.dp
+    val xxlDp = 28.dp
 }
 
 /**
  * 传给 [androidx.compose.material3.MaterialTheme] 的 shapes。
  *
- * ⚠️ 这两条是**兼容锁**，别随手改：
- * - `extraLarge = 28`：M3 的 AlertDialog 默认取 extraLarge。全仓 27 个文件走
- *   `AppDialog`（AlertDialog 封装），现在渲染出来就是 28dp；把它设成 28 保证
- *   接入 shapes 后**这 27 个弹窗观感零变化**。
- * - `large = 12` / `medium = 12`：BottomSheet、Card、Menu 一类 M3 组件的默认档，
- *   与手写卡片的 12dp 对齐。
+ * ## 映射口径：**对齐 M3 官方五档**，不自创
+ *
+ * 11-10 初版曾把 small 压成 6dp、large 压成 12dp 来"凑五档"，结果：
+ * 全仓 12+ 处走 `MaterialTheme.shapes.*` 的地方（TTS 分类标签、AboutDialog、
+ * 导入面板、BGM 配置…）全部变小——而它们在改造前用的是 M3 官方值。
+ * 用户实拍指出「几 dp 得看以前怎么弄的」，逐项核对后确认官方值才是既有标准。
+ *
+ * ⚠️ 现在五档 = M3 官方 4/8/12/16/28，**不要再为"整齐"去压某档**：
+ * - `extraLarge = 28`：AlertDialog 默认取这档，全仓 27 个走 AppDialog 的弹窗靠它
+ *   保持观感零变化。
+ * - `small = 8`：标签、Chip、字段。**这条尤其别动**——它就是角色列表标签
+ *   与 TTS 分类标签统一的那一档（用户 11-10 从 6/8/10/12 里选定 8dp）。
+ *
+ * 手写处（`RoundedCornerShape(N.dp)`）一律引用 AppShapes 常量，别再写字面量。
  */
 val AppMaterialShapes = Shapes(
-    extraSmall = AppShapes.xs,
-    small = AppShapes.sm,
-    medium = AppShapes.lg,
-    large = AppShapes.lg,
-    extraLarge = AppShapes.xl,
+    extraSmall = AppShapes.xs,      //  4dp — M3 官方
+    small = AppShapes.md,           //  8dp — M3 官方（11-10 修：曾误设 6dp，
+                                    //         导致 TTS 分类标签等 12+ 处走 shapes.small 的地方变小）
+    medium = AppShapes.lg,          // 12dp — M3 官方
+    large = AppShapes.xl,           // 16dp — M3 官方（11-10 修：曾误设 12dp）
+    extraLarge = AppShapes.xxl,     // 28dp — M3 官方（AlertDialog 取这档）
 )
 
 /* ============================================================================

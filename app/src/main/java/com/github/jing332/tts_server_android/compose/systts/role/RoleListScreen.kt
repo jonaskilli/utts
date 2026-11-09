@@ -312,11 +312,12 @@ fun RoleListScreen(
         }
         Surface(
             shape = AppShapes.lg,
-            // 书栏底色（10-13 用户令「书栏跟标签一起用方案 A 的对半混」→ 同日改定方案 B）：
-            // 与角色行标签同一公式——secondaryContainer 与卡底混、比例 0.25（七成偏
-            // secondaryContainer，GREEN 浅色 ≈ #DEF3E5），比对半混深半档、块感更实；
-            // 整页色阶：页底 → 书栏/标签（同深）→ 卡底。主题槽插值，十套主题与深色自动成立
-            color = lerp(softContainerColor(), MaterialTheme.colorScheme.surfaceContainerLow, 0.25f),
+            // 书栏底色（11-10 六改，用户令「绿色主题的书籍框填充色我不满意」→ 改中性灰）：
+            // 原为 lerp(secondaryContainer, surfaceContainerLow, 0.25f)，GREEN 下是淡绿 #DEF3E5，
+            // 与 C 方案「内容面一律中性」的基调冲突——页面里只有这一块还带主题色，显眼且突兀。
+            // 现改用 surfaceContainerHigh：纯中性灰、比卡片底深一档，靠明度而非色相表达
+            // "这是页面上的一块可点区域"。
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
             modifier = Modifier
                 .fillMaxWidth()
                 // 卡缘 = ListGutter 16（v3 边距统一）：与搜索框描边/列表行同线，
@@ -1164,15 +1165,15 @@ private fun RoleRow(
                         // 底色浅绿→灰底（surfaceContainerHighest，与换声弹窗分类字段同款
                         // 灰底），文字换主色绿加粗——灰底中性+绿字与主题 accent 同族，
                         // 十主题深浅色自动成立
-                        // 11-10 五改（用户从七种形态里选定「浅胶囊」）：圆角 8dp 方框 → 50% 药丸。
-                        // 方框的问题是「灰底 + 直角」在密集列表里显得硬、且灰块重量压过里面的字；
-                        // 药丸形与全站其他胶囊（状态字、已启用徽章）同一语汇，视觉更柔和。
-                        // 底色改用 surfaceContainerHigh（比 Highest 浅半档）——药丸形本身已有轮廓感，
-                        // 底色再深会显得厚重。
+                        // 11-10 六改（用户令「标签全部回 8dp 方框，以前的挺好的」）：
+                        // 五改曾改成 50% 药丸，实机否掉，回 8dp 方框（AppShapes.md）。
+                        // 同时与 TTS 列表的分类标签（Item.kt TagScreen，原 6dp）统一到同一档。
                         Surface(
-                            shape = RoundedCornerShape(50),
+                            shape = AppShapes.md,
+                            // 底色回 surfaceContainerHighest（旧口径）——C 方案下它是中性灰
+                            // #E4E6E5，不再泛绿。
                             color = if (voiceName == null) MaterialTheme.colorScheme.surfaceContainer
-                                    else MaterialTheme.colorScheme.surfaceContainerHigh,
+                                    else MaterialTheme.colorScheme.surfaceContainerHighest,
                             modifier = Modifier
                                 .combinedClickable(
                                     onClick = onTagClick,

@@ -61,6 +61,7 @@ import com.github.jing332.compose.widgets.AppDropdownMenu
 import com.github.jing332.compose.widgets.LongClickIconButton
 import com.github.jing332.compose.widgets.htmlcompose.HtmlText
 import com.github.jing332.tts_server_android.R
+import com.github.jing332.tts_server_android.compose.theme.AppShapes
 import com.github.jing332.tts_server_android.conf.AppConfig
 import com.github.jing332.tts_server_android.service.systts.help.VoiceMarksFile
 import org.burnoutcrew.reorderable.ReorderableLazyListState
@@ -411,8 +412,11 @@ internal fun Item(
 
 @Composable
 private fun TagScreen(modifier: Modifier = Modifier, tag: String) {
-    // small(8dp)对齐M3 chip默认圆角；Medium字重与旁边Bold的显示名拉开层级
-    OutlinedCard(shape = MaterialTheme.shapes.small, modifier = modifier) {
+    // 11-10 六改（用户令「标签全部回 8dp 方框」）：原用 MaterialTheme.shapes.small，
+    // 聚合后是 AppShapes.sm = 6dp，与角色列表标签（AppShapes.md = 8dp）差 2dp——
+    // 两个页面同属"分类标签"却不同形状。现统一到 AppShapes.md。
+    // Medium 字重与旁边 Bold 的显示名拉开层级（口径不变）。
+    OutlinedCard(shape = AppShapes.md, modifier = modifier) {
         Text(
             text = tag,
             style = MaterialTheme.typography.bodyMedium,
