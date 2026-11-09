@@ -186,11 +186,16 @@ val mist_md_theme_dark_inverseOnSurface = Color(0xFF1B1F28)
 val mist_md_theme_dark_inversePrimary = Color(0xFF4560AD)
 
 // ---------- 石墨（新增：dsh-Go 黑白档）----------
-// OKLCH: L=0.301 C=0.010 H=264；浅色主色对标签底 12.11:1，白字 13.62:1
-val graphite_seed = Color(0xFF2B2E33)
+// 11-10 十二改（用户令「黑色太深了，跟黑煤块一样」）：主色 L 0.301 → 0.400。
+// 三处大面积填充都吃 primary——对勾、开关轨道、密钥池的 1/1 徽章，近黑铺开像煤块。
+// 现 #44484E：仍是深灰、白字对比 9.20 足够醒目，但不再压抑。
+// OKLCH: L=0.400 C=0.012 H=264
+val graphite_seed = Color(0xFF44484E)
 val graphite_md_theme_light_primaryContainer = Color(0xFFE3E7F0)
 val graphite_md_theme_light_onPrimaryContainer = Color(0xFF2F3543)
-val graphite_md_theme_light_secondary = Color(0xFF757577)
+// 11-10 十二改配套：主色 L 0.301→0.400 后，secondary 原值 #757577 压页底仅 4.40
+//（低于正文门槛 4.5），压深到 #616367 得 5.76。secondary 在配置卡的插件名/分类标签上用。
+val graphite_md_theme_light_secondary = Color(0xFF616367)
 val graphite_md_theme_light_onSecondary = Color(0xFFFFFFFF)
 val graphite_md_theme_light_secondaryContainer = Color(0xFFE9EAEE)
 val graphite_md_theme_light_onSecondaryContainer = Color(0xFF33353A)
