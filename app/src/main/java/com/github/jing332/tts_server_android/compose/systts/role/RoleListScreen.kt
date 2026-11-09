@@ -315,9 +315,17 @@ fun RoleListScreen(
             // 书栏底色（11-10 六改，用户令「绿色主题的书籍框填充色我不满意」→ 改中性灰）：
             // 原为 lerp(secondaryContainer, surfaceContainerLow, 0.25f)，GREEN 下是淡绿 #DEF3E5，
             // 与 C 方案「内容面一律中性」的基调冲突——页面里只有这一块还带主题色，显眼且突兀。
-            // 现改用 surfaceContainerHigh：纯中性灰、比卡片底深一档，靠明度而非色相表达
-            // "这是页面上的一块可点区域"。
-            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            // 11-10 十改（用户令「标签给了颜色，上面的书籍框也得换」）：
+            // 纯中性灰 → 极淡主题色。原方案下页面里"标签有色、书籍框无色"是断裂的——
+            // 两者都是可点条状物，却一灰一彩。
+            // 按**面积定浓淡**排三层：书籍框最宽最淡（混 5.5%，绿≈#F1F6F2，C=0.010）
+            // → 标签中等（混 10%，#E2F0E9，C=0.018）→ 分组序号最实（secondaryContainer，
+            // C=0.037，且与底部导航选中胶囊同源）。面积越小越浓，是正确方向。
+            color = lerp(
+                MaterialTheme.colorScheme.surfaceContainerLow,
+                MaterialTheme.colorScheme.primary,
+                0.055f
+            ),
             modifier = Modifier
                 .fillMaxWidth()
                 // 卡缘 = ListGutter 16（v3 边距统一）：与搜索框描边/列表行同线，
@@ -1170,10 +1178,20 @@ private fun RoleRow(
                         // 同时与 TTS 列表的分类标签（Item.kt TagScreen，原 6dp）统一到同一档。
                         Surface(
                             shape = AppShapes.md,
-                            // 底色回 surfaceContainerHighest（旧口径）——C 方案下它是中性灰
-                            // #E4E6E5，不再泛绿。
+                            // 标签底（11-10 九改，用户从五档里选定「③ 中淡绿」）：
+                            // 不能直接抬高 surfaceContainerHighest 的彩度——那个槽还被日志日期签、
+                            // 换声弹窗分类字段、标记 chip、Switch 轨道等 6 处共用，一改全绿，
+                            // 与 C 方案「内容面一律中性」冲突。
+                            // 故标签单独推导：**卡片底往主色混 10%**，绿主题 ≈ #E2F0E9
+                            //（L=0.943 / C=0.018，约为旧版淡绿 #DAF1E1 的 6 成）。
+                            // ⚠️ 基准必须是 surfaceContainerLow（卡底，最亮的内容面）而不是 Highest：
+                            // Highest 本身 L≈0.92，再混主色会掉到 0.86 附近，标签发暗发脏。
                             color = if (voiceName == null) MaterialTheme.colorScheme.surfaceContainer
-                                    else MaterialTheme.colorScheme.surfaceContainerHighest,
+                                    else lerp(
+                                        MaterialTheme.colorScheme.surfaceContainerLow,
+                                        MaterialTheme.colorScheme.primary,
+                                        0.10f
+                                    ),
                             modifier = Modifier
                                 .combinedClickable(
                                     onClick = onTagClick,

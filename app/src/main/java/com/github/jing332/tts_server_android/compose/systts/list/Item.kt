@@ -396,7 +396,13 @@ internal fun Item(
                 Text(
                     text = type.limitLength(12, "…"),
                     style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.tertiary,
+                    // 插件名（11-10 十改，用户选 A 方案）：tertiary → secondary。
+                    // 原因：C 方案把卡底从「带绿 #F4FBF6」改成「纯灰 #F9F9F9」后，
+                    // 原来被绿底调和掉的青蓝 tertiary（色相 216°，比主题绿 152° 偏 64 度）
+                    // 成了整张卡唯一的异色，看着"都不一样"。
+                    // 改 secondary（绿灰 151°）后全卡统一主题色相，只靠明度分层
+                    //（标题 onBackground → 参数行 onSurfaceVariant → 采样率/插件 secondary）。
+                    color = MaterialTheme.colorScheme.secondary,
                     // 插件名按字符数截短（12字+省略号，中文字符宽度统一可预测），
                     // 右侧留 8dp 空隙避免与左侧采样率标签贴死
                     maxLines = 1,
