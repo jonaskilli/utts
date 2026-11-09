@@ -25,13 +25,16 @@ Android 平台的系统级 TTS 应用：
 
 > 各版本的用户向更新说明见本仓库的 [Releases](https://github.com/jonaskilli/utts/releases) 发布说明。
 
-- **界面**：全面 Material Design 3 化，多套主题配色，导航栏自绘
-- **密钥管理**：按「网址 + 密钥」分组统一管理模型，支持从接口一键拉取模型列表
+- **界面**：全面 Material Design 3 化（颜色 / 字号 / 形状三套 token 均接入 `MaterialTheme`），
+  官方导航栏，五档圆角阶梯统一收口
+- **密钥管理**：按「网址 + 密钥」分组统一管理模型，支持从接口一键拉取模型列表；
+  独立的密钥池页管理轮换与整批测试
 - **备份与恢复**：应用级备份 / 恢复 + 完整备份中心（覆盖式还原）
 - **角色管理**：内置角色列表页，由朗读规则在运行时生成，支持就地换声
 - **JRead 兼容**：导入 JRead（墨听）语音配置时，自动映射标签、分池与补绑
 - **音频参数**：多层增益 / 语速 / 音调，试听与朗读走同一链路、实时生效
-- **朗读日志**：日志行内就地换声、调参、试听，与角色表互通
+- **朗读日志**：日志行内就地换声、调参、试听，与角色表互通；
+  状态用纯文字表达而非色块，语音信息按「角色 / 发音人 / 插件」分色
 - **朗读规则**：随包附改造版多角色朗读规则，支持导出 / 导入
 
 ## 致谢
@@ -44,6 +47,7 @@ Android 平台的系统级 TTS 应用：
 | **Ktouls** | TTS Server 衍生实现（混元版） · [cnb.cool/Ktouls/TTS_Server_Android2](https://cnb.cool/Ktouls/TTS_Server_Android2) |
 | **墨听** | [JRead-VoiceEngine](https://github.com/jwoo1982217-eng/JRead-VoiceEngine) —— 语音引擎分支，本项目 JRead 兼容层的参照 |
 | **阅读 Sigma** | [Rimchars/legado](https://github.com/Rimchars/legado) —— 本项目响度均衡等设计的参照 |
+| **dsh-Go** | [ccch1mneyyy/dsh-Go](https://github.com/ccch1mneyyy/dsh-Go) —— 配色体系参照（OKLCH 明度表 + 每套只换色相与彩度的推导方式），见 `theme/Color2.kt` 顶部说明 |
 
 以上仅为成果归属说明；各组件请遵循其各自仓库的许可。
 
