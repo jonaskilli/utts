@@ -18,6 +18,8 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
+import com.github.jing332.tts_server_android.compose.theme.AppTypeScale
+import com.github.jing332.tts_server_android.compose.theme.AppShapes
 import com.github.jing332.tts_server_android.compose.theme.softStructureColor
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -1092,7 +1094,7 @@ private fun Item(
                     // 特例许可（用户 09-11 终裁"一并回原版"）：插件名回原版手调 15sp（让一让换更多内容，仍限两行）
                     Text(
                         text = name,
-                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp),
+                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = AppTypeScale.dense),
                         maxLines = 2,
                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                     )
@@ -1105,7 +1107,7 @@ private fun Item(
                         Spacer(Modifier.height(2.dp))
                         Text(
                             text = stringResource(id = R.string.systts_plugin_please_set_vars),
-                            style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp),
+                            style = MaterialTheme.typography.bodyMedium.copy(fontSize = AppTypeScale.denseSmall),
                             color = MaterialTheme.colorScheme.primary,
                             maxLines = 1,
                             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
@@ -1855,7 +1857,7 @@ internal fun ImportByCategoryDialog(
                     .size(width = 32.dp, height = 4.dp)
                     .background(
                         MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-                        RoundedCornerShape(2.dp),
+                        AppShapes.xs,
                     )
             )
         }
@@ -2115,7 +2117,7 @@ internal fun ImportByCategoryDialog(
                         RadioButton(selected = !directMode, onClick = null)
                         Text(
                             "试听分类",
-                            style = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp),
+                            style = MaterialTheme.typography.bodyMedium.copy(fontSize = AppTypeScale.dense),
                             modifier = Modifier.padding(start = 4.dp, end = 12.dp)
                         )
                     }
@@ -2126,7 +2128,7 @@ internal fun ImportByCategoryDialog(
                         RadioButton(selected = directMode, onClick = null)
                         Text(
                             "直接入库",
-                            style = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp),
+                            style = MaterialTheme.typography.bodyMedium.copy(fontSize = AppTypeScale.dense),
                             modifier = Modifier.padding(start = 4.dp)
                         )
                     }

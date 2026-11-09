@@ -27,6 +27,7 @@ import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
+import com.github.jing332.tts_server_android.compose.theme.AppTypeScale
 import com.github.jing332.tts_server_android.compose.theme.neutralSwitchUncheckedTrackColor
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -333,7 +334,7 @@ internal fun BasePreferenceWidget(
             // 特例许可（用户 09-11 终裁"一并回原版"）：回原版手调 15sp（介于官方 14/16 之间；
             // MD3 token 化时曾收为 bodyMedium 14sp，现按用户要求撤回）
             CompositionLocalProvider(LocalTextStyle provides MaterialTheme.typography.bodyMedium.copy(
-                fontSize = 15.sp,
+                fontSize = AppTypeScale.dense,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )) {
                 subTitle()

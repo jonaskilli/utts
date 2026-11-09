@@ -11,7 +11,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.scrollBy
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -80,6 +79,8 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.text.HtmlCompat
+import com.github.jing332.tts_server_android.compose.theme.isAppInDarkTheme
+import com.github.jing332.tts_server_android.compose.theme.AppShapes
 import com.github.jing332.common.LogEntry
 import com.github.jing332.common.LogLevel
 import com.github.jing332.common.toLogLevelChar
@@ -546,7 +547,7 @@ internal fun LogScreen(
 
         // 排版实验 1008（用户 10-08 拍板①）：成员行 forceColor 压制撤除，kidBody 色系
         // 退役——行流恢复级别色/来源色（插件灰青/规则灰紫可见）
-        val darkTheme = isSystemInDarkTheme()
+        val darkTheme = isAppInDarkTheme()
         // 10-10 行流改版：卡片容器全撤，cardBg 三档随卡同亡；报错信号改由
         // 失败红丸+红原因字承担（StatusPill）
         // 获取成功前缀：石板灰 Blue Grey 800/200
@@ -661,7 +662,7 @@ internal fun LogScreen(
                                         // 10-10 纯白表归位：日期签=信息标签走灰阶 #EEEEEE，
                                         // surfaceVariant 未被新管线覆写、绿主题下带绿灰
                                         MaterialTheme.colorScheme.surfaceContainerHighest,
-                                        RoundedCornerShape(9.dp)
+                                        AppShapes.md
                                     )
                                     .padding(horizontal = 9.dp, vertical = 2.dp)
                             )
@@ -687,7 +688,7 @@ internal fun LogScreen(
                                     )
                                     .then(
                                         if (checked) Modifier
-                                            .clip(RoundedCornerShape(6.dp))
+                                            .clip(AppShapes.sm)
                                             .background(
                                                 MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
                                             )
@@ -747,7 +748,7 @@ internal fun LogScreen(
                                             color = MaterialTheme.colorScheme.primary,
                                             modifier = Modifier
                                                 .padding(start = 8.dp)
-                                                .clip(RoundedCornerShape(9.dp))
+                                                .clip(AppShapes.md)
                                                 .background(softContainerColor())
                                                 .clickable { onLocateOriginal(log) }
                                                 .padding(horizontal = 8.dp, vertical = 2.dp)
@@ -950,7 +951,7 @@ internal fun LogScreen(
                                             color = MaterialTheme.colorScheme.primary,
                                             modifier = Modifier
                                                 .padding(start = 8.dp)
-                                                .clip(RoundedCornerShape(9.dp))
+                                                .clip(AppShapes.md)
                                                 .background(softContainerColor())
                                                 .clickable { onLocateOriginal(head) }
                                                 .padding(horizontal = 8.dp, vertical = 2.dp)
@@ -1175,7 +1176,7 @@ internal data class LogPill(val kind: LogPillKind, val text: String)
 // 丸后灰字（耗时·大小/失败原因）由调用方另排。
 // ⚠️ 不用 Pair 解构（when 分支混用 to 与 if 表达式时编译器推成 Any）——分两个 when
 @Composable
-private fun StatusPill(pill: LogPill) {    val dark = isSystemInDarkTheme()
+private fun StatusPill(pill: LogPill) {    val dark = isAppInDarkTheme()
     // 丸配色「淡底重字」（10-11 用户从三案中拍板）：底再淡一档、字色加重一档——
     // 底只做「有个胶囊形状」的暗示，状态信号全交给字色。对比另两案：
     //   · 原案（M3 淡底+常规字）底浅字也浅，在米白页上信号偏弱
@@ -1356,7 +1357,7 @@ private fun LogEntryBody(
         // 是"主行三段看着没分层"的根源（前缀/声音信息被衬得过轻）
     )
     val hlModifier = if (highlight) Modifier
-        .clip(RoundedCornerShape(4.dp))
+        .clip(AppShapes.xs)
         .background(Color(0xFFFFE082))
     // 搜索命中底色整撤（10-10 装机用户令）：与裸行整行底同批，命中不再染行
     else Modifier

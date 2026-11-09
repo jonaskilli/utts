@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.Output
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material3.Checkbox
+import com.github.jing332.tts_server_android.compose.theme.AppTypeScale
 import com.github.jing332.compose.widgets.AppDropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
@@ -537,7 +538,7 @@ internal fun Item(
                 Column(Modifier.weight(1f)) {
                     // 名称14sp限两行、author等次要信息12sp,与插件管理列表一致
                     // 条目名 15sp（10-07 归档：与插件/替换两卡同名档，14sp 原为无拍板默认值）
-                    Text(text = name, style = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp), maxLines = 2,
+                    Text(text = name, style = MaterialTheme.typography.bodyMedium.copy(fontSize = AppTypeScale.dense), maxLines = 2,
                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                     Text(text = desc, style = MaterialTheme.typography.bodySmall)
                 }

@@ -25,7 +25,8 @@ import com.github.jing332.tts_server_android.conf.AppConfig
 @Composable
 fun appTheme(
     themeType: AppTheme,
-    darkTheme: Boolean = isSystemInDarkTheme(),
+    // 默认走 App 内深浅设置（跟随系统/浅/深），不再直取系统值——否则设置里的开关对这里无效
+    darkTheme: Boolean = isAppInDarkTheme(),
     context: Context = LocalContext.current,
 ): ColorScheme {
     // 11-10：静态主题从 3 套扩到 8 套。when 必须穷举（AppTheme 是 enum），
@@ -202,10 +203,25 @@ fun getAppTheme(): AppTheme = themeTypeState.value
  * 根Context
  */
 @Suppress("DEPRECATION")
+/**
+ * 当前应走的深浅（11-10 立）：App 内设置优先于系统。
+ *
+ * [AppConfig.darkModePref]：0=跟随系统、1=浅色、2=深色。这是**唯一**该被界面
+ * 读取的深浅判据——各页面别再直接 `isSystemInDarkTheme()`，否则用户在设置里
+ * 切了深色，日志页/密钥页这些自己判断深浅的地方会不跟（改造前就是各判各的）。
+ */
+@Composable
+fun isAppInDarkTheme(): Boolean =
+    when (AppConfig.darkModePref.value.coerceIn(0, 2)) {
+        1 -> false
+        2 -> true
+        else -> isSystemInDarkTheme()
+    }
+
 @Composable
 fun AppTheme(
     modifier: Modifier = Modifier,
-    darkTheme: Boolean = isSystemInDarkTheme(),
+    darkTheme: Boolean = isAppInDarkTheme(),
     content: @Composable () -> Unit,
 ) {
     //初始化主题
@@ -217,7 +233,11 @@ fun AppTheme(
 
     MaterialTheme(
         colorScheme = themeAnimation(targetTheme = targetTheme),
-        typography = Typography
+        typography = Typography,
+        // 11-10：shapes 此前一直没传（走 M3 出厂值），于是 Dialog/BottomSheet/Menu
+        // 一套圆角、手写控件另一套，11 种字面值就是这么长出来的。接上后统一到
+        // AppShapes 五档；extraLarge 锁 28dp 保 27 个 AppDialog 观感零变化。
+        shapes = AppMaterialShapes,
     ) {
         Surface(
             modifier = modifier,

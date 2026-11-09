@@ -38,6 +38,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.github.jing332.tts_server_android.compose.theme.AppShapes
 import com.github.jing332.compose.widgets.AppDialog
 import com.github.jing332.compose.widgets.AppSelectionDialog
 import com.github.jing332.compose.widgets.LoadingContent
@@ -169,7 +170,7 @@ fun TagPickerDialog(
                                 indication = null,
                                 interactionSource = remember { MutableInteractionSource() },
                             ) { categoryPickerOpen = true },
-                        shape = RoundedCornerShape(8.dp),
+                        shape = AppShapes.md,
                         color = MaterialTheme.colorScheme.surfaceContainerHighest,
                     ) {
                         Row(

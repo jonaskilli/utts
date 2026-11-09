@@ -62,6 +62,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.github.jing332.tts_server_android.compose.theme.AppTypeScale
+import com.github.jing332.tts_server_android.compose.theme.AppShapes
 import com.github.jing332.tts_server_android.R
 import com.github.jing332.tts_server_android.compose.nav.NavTopAppBar
 import com.github.jing332.tts_server_android.compose.systts.OrderBadge
@@ -378,11 +380,11 @@ private fun PoolRow(
                     Spacer(Modifier.width(5.dp))
                     Text(
                         info.rate,
-                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = AppTypeScale.badge),
                         color = MaterialTheme.colorScheme.onSecondaryContainer,
                         maxLines = 1,
                         modifier = Modifier
-                            .clip(RoundedCornerShape(5.dp))
+                            .clip(AppShapes.sm)
                             // 标签类胶囊淡绿：softContainerColor 单源（10-10 统一）
                             .background(softContainerColor())
                             .padding(horizontal = 5.dp, vertical = 1.dp)
@@ -502,7 +504,7 @@ private fun PoolTestResultBar(
             // 展开＝同一段完整显示（10-10 用户令：不再拼前缀、不换另一句）
             Text(
                 fullText,
-                style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                style = MaterialTheme.typography.labelSmall,
                 color = barColor
             )
             Row(
@@ -512,11 +514,11 @@ private fun PoolTestResultBar(
             ) {
                 Text(
                     stringResource(R.string.role_key_test_result_copy),
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                    style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
+                        .clip(AppShapes.sm)
                         .clickable {
                             clipboard.setText(AnnotatedString(testOutcome.message))
                             android.widget.Toast.makeText(
@@ -530,22 +532,22 @@ private fun PoolTestResultBar(
                 // 10-10 用户令：展开态也给「自定义思考」（与主页同构；池页此前只在收起态挂）
                 Text(
                     stringResource(R.string.role_key_thinking_entry),
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                    style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
+                        .clip(AppShapes.sm)
                         .clickable { onEditThinking() }
                         .padding(horizontal = 8.dp, vertical = 6.dp)
                 )
                 Spacer(Modifier.width(24.dp))
                 Text(
                     stringResource(R.string.role_key_pool_collapse),
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                    style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
+                        .clip(AppShapes.sm)
                         .clickable { expanded = false }
                         .padding(horizontal = 8.dp, vertical = 6.dp)
                 )
@@ -559,7 +561,7 @@ private fun PoolTestResultBar(
                 var truncated by remember(testOutcome.message) { mutableStateOf(false) }
                 Text(
                     fullText,
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                    style = MaterialTheme.typography.labelSmall,
                     color = barColor,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -570,11 +572,11 @@ private fun PoolTestResultBar(
                 if (isWarn) {
                     Text(
                         stringResource(R.string.role_key_thinking_entry),
-                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                        style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontWeight = FontWeight.SemiBold,
                         modifier = Modifier
-                            .clip(RoundedCornerShape(4.dp))
+                            .clip(AppShapes.xs)
                             .clickable { onEditThinking() }
                             .padding(start = 6.dp, end = 8.dp)
                     )
@@ -583,11 +585,11 @@ private fun PoolTestResultBar(
                     // 截断时挂「详情」（与主页同位同词）；右距 2→8 与动作键右线齐
                     Text(
                         stringResource(R.string.role_key_pool_detail),
-                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                        style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontWeight = FontWeight.SemiBold,
                         modifier = Modifier
-                            .clip(RoundedCornerShape(4.dp))
+                            .clip(AppShapes.xs)
                             .clickable { expanded = true }
                             .padding(start = 6.dp, end = 8.dp)
                     )

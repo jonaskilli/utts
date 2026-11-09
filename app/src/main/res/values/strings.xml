@@ -554,6 +554,10 @@
     <string name="theme_turquoise">松石</string>
     <string name="theme_amber">琥珀</string>
     <string name="theme_graphite">石墨</string>
+    <string name="dark_mode_title">深浅模式</string>
+    <string name="dark_mode_follow">跟随系统</string>
+    <string name="dark_mode_light">浅色</string>
+    <string name="dark_mode_dark">深色</string>
     <string name="desc_expand_group">展开分组：%1$s</string>
     <string name="desc_collapse_group">折叠分组：%1$s</string>
     <string name="label_speech_rate">语速：%1$s</string>

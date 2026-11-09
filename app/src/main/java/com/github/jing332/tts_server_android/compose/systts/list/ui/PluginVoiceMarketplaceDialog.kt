@@ -56,7 +56,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -78,6 +77,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.SubcomposeAsyncImage
+import com.github.jing332.tts_server_android.compose.theme.AppShapes
 import com.github.jing332.compose.widgets.AppDropdownMenu
 import com.github.jing332.compose.widgets.CenterTextImage
 import com.github.jing332.compose.widgets.DenseOutlinedField
@@ -292,7 +292,7 @@ fun PluginVoiceMarketplaceDialog(
                                 .size(width = 32.dp, height = 4.dp)
                                 .background(
                                     MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-                                    RoundedCornerShape(2.dp),
+                                    AppShapes.xs,
                                 )
                         )
                     }
@@ -821,7 +821,7 @@ private fun CatalogFilterSheet(
                                 .size(width = 32.dp, height = 4.dp)
                                 .background(
                                     MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-                                    RoundedCornerShape(2.dp),
+                                    AppShapes.xs,
                                 )
                         )
                     }

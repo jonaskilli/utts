@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -30,12 +31,14 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.NotificationsNone
 import androidx.compose.material.icons.filled.Input
 import androidx.compose.material.icons.filled.PowerSettingsNew
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.res.painterResource
 import androidx.compose.material.icons.filled.SettingsBackupRestore
 import android.content.IntentFilter
 import androidx.compose.foundation.clickable
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
+import com.github.jing332.tts_server_android.compose.SoftSegmentedTextToggle
 import com.github.jing332.tts_server_android.compose.theme.neutralSwitchUncheckedTrackColor
 import androidx.compose.ui.Alignment
 import com.github.jing332.compose.widgets.LocalBroadcastReceiver
@@ -222,6 +225,27 @@ fun SettingsScreen() {
                     // 弹窗行不出 ›（10-09 口径：进新页面才加）
                     showChevron = false,
                 )
+                }
+
+                // 深浅模式（11-10 立）：三态分段。改造前 App 里没有入口，只能跟随系统——
+                // 夜间看日志是高频诉求，故补此开关。0=跟随系统（默认，与旧行为一致）。
+                SettingItem(search, "深浅", "dark", "深色", "浅色", "夜间", "模式", "外观") {
+                Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    Text(
+                        stringResource(R.string.dark_mode_title),
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    SoftSegmentedTextToggle(
+                        options = listOf(
+                            stringResource(R.string.dark_mode_follow),
+                            stringResource(R.string.dark_mode_light),
+                            stringResource(R.string.dark_mode_dark),
+                        ),
+                        selectedIndex = AppConfig.darkModePref.value.coerceIn(0, 2),
+                        onSelect = { AppConfig.darkModePref.value = it },
+                    )
+                }
                 }
 
                 // 「语言」整项已删（10-05 用户令：只留中文，外语翻译五个目录一并退役）

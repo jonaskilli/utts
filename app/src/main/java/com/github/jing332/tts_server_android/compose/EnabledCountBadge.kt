@@ -1,7 +1,6 @@
 package com.github.jing332.tts_server_android.compose
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -16,6 +15,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.github.jing332.tts_server_android.compose.theme.isAppInDarkTheme
+import com.github.jing332.tts_server_android.compose.theme.AppTypeScale
 import com.github.jing332.tts_server_android.R
 
 /**
@@ -29,7 +30,10 @@ fun EnabledCountBadge(enabledCount: Int, modifier: Modifier = Modifier) {
     val has = enabledCount > 0
     // 未启用红 = 日志失败条同款正宗红（10-13 晚用户令，与 KeyPoolBadge 同批同款）：
     // 浅色 #F44336 / 深色 #E57373；colorScheme.error 动态取色下偏暗紫红，弃用。
-    val emptyRed = if (isSystemInDarkTheme()) Color(0xFFE57373) else Color(0xFFF44336)
+    // 11-10 修对比度：原 #F44336（深色 #E57373）压在自身 12% 红底上只有 2.98~3.01:1，
+    // 配 10sp SemiBold 小字长期看是糊的（正文门槛 4.5）。换 M3 官方 error：
+    // #BA1A1A 在八套主题的合成红底上实测 4.98~5.02:1，达标；深色档同步提亮。
+    val emptyRed = if (isAppInDarkTheme()) Color(0xFFE88A96) else Color(0xFFBA1A1A)
     Box(
         modifier
             .clip(RoundedCornerShape(50))
@@ -42,7 +46,7 @@ fun EnabledCountBadge(enabledCount: Int, modifier: Modifier = Modifier) {
     ) {
         Text(
             if (has) "已启用 $enabledCount" else stringResource(R.string.role_entry_key_pool_empty),
-            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = AppTypeScale.badge),
             color = if (has) MaterialTheme.colorScheme.primary else emptyRed,
             fontWeight = FontWeight.SemiBold,
         )

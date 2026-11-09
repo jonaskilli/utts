@@ -60,6 +60,18 @@ object AppConfig {
 
     // 「默认」档退役后新装机初始主题=绿色（10-12 用户令）
     val theme by lazy { mutableDataSaverStateOf(dataSaverPref, "theme", AppTheme.GREEN) }
+
+    /**
+     * 深浅模式（11-10 立，用户令「深色开关也一并做」）。
+     *
+     * 0=跟随系统（默认，与改造前行为完全一致）、1=始终浅色、2=始终深色。
+     * 用 Int 而非枚举：DataSaverPreferences 的枚举存取要另注册类型转换器，
+     * 而这是个只有三档的开关，Int 取证更省事；越界值读取处 coerceIn 兜底。
+     *
+     * 消费点=Theme.kt 的 AppTheme()（决定传给 MaterialTheme 的 darkTheme），
+     * 其余文件一律不要直接读 isSystemInDarkTheme()——那样开关就只对半个 App 生效。
+     */
+    val darkModePref by lazy { mutableDataSaverStateOf(dataSaverPref, "darkModePref", 0) }
     val limitTagLength by lazy { mutableDataSaverStateOf(dataSaverPref, "limitTagLength", 0) }
 
     // 显示名限长（10-06 用户二调：默认 15 字——20 偏长、去省略号后 16 字宽度封顶；

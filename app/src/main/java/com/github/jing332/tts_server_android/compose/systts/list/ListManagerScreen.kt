@@ -48,6 +48,7 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
+import com.github.jing332.tts_server_android.compose.theme.AppShapes
 import com.github.jing332.tts_server_android.compose.theme.neutralSwitchUncheckedTrackColor
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -3591,7 +3592,7 @@ internal fun ListManagerScreen(
                                     Item(reorderState = reorderState,
                                         modifier = (if (locatedConfigId == item.id) Modifier.background(
                                             MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
-                                            RoundedCornerShape(8.dp),
+                                            AppShapes.md,
                                         ) else Modifier
                                         ).then(
                                             if (searchKeyword.isNotEmpty() || selectionMode) Modifier
@@ -3825,7 +3826,7 @@ internal fun ListManagerScreen(
                                                     reorderState = reorderState,
                                                     modifier = (if (locatedConfigId == item.id) Modifier.background(
                                                         MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
-                                                        RoundedCornerShape(8.dp),
+                                                        AppShapes.md,
                                                     ) else Modifier
                                                     ).then(itemDragModifier).padding(
                                                         // 10-06 用户令：随子分组层级缩进取消（曾

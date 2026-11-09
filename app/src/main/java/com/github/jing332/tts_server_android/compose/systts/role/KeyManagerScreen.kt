@@ -69,7 +69,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -117,6 +116,8 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.drake.net.utils.withIO
 import org.json.JSONArray
 import org.json.JSONObject
+import com.github.jing332.tts_server_android.compose.theme.AppTypeScale
+import com.github.jing332.tts_server_android.compose.theme.AppShapes
 import com.github.jing332.common.ACCENT_GREEN
 import com.github.jing332.tts_server_android.R
 import com.github.jing332.tts_server_android.compose.nav.NavTopAppBar
@@ -175,7 +176,7 @@ internal fun FlatTextAction(text: String, color: Color, onClick: () -> Unit) {
     Box(
         Modifier
             .heightIn(min = 36.dp)
-            .clip(RoundedCornerShape(8.dp))
+            .clip(AppShapes.md)
             .clickable(onClick = onClick)
             .padding(horizontal = 10.dp),
         contentAlignment = Alignment.Center
@@ -393,11 +394,11 @@ private fun KeyEntryRow(
                         Spacer(Modifier.width(5.dp))
                         Text(
                             modelRate,
-                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = AppTypeScale.badge),
                             color = MaterialTheme.colorScheme.onSecondaryContainer,
                             maxLines = 1,
                             modifier = Modifier
-                                .clip(RoundedCornerShape(5.dp))
+                                .clip(AppShapes.sm)
                                 // 标签类胶囊淡绿：softContainerColor 单源（10-10 统一，原内联 lerp 0.4 与本体 0.65 已岔色）
                                 .background(softContainerColor())
                                 .padding(horizontal = 5.dp, vertical = 1.dp)
@@ -411,10 +412,10 @@ private fun KeyEntryRow(
             // if (fromPool && !selectionMode) {
             //     Text(
             //         stringResource(R.string.account_pool_source_tag),
-            //         style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+            //         style = MaterialTheme.typography.labelSmall.copy(fontSize = AppTypeScale.badge),
             //         color = MaterialTheme.colorScheme.primary,
             //         modifier = Modifier
-            //             .clip(RoundedCornerShape(6.dp))
+            //             .clip(AppShapes.sm)
             //             .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
             //             .padding(horizontal = 5.dp, vertical = 1.dp)
             //     )
@@ -467,7 +468,7 @@ private fun KeyEntryRow(
             ) {
                 Text(
                     "🔍 " + stringResource(R.string.role_key_probe_progress, probeProgress),
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                    style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -515,7 +516,7 @@ private fun KeyEntryRow(
                 if (expanded) {
                     Text(
                         fullText,
-                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                        style = MaterialTheme.typography.labelSmall,
                         color = barColor
                     )
                     Row(
@@ -525,11 +526,11 @@ private fun KeyEntryRow(
                     ) {
                         Text(
                             stringResource(R.string.role_key_test_result_copy),
-                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                            style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontWeight = FontWeight.SemiBold,
                             modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
+                                .clip(AppShapes.sm)
                                 .clickable {
                                     clipboard.setText(
                                         AnnotatedString(
@@ -548,22 +549,22 @@ private fun KeyEntryRow(
                         // 展开看完原因就地改写法，不必先收起再找键
                         Text(
                             stringResource(R.string.role_key_thinking_entry),
-                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                            style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontWeight = FontWeight.SemiBold,
                             modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
+                                .clip(AppShapes.sm)
                                 .clickable { onEditThinking() }
                                 .padding(horizontal = 8.dp, vertical = 6.dp)
                         )
                         Spacer(Modifier.width(24.dp))
                         Text(
                             "收起",
-                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                            style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontWeight = FontWeight.SemiBold,
                             modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
+                                .clip(AppShapes.sm)
                                 .clickable { expanded = false }
                                 .padding(horizontal = 8.dp, vertical = 6.dp)
                         )
@@ -577,7 +578,7 @@ private fun KeyEntryRow(
                     ) {
                         Text(
                             fullText,
-                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                            style = MaterialTheme.typography.labelSmall,
                             color = barColor,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -595,11 +596,11 @@ private fun KeyEntryRow(
                             if (isWarn) {
                                 Text(
                                     stringResource(R.string.role_key_thinking_entry),
-                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                                    style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     fontWeight = FontWeight.SemiBold,
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(4.dp))
+                                        .clip(AppShapes.xs)
                                         .clickable { onEditThinking() }
                                         .padding(start = 6.dp, end = 8.dp, top = 2.dp, bottom = 2.dp)
                                 )
@@ -607,11 +608,11 @@ private fun KeyEntryRow(
                             if (truncated) {
                                 Text(
                                     "详情",
-                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                                    style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     fontWeight = FontWeight.SemiBold,
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(4.dp))
+                                        .clip(AppShapes.xs)
                                         .clickable { expanded = true }
                                         .padding(start = 6.dp, end = 8.dp, top = 2.dp, bottom = 2.dp)
                                 )
@@ -670,7 +671,7 @@ private fun GroupEnablePill(
     ) {
         Text(
             "$enabled/$total",
-            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = AppTypeScale.badge),
             color = fg,
             fontWeight = FontWeight.SemiBold,
         )
@@ -819,7 +820,7 @@ private fun GroupHeaderBlock(
                         ) {
                             Text(
                                 grp.title,
-                                style = MaterialTheme.typography.titleMedium.copy(fontSize = 15.sp),
+                                style = MaterialTheme.typography.titleMedium.copy(fontSize = AppTypeScale.dense),
                                 // 10-08 用户令：组名不染绿——原「有启用染 TEST_PASS_COLOR+Bold、
                                 // 全停黑字 SemiBold」的双态撤掉，统一黑字；启用态已有 1/1 胶囊承担，
                                 // 组名不再重复编码
@@ -976,7 +977,7 @@ private fun GroupHeaderBlock(
                         // ≤2 全显——takeLast(4) 对短 key 会把整把全裸）
                         if (ifc.apiKey.length > 2) {
                             Surface(
-                                shape = RoundedCornerShape(4.dp),
+                                shape = AppShapes.xs,
                                 // 标签类胶囊淡绿：softContainerColor 单源（10-10 统一）
                                 color = softContainerColor()
                             ) {
@@ -2668,7 +2669,7 @@ private fun InterfaceFormDialog(
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier
-                            .clip(RoundedCornerShape(9.dp))
+                            .clip(AppShapes.md)
                             .clickable(enabled = url.text.isNotBlank()) {
                                 clipboard.setText(AnnotatedString(url.text.trim()))
                                 toast(R.string.copied)
@@ -2736,7 +2737,7 @@ private fun InterfaceFormDialog(
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier
-                            .clip(RoundedCornerShape(9.dp))
+                            .clip(AppShapes.md)
                             .clickable(enabled = key.isNotBlank()) {
                                 clipboard.setText(AnnotatedString(key.trim()))
                                 toast(R.string.copied)
@@ -3041,7 +3042,7 @@ private fun ModelPullDialog(
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(
-            shape = RoundedCornerShape(24.dp),
+            shape = AppShapes.xl,
             color = MaterialTheme.colorScheme.surfaceContainerLow,
             modifier = Modifier.fillMaxWidth().heightIn(max = 640.dp)
         ) {
@@ -3240,7 +3241,7 @@ private fun ModelPullDialog(
                                         Spacer(Modifier.width(8.dp))
                                         // 浅 primary 底徽章（与「当前」徽章同款式）：灰字扫一眼注意不到
                                         Surface(
-                                            shape = RoundedCornerShape(8.dp),
+                                            shape = AppShapes.md,
                                             color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
                                         ) {
                                             Text(
@@ -3378,7 +3379,7 @@ fun BackupCenterDialog(
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
         Surface(
-            shape = RoundedCornerShape(28.dp),
+            shape = AppShapes.xl,
             color = MaterialTheme.colorScheme.surfaceContainerLow,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 24.dp)
         ) {
@@ -3587,7 +3588,7 @@ private fun BackupOptionRow(
         Modifier
             .fillMaxWidth()
             .heightIn(min = 48.dp)
-            .clip(RoundedCornerShape(10.dp))
+            .clip(AppShapes.lg)
             .clickable(onClick = onClick)
             .padding(horizontal = 8.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -3682,7 +3683,7 @@ fun BookManagerDialog(
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
         Surface(
-            shape = RoundedCornerShape(28.dp),
+            shape = AppShapes.xl,
             color = MaterialTheme.colorScheme.surfaceContainerLow,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 24.dp),
         ) {
@@ -3784,7 +3785,7 @@ fun BookManagerDialog(
             properties = DialogProperties(usePlatformDefaultWidth = false)
         ) {
             Surface(
-                shape = RoundedCornerShape(28.dp),
+                shape = AppShapes.xl,
                 color = MaterialTheme.colorScheme.surfaceContainerLow,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 24.dp),
             ) {
@@ -3832,7 +3833,7 @@ fun BookManagerDialog(
                                 )
                                 if (isCurrent) {
                                     Surface(
-                                        shape = RoundedCornerShape(10.dp),
+                                        shape = AppShapes.lg,
                                         color = MaterialTheme.colorScheme.primary,
                                     ) {
                                         Text(
@@ -3947,7 +3948,7 @@ private fun BookRow(
                     Modifier
                         .width(3.dp)
                         .height(18.dp)
-                        .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(2.dp))
+                        .background(MaterialTheme.colorScheme.primary, AppShapes.xs)
                 )
             } else {
                 // 5dp（原 7dp→6dp 仍嫌大；取 5 不取 4——4 与「当前书」竖条 3dp 宽度太近，
@@ -3959,7 +3960,7 @@ private fun BookRow(
             name,
             // 15sp（10-06 用户：16sp 偏大，降一档）。原沿革：14sp(bodyMedium 次要信息档)
             // → 16sp(与角色名同款) → 15sp（本次回调，仍高于次要档、小于角色名，弹窗内不喧宾）
-            style = MaterialTheme.typography.bodyLarge.copy(fontSize = 15.sp),
+            style = MaterialTheme.typography.bodyLarge.copy(fontSize = AppTypeScale.dense),
             // 当前书不再加粗（不喜欢粗体）——行首主色竖条 + 主色书名已够表达
             color = if (isCurrent) MaterialTheme.colorScheme.primary
             else MaterialTheme.colorScheme.onSurface,

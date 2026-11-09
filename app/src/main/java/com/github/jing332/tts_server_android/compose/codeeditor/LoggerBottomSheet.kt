@@ -1,6 +1,5 @@
 package com.github.jing332.tts_server_android.compose.codeeditor
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -29,6 +28,7 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.github.jing332.tts_server_android.compose.theme.isAppInDarkTheme
 import com.github.jing332.common.LogLevel
 import com.github.jing332.script.runtime.console.Console
 import com.github.jing332.script.runtime.console.LogListener
@@ -42,7 +42,7 @@ import com.github.jing332.tts_server_android.compose.theme.neutralSwitchUnchecke
 @Composable
 fun LoggerBottomSheet(
     registry: LogListenerManager,
-    darkTheme: Boolean = isSystemInDarkTheme(),
+    darkTheme: Boolean = isAppInDarkTheme(),
     onDismissRequest: () -> Unit,
     onLaunched: () -> Unit,
 ) {

@@ -68,6 +68,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.drake.net.utils.withIO
 import com.drake.net.utils.withMain
+import com.github.jing332.tts_server_android.compose.theme.AppShapes
 import com.github.jing332.common.utils.limitDisplayLength
 import com.github.jing332.common.utils.toParamText
 import com.github.jing332.compose.widgets.AppSelectionDialog
@@ -698,7 +699,7 @@ fun VoicePickerDialog(
                                 .size(width = 32.dp, height = 4.dp)
                                 .background(
                                     MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-                                    RoundedCornerShape(2.dp),
+                                    AppShapes.xs,
                                 )
                         )
                     }
@@ -1144,7 +1145,7 @@ fun VoicePickerDialog(
                             maxLines = 1,
                             modifier = Modifier
                                 .padding(start = 4.dp)
-                                .clip(RoundedCornerShape(9.dp))
+                                .clip(AppShapes.md)
                                 .clickable {
                                     val markId = VoiceMarksFile.MARK_ITEMS
                                         .firstOrNull { it.second == emojiText }?.first
@@ -1933,7 +1934,7 @@ private fun CandidateRow(
                             .padding(start = 4.dp)
                             .background(
                                 MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
-                                RoundedCornerShape(9.dp),
+                                AppShapes.md,
                             )
                             .padding(horizontal = 6.dp, vertical = 2.dp),
                         style = MaterialTheme.typography.labelSmall,
@@ -1950,7 +1951,7 @@ private fun CandidateRow(
                         maxLines = 1,
                         modifier = Modifier
                             .padding(start = 4.dp)
-                            .clip(RoundedCornerShape(9.dp))
+                            .clip(AppShapes.md)
                             .clickable { onToggleMark(pickerEmojiMarkOf(emojiText)) }
                             .padding(horizontal = 4.dp, vertical = 1.dp),
                     )
@@ -2048,7 +2049,7 @@ private fun CategoryChip(
                 } else Modifier
             ),
         // 8dp 方角 = 字段语汇，与上面的胶囊分段、下面的搜索框（4dp 描边）都不同族
-        shape = RoundedCornerShape(8.dp),
+        shape = AppShapes.md,
         // 可切=灰底字段；只读=透明（Surface 画不出东西 → 视觉上就是一行纯文字）
         color = if (switchable) MaterialTheme.colorScheme.surfaceContainerHighest
         else Color.Transparent,

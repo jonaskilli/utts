@@ -1,6 +1,5 @@
 package com.github.jing332.tts_server_android.compose
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.padding
@@ -22,6 +21,7 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import com.github.jing332.tts_server_android.compose.theme.isAppInDarkTheme
 import com.github.jing332.common.LogLevel
 import com.github.jing332.common.utils.limitLength
 import com.github.jing332.script.runtime.console.LogListener
@@ -34,7 +34,7 @@ fun LoggerFloatingScreen(
     modifier: Modifier = Modifier,
     show: Boolean,
     registry: LogListenerManager,
-    darkTheme: Boolean = isSystemInDarkTheme(),
+    darkTheme: Boolean = isAppInDarkTheme(),
     onDismissRequest: () -> Unit = {},
     onLaunched: () -> Unit,
 ) {

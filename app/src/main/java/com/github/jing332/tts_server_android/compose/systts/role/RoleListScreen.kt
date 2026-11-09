@@ -77,6 +77,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.lerp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.drake.net.utils.withIO
+import com.github.jing332.tts_server_android.compose.theme.AppShapes
 import com.github.jing332.compose.widgets.ControlBottomBarVisibility
 import com.github.jing332.database.dbm
 import com.github.jing332.database.entities.systts.SystemTtsV2
@@ -307,7 +308,7 @@ fun RoleListScreen(
             if (editingBook) runCatching { bookFocus.requestFocus() }
         }
         Surface(
-            shape = RoundedCornerShape(12.dp),
+            shape = AppShapes.lg,
             // 书栏底色（10-13 用户令「书栏跟标签一起用方案 A 的对半混」→ 同日改定方案 B）：
             // 与角色行标签同一公式——secondaryContainer 与卡底混、比例 0.25（七成偏
             // secondaryContainer，GREEN 浅色 ≈ #DEF3E5），比对半混深半档、块感更实；
@@ -400,7 +401,7 @@ fun RoleListScreen(
                         fontSize = 14.sp,
                         color = MaterialTheme.colorScheme.onSecondaryContainer,
                         modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
+                            .clip(AppShapes.sm)
                             .clickable {
                                 bookEditName = TextFieldValue(currentBook, TextRange(currentBook.length))
                                 editingBook = true
@@ -415,7 +416,7 @@ fun RoleListScreen(
                         fontSize = 14.sp,
                         color = MaterialTheme.colorScheme.onSecondaryContainer,
                         modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
+                            .clip(AppShapes.sm)
                             .clickable { showBookDialog = true }
                             .padding(horizontal = 8.dp, vertical = 4.dp)
                     )
@@ -433,7 +434,7 @@ fun RoleListScreen(
             // 紧凑搜索框（OutlinedTextField 最小高 56dp 偏高）——
             // Surface+BasicTextField 手搓 44dp，外观保持 12dp 圆角描边；hint 手绘、光标主色
             Surface(
-                shape = RoundedCornerShape(12.dp),
+                shape = AppShapes.lg,
                 color = Color.Transparent,
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                 // 左右各 8 + 外层行 padding 8 ⇒ 框缘 16，与书籍卡 / 列表行 / 提示行同线。
@@ -1045,7 +1046,7 @@ private fun RoleRow(
         // 选中态（用户 09-14 二次修）：整行染色保留，但加 12dp 圆角、
         // 色阶从 surfaceContainerHighest 降到 surfaceContainerHigh 浅一档——
         // 原先是「一整块直角淡紫」很丑；行内容 padding 不变，选中不跳位
-        shape = RoundedCornerShape(12.dp),
+        shape = AppShapes.lg,
         color = if (marked) MaterialTheme.colorScheme.surfaceContainerHigh
         else Color.Transparent,
         modifier = Modifier.fillMaxWidth()
@@ -1139,7 +1140,7 @@ private fun RoleRow(
                         // 灰底），文字换主色绿加粗——灰底中性+绿字与主题 accent 同族，
                         // 十主题深浅色自动成立
                         Surface(
-                            shape = RoundedCornerShape(8.dp),
+                            shape = AppShapes.md,
                             // 11-10 主题化：失效态的 #EDEDED 没有深色分支（深色主题上是块刺眼的白），
                             // 改 surfaceContainerHigh——它已经在 SurfaceTones 里按主题算过深浅两档
                             color = if (voiceName == null) MaterialTheme.colorScheme.surfaceContainerHigh
@@ -1276,7 +1277,7 @@ private fun RoleRow(
                                     lineHeight = 16.sp,
                                     maxLines = 1,
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(9.dp))
+                                        .clip(AppShapes.md)
                                         .clickable { onToggleMark(emojiMarkOf(emojiText)) }
                                         .padding(horizontal = 6.dp, vertical = 2.dp),
                                 )

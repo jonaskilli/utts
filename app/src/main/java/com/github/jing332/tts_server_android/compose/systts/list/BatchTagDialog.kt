@@ -15,6 +15,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogProperties
+import com.github.jing332.tts_server_android.compose.theme.AppTypeScale
 import com.github.jing332.database.dbm
 import com.github.jing332.database.entities.SpeechRule
 import com.github.jing332.database.entities.systts.SystemTtsV2
@@ -153,7 +154,7 @@ fun BatchTagDialog(
                                 Text(
                                     text = "${index + 1}. ${item.displayName}",
                                     // 选择行名 15sp（10-07 归档）
-                                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp)
+                                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = AppTypeScale.dense)
                                 )
                                 if (currentTagName.isNotEmpty()) {
                                     Text(
