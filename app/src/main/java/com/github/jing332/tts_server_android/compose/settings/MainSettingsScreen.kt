@@ -221,34 +221,20 @@ fun SettingsScreen() {
                     icon = { Icon(Icons.Default.ColorLens, null) },
                     onClick = { showThemeDialog = true },
                     title = { Text(stringResource(id = R.string.theme)) },
-                    subTitle = { Text(stringResource(id = getAppTheme().stringResId)) },
+                    // 11-10：副标题合并显示「配色 · 明暗」（用户令明暗移进主题弹窗后，
+                    // 设置页只留一个入口；两段状态都在这一行读出，不必点进去才知道）
+                    subTitle = {
+                        val mode = when (AppConfig.darkModePref.value.coerceIn(0, 2)) {
+                            1 -> stringResource(R.string.dark_mode_light)
+                            2 -> stringResource(R.string.dark_mode_dark)
+                            else -> stringResource(R.string.dark_mode_follow)
+                        }
+                        Text(stringResource(id = getAppTheme().stringResId) + " · " + mode)
+                    },
                     // 弹窗行不出 ›（10-09 口径：进新页面才加）
                     showChevron = false,
                 )
                 }
-
-                // 深浅模式（11-10 立）：三态分段。改造前 App 里没有入口，只能跟随系统——
-                // 夜间看日志是高频诉求，故补此开关。0=跟随系统（默认，与旧行为一致）。
-                SettingItem(search, "深浅", "dark", "深色", "浅色", "夜间", "模式", "外观") {
-                Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                    Text(
-                        stringResource(R.string.dark_mode_title),
-                        style = MaterialTheme.typography.bodyLarge,
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    SoftSegmentedTextToggle(
-                        options = listOf(
-                            stringResource(R.string.dark_mode_follow),
-                            stringResource(R.string.dark_mode_light),
-                            stringResource(R.string.dark_mode_dark),
-                        ),
-                        selectedIndex = AppConfig.darkModePref.value.coerceIn(0, 2),
-                        onSelect = { AppConfig.darkModePref.value = it },
-                    )
-                }
-                }
-
-                // 「语言」整项已删（10-05 用户令：只留中文，外语翻译五个目录一并退役）
 
                 SettingItem(search, "备份", "恢复", "backup", "restore") {
                 BasePreferenceWidget(

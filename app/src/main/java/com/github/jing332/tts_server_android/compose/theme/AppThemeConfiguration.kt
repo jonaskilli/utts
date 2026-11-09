@@ -27,7 +27,7 @@ import androidx.compose.ui.platform.LocalContext
  * ========================================================================== */
 
 /**
- * 动态颜色主题（Android 12 以下无壁纸取色 API，回落青竹——与默认静态主题同观感）
+ * 动态颜色主题（Android 12 以下无壁纸取色 API，回落绿色——与默认静态主题同观感）
  */
 @Composable
 fun dynamicColorTheme(

@@ -441,11 +441,12 @@
     <string name="no_audio_data_head_warn">⚠️ 该音频没有数据头，故无法获取信息。</string>
     <string name="theme_default">默认</string>
     <string name="dynamic_color">动态颜色</string>
-    <string name="theme_green">青竹</string>
-    <string name="theme_purple">暮紫</string>
-    <string name="theme_mist">雾蓝</string>
-    <string name="theme_graphite">石墨</string>
-    <string name="dark_mode_title">深浅模式</string>
+    <string name="theme_green">绿色</string>
+    <string name="theme_purple">紫色</string>
+    <string name="theme_mist">蓝色</string>
+    <string name="theme_graphite">黑色</string>
+    <string name="color_scheme_label">配色</string>
+    <string name="dark_mode_title">明暗</string>
     <string name="dark_mode_follow">跟随系统</string>
     <string name="dark_mode_light">浅色</string>
     <string name="dark_mode_dark">深色</string>

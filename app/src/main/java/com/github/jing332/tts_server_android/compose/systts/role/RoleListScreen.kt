@@ -91,6 +91,8 @@ import com.github.jing332.tts_server_android.R
 import com.github.jing332.tts_server_android.compose.ListGutter
 import com.github.jing332.tts_server_android.compose.LocalBottomBarBehavior
 import com.github.jing332.tts_server_android.compose.systts.common.VoicePickerDialog
+import com.github.jing332.tts_server_android.compose.theme.AppTheme
+import com.github.jing332.tts_server_android.compose.theme.getAppTheme
 import com.github.jing332.tts_server_android.service.systts.SystemTtsService
 import com.github.jing332.tts_server_android.service.systts.help.CharacterRecordsFile
 import com.github.jing332.tts_server_android.service.systts.help.KeyListFile
@@ -1003,6 +1005,28 @@ private fun emojiMarkOf(emoji: String): String =
  * 点击范围（11-08 用户令）：除标签框/▶/⋮ 各自吃掉点击外，**整行其余任何区域**
  * 点击=选中角色、长按=操作菜单。
  */
+
+/**
+ * 角色标签的文字色（11-10 五改，用户选定「浅胶囊」形态后配套定义）。
+ *
+ * ## 为什么绿色主题要单独一枚深绿
+ *
+ * 旧绿主色 #109D58 压在浅灰药丸底（surfaceContainerHigh）上只有 2.80:1。
+ * 旧版「绿底 + 绿字」时是 2.95——用户当时接受，但既然形态从方框改药丸、
+ * 底色也换浅了一档，这里顺手把字色加深到 #0A6E3B（5.07:1）：
+ * **同色相、更沉一档，肉眼几乎看不出差别，但小字读起来不费劲**。
+ *
+ * 其余三套主题的 primary 本来就够深（暮紫 4.74 / 雾蓝 4.73 / 石墨 10.82），
+ * 直接用 primary，不另配。
+ *
+ * ⚠️ 这是「标签专用」色，不要拿去替换 colorScheme.primary——主色另有用途
+ *（▶、FAB、全选、规则行），改主色会牵动一大片。
+ */
+@Composable
+private fun tagTextColor(): Color =
+    if (getAppTheme() == AppTheme.GREEN) Color(0xFF0A6E3B)
+    else MaterialTheme.colorScheme.primary
+
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 private fun RoleRow(
@@ -1140,12 +1164,15 @@ private fun RoleRow(
                         // 底色浅绿→灰底（surfaceContainerHighest，与换声弹窗分类字段同款
                         // 灰底），文字换主色绿加粗——灰底中性+绿字与主题 accent 同族，
                         // 十主题深浅色自动成立
+                        // 11-10 五改（用户从七种形态里选定「浅胶囊」）：圆角 8dp 方框 → 50% 药丸。
+                        // 方框的问题是「灰底 + 直角」在密集列表里显得硬、且灰块重量压过里面的字；
+                        // 药丸形与全站其他胶囊（状态字、已启用徽章）同一语汇，视觉更柔和。
+                        // 底色改用 surfaceContainerHigh（比 Highest 浅半档）——药丸形本身已有轮廓感，
+                        // 底色再深会显得厚重。
                         Surface(
-                            shape = AppShapes.md,
-                            // 11-10 主题化：失效态的 #EDEDED 没有深色分支（深色主题上是块刺眼的白），
-                            // 改 surfaceContainerHigh——它已经在 SurfaceTones 里按主题算过深浅两档
-                            color = if (voiceName == null) MaterialTheme.colorScheme.surfaceContainerHigh
-                                    else MaterialTheme.colorScheme.surfaceContainerHighest,
+                            shape = RoundedCornerShape(50),
+                            color = if (voiceName == null) MaterialTheme.colorScheme.surfaceContainer
+                                    else MaterialTheme.colorScheme.surfaceContainerHigh,
                             modifier = Modifier
                                 .combinedClickable(
                                     onClick = onTagClick,
@@ -1171,11 +1198,12 @@ private fun RoleRow(
                                     // 11-09 用户令「标签内的字重太重了」：撤 SemiBold
                                     // 回 normal——灰底已提供块感，加粗叠加太重
                                 ),
-                                // 11-10：字色维持 primary。实测 secondary 压在标签底上只有 3.58:1
-                                // （低于 4.5），primary 是 4.63——标签是承载信息的主体，宁可同色也不降可读。
-                                // 与 ▶/全选 撞色无妨：它们面积小、且不在同一视觉带。
+                                // 11-10 五改：字色改「深绿」——药丸+浅灰底组合下，旧绿 #109D58
+                                // 只有 2.80（旧版绿底时是 2.95，用户接受），加深到 #0A6E3B 得 5.07，
+                                // 且与主色同色相、肉眼几乎看不出差别。其余三套主题直接用 primary
+                                //（它们本来就是深档，压灰底 4.7+）。
                                 color = if (voiceName == null) MaterialTheme.colorScheme.onSurfaceVariant
-                                        else MaterialTheme.colorScheme.primary,
+                                        else tagTextColor(),
                                 maxLines = 1,
                                 overflow = TextOverflow.Clip,
                                 modifier = Modifier

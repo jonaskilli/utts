@@ -26,15 +26,15 @@ import androidx.compose.ui.graphics.Color
  * ========================================================================== */
 
 internal val lightSurfaceTones: Map<AppTheme, List<Color>> = mapOf(
-    AppTheme.GREEN to listOf(Color(0xFFF9FDFA), Color(0xFFF1FDF3), Color(0xFFE4F7E8), Color(0xFFDBF2E0), Color(0xFFD1EBD6), Color(0xFFD9EEDE), Color(0xFFFBFDFB)),
-    AppTheme.PURPLE to listOf(Color(0xFFFCFBFF), Color(0xFFFAF7FF), Color(0xFFF3EEFE), Color(0xFFEEE8FB), Color(0xFFE6DFF6), Color(0xFFEAE4F7), Color(0xFFFDFCFE)),
-    AppTheme.MIST to listOf(Color(0xFFFAFCFF), Color(0xFFF4F9FF), Color(0xFFE8F1FF), Color(0xFFE1EBFF), Color(0xFFD7E3FF), Color(0xFFDEE8FE), Color(0xFFFBFCFF)),
-    AppTheme.GRAPHITE to listOf(Color(0xFFFCFCFC), Color(0xFFF8F9FA), Color(0xFFF0F1F3), Color(0xFFEAEBED), Color(0xFFE2E3E6), Color(0xFFE7E8EA), Color(0xFFFCFCFD)),
+    AppTheme.GREEN to listOf(Color(0xFFFAFEFB), Color(0xFFF9F9F9), Color(0xFFF2F3F2), Color(0xFFEAEBEA), Color(0xFFE4E6E5), Color(0xFFF2F3F2), Color(0xFFFBFEFB)),
+    AppTheme.PURPLE to listOf(Color(0xFFFDFCFF), Color(0xFFF9F9F9), Color(0xFFF3F2F3), Color(0xFFEBEAEC), Color(0xFFE6E5E7), Color(0xFFF3F2F3), Color(0xFFFDFCFF)),
+    AppTheme.MIST to listOf(Color(0xFFFBFDFF), Color(0xFFF9F9F9), Color(0xFFF2F3F4), Color(0xFFEAEAEC), Color(0xFFE5E5E7), Color(0xFFF2F3F4), Color(0xFFFCFDFF)),
+    AppTheme.GRAPHITE to listOf(Color(0xFFFDFDFD), Color(0xFFF9F9F9), Color(0xFFF3F3F3), Color(0xFFEAEAEA), Color(0xFFE5E5E5), Color(0xFFF3F3F3), Color(0xFFFDFDFD)),
 )
 
 internal val darkSurfaceTones: Map<AppTheme, List<Color>> = mapOf(
-    AppTheme.GREEN to listOf(Color(0xFF101511), Color(0xFF1B211C), Color(0xFF232A25), Color(0xFF2B322D), Color(0xFF353D37), Color(0xFF131914), Color(0xFF424A44)),
-    AppTheme.PURPLE to listOf(Color(0xFF141318), Color(0xFF201E24), Color(0xFF28262D), Color(0xFF312F36), Color(0xFF3B3941), Color(0xFF18161C), Color(0xFF49464E)),
-    AppTheme.MIST to listOf(Color(0xFF121419), Color(0xFF1D1F25), Color(0xFF25282E), Color(0xFF2D3037), Color(0xFF373A42), Color(0xFF14171D), Color(0xFF44484F)),
-    AppTheme.GRAPHITE to listOf(Color(0xFF131416), Color(0xFF1E1F22), Color(0xFF26282B), Color(0xFF2F3034), Color(0xFF393B3E), Color(0xFF16171A), Color(0xFF46484B)),
+    AppTheme.GREEN to listOf(Color(0xFF121512), Color(0xFF1D201E), Color(0xFF252926), Color(0xFF2E312E), Color(0xFF383C38), Color(0xFF151816), Color(0xFF454946)),
+    AppTheme.PURPLE to listOf(Color(0xFF141316), Color(0xFF201F22), Color(0xFF28272B), Color(0xFF312F34), Color(0xFF3B3A3E), Color(0xFF18161A), Color(0xFF48474B)),
+    AppTheme.MIST to listOf(Color(0xFF131417), Color(0xFF1E1F22), Color(0xFF26282B), Color(0xFF2F3034), Color(0xFF393A3F), Color(0xFF16171A), Color(0xFF46484C)),
+    AppTheme.GRAPHITE to listOf(Color(0xFF141414), Color(0xFF1F1F1F), Color(0xFF282828), Color(0xFF303030), Color(0xFF3A3A3A), Color(0xFF171717), Color(0xFF484848)),
 )
