@@ -30,6 +30,12 @@ val dbm: DatabaseManager by lazy {
             DatabaseManager.MIGRATION_31_32,
             DatabaseManager.MIGRATION_32_33,
             DatabaseManager.MIGRATION_33_34,
+            // ⚠️ 必加：@Database(version = 35) 升版后，这个懒加载单例若不含 34→35，
+            // Room 打开库时找不到升级路径会直接抛 IllegalStateException，
+            // **表现为应用一启动就闪退、连界面都到不了**（11-11 装机实锤）。
+            // 注意本文件里的 createDatabase() 也注册了它，但那个函数全仓零调用；
+            // 真正生效的是这里。加迁移时两处都要对，别只改看得见的那一处。
+            DatabaseManager.MIGRATION_34_35,
         )
         .allowMainThreadQueries()
         .openHelperFactory(LargeCursorOpenHelperFactory())
