@@ -70,6 +70,7 @@ import com.drake.net.utils.withIO
 import com.drake.net.utils.withMain
 import com.github.jing332.tts_server_android.compose.theme.AppShapes
 import com.github.jing332.common.utils.limitByDisplayWidth
+import com.github.jing332.tts_server_android.compose.TruncatedAnnotatedText
 import com.github.jing332.tts_server_android.compose.theme.pluginChipColor
 import com.github.jing332.common.utils.limitDisplayLength
 import com.github.jing332.common.utils.toParamText
@@ -2011,27 +2012,21 @@ private fun CandidateRow(
             Row(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    (if (isCurrent) "✓ " else "") + text,
-                    // 11-10 修（用户实拍「空间很充裕，显示名却被省略了，还带省略号」）：
-                    //
-                    // 两个问题一并修掉：
-                    // ① **平分陷阱**：名字 `weight(1f, fill=false)`，而外层还有一个
-                    //    `Spacer(weight(1f))` 把 ▶/⋮ 往右推——两个 1f 平分剩余宽，
-                    //    名字只拿到一半，右边明明空着却在「聆飞瀚-…」处断掉。
-                    //    修法：名字改 `fill = true` 独占剩余（短名字也不会因此拉出空白，
-                    //    因为它测得的宽度就是内容宽，多出的由 Spacer 吃掉；
-                    //    长名字才真正用满可用宽）。
-                    // ② **省略号**：用户明确要求「超过就直接截断，不要省略号」，
-                    //    改为 TextOverflow.Clip。
-                    modifier = Modifier.weight(1f, fill = true),
-                    // 选择列表行名 14sp（11-09 用户令「字号改小点」）
-                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp),
-                    maxLines = 1,
-                    // 直接截断，不补省略号（用户 11-10 令）
-                    overflow = TextOverflow.Clip,
-                    color = nameColor,
-                )
+                // 名字：11-10 三修（用户实拍「空间很充裕却省略、还带省略号」+
+                // 「字显示不全、不是完整的汉字」）：
+                // ① 平分陷阱——名字 `weight(1f, fill=false)` 与外层 `Spacer(weight(1f))`
+                //    平分剩余宽，名字只拿到一半。改 fill=true 独占剩余。
+                // ② 不要省略号、也不要半个字——用 TruncatedAnnotatedText 按**整字符**
+                //    二分算好能放几个字（TextOverflow.Clip 是按像素裁，会切出半个汉字）。
+                BoxWithConstraints(Modifier.weight(1f, fill = true)) {
+                    TruncatedAnnotatedText(
+                        text = AnnotatedString((if (isCurrent) "✓ " else "") + text),
+                        // 选择列表行名 14sp（11-09 用户令「字号改小点」）
+                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp),
+                        color = nameColor,
+                        maxWidth = maxWidth,
+                    )
+                }
                 // 插件名（11-09 用户令「已用和 emoji 标签应该在插件名之后」）：
                 // 顺序=显示名 · 插件名 · 已用 · emoji——插件名分隔点灰字（11sp）
                 // 紧跟显示名；已用/emoji 挪到其后

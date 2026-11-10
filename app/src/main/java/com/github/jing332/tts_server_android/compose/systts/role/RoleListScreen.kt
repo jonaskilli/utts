@@ -8,6 +8,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -50,6 +51,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
@@ -68,6 +70,9 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.lerp
@@ -87,6 +92,7 @@ import com.github.jing332.tts.PreviewState
 import com.github.jing332.tts.TaggedTtsPreviewPlayer
 import com.github.jing332.tts_server_android.R
 import com.github.jing332.tts_server_android.compose.ListGutter
+import com.github.jing332.tts_server_android.compose.TruncatedAnnotatedText
 import com.github.jing332.tts_server_android.compose.LocalBottomBarBehavior
 import com.github.jing332.tts_server_android.compose.systts.common.VoiceOverflowMenu
 import com.github.jing332.tts_server_android.compose.systts.common.VoicePickerDialog
@@ -1266,16 +1272,11 @@ private fun RoleRow(
                                 .weight(1f, fill = false)
                                 .minimumInteractiveComponentSize(),
                         ) {
-                            Text(
-                                buildAnnotatedString {
-                                    append(displayName?.replace('|', '｜') ?: rec.voice)
-                                    if (voiceName == null) {
-                                        withStyle(SpanStyle(color = MaterialTheme.colorScheme.error)) {
-                                            append(" ⚠")
-                                        }
-                                    }
-                                },
-                                style = MaterialTheme.typography.bodyMedium.copy(
+                            // 11-10 二十五改（用户反复强调「不要省略号，超过就截断」，
+                            // 且实拍「字显示不全、不是完整的汉字」）：
+                            // TextOverflow.Clip 是**按像素**裁剪，汉字宽 13sp 且非整像素对齐，
+                            // 裁在字中间就留下半个字。改为先按**完整字符**算好能放几个字再渲染。
+                            val tagStyle = MaterialTheme.typography.bodyMedium.copy(
                                     // 字号（11-10 十五改，用户实拍「这个里面的文字字号不对吧？
                                     // 我记得以前它比角色名字号要小一点」）：
                                     // 14sp → 13sp，回到 bdaf2058 建立标签形态时的原值。
@@ -1291,33 +1292,29 @@ private fun RoleRow(
                                     lineHeight = 16.sp,
                                     // 11-09 用户令「标签内的字重太重了」：撤 SemiBold
                                     // 回 normal——灰底已提供块感，加粗叠加太重
-                                ),
-                                // 11-10 六改：四套主题一律 primary（撤销五改给绿色单独配的深绿
-                                // #0A6E3B）——用户令「发音人标签的绿改成和主题这个绿一样」。
-                                // 绿色主题压灰底约 2.8:1，是用户明确选择的代价，别再加深。
-                                color = if (voiceName == null) MaterialTheme.colorScheme.onSurfaceVariant
-                                        else tagTextColor(),
-                                maxLines = 1,
-                                overflow = TextOverflow.Clip,
-                                // ⚠️ 必须关掉软换行（11-10 十九改，修用户实拍「标签后面
-                                // 至少能放两个字」的空白）：
-                                //
-                                // 名字「聆小玥-超拟人（Pro）」在可用宽（164-20=144dp）下放不下，
-                                // 中文会在「（」前折行 → 第二行「（Pro）」被 maxLines=1 丢弃；
-                                // 但 **Text 的测量宽度仍按"折行后占满 144dp"上报**，
-                                // 于是 Surface 按 164dp 画、墨迹只到 ~100dp，右侧剩 44dp 纯空白。
-                                //
-                                // softWrap=false 后：文字不折行、按本色宽度测量——
-                                // 放得下 → 框跟着收缩到实际内容宽（右侧不再有空白）；
-                                // 放不下 → 在框边缘被 Clip 裁掉，而不是在框内留一大块空。
-                                // 这正是用户要的「让框收缩」。
-                                softWrap = false,
-                                // 内边距（11-10 十五改同批）：vertical 6→5dp，回到 bdaf2058 原值。
-                                // 6dp 是 11-09 03:50 随"内容换显示名+字号提 14sp"一起顺手的，
-                                // 与 13sp 字不配套——13sp 正文字配 5dp 上下衬才是原比例。
-                                modifier = Modifier
-                                    .padding(horizontal = 10.dp, vertical = 5.dp)
-                            )
+                                )
+                            val tagColor =
+                                if (voiceName == null) MaterialTheme.colorScheme.onSurfaceVariant
+                                else tagTextColor()
+                            val tagText = buildAnnotatedString {
+                                append(displayName?.replace('|', '｜') ?: rec.voice)
+                                if (voiceName == null) {
+                                    withStyle(SpanStyle(color = MaterialTheme.colorScheme.error)) {
+                                        append(" ⚠")
+                                    }
+                                }
+                            }
+                            // padding 放在 BoxWithConstraints **外面**：这样 maxWidth
+                            // 就是文字真正可用的宽度，测量与渲染口径一致（放里面的话
+                            // 量到的是含内衬的宽，截断点会偏后）。内衬沿 5dp 原值。
+                            BoxWithConstraints(Modifier.padding(horizontal = 10.dp, vertical = 5.dp)) {
+                                TruncatedAnnotatedText(
+                                    text = tagText,
+                                    style = tagStyle,
+                                    color = tagColor,
+                                    maxWidth = maxWidth,
+                                )
+                            }
                         }
                         // ▶ 试听（与换声弹窗顶部试听同链）：无锚点配置项（失效标签）不渲染
                         // 右缘留白沿革（11-10 十六改）：
@@ -1440,19 +1437,18 @@ private fun RoleRow(
                                 modifier = Modifier,
                             )
                             if (pluginName != null) {
-                                Text(
-                                    " · $pluginName",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    // 11-10 用户令「参考日志里插件名的颜色」：日志插件牌是固定灰青
-                                    // #5B6472 / 深色 #9AA0A8（信息类别色，不随主题变），
-                                    // 此处原用主题 secondary（随主题变绿/紫/蓝），改为同日志口径。
-                                    color = pluginChipColor(),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Clip,
-                                    softWrap = false,
-                                    // 插件名吃剩余宽度：超长时**只缩它**
-                                    modifier = Modifier.weight(1f),
-                                )
+                                // 插件名吃剩余宽度，超长时**只缩它**；同样按整字截断
+                                // （11-10 用户令「不要省略号，超过就截断」且不能切出半个汉字）
+                                BoxWithConstraints(Modifier.weight(1f)) {
+                                    TruncatedAnnotatedText(
+                                        text = AnnotatedString(" · $pluginName"),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        // 11-10 用户令「参考日志里插件名的颜色」：日志插件牌是
+                                        // 固定灰青 #5B6472 / 深色 #9AA0A8（信息类别色，不随主题变）
+                                        color = pluginChipColor(),
+                                        maxWidth = maxWidth,
+                                    )
+                                }
                             }
                         }
                         // ⋮ 菜单（11-10 用户令：从第一行挪到**第二行末尾**，
