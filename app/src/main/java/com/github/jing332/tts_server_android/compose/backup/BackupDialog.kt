@@ -11,6 +11,7 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import com.github.jing332.tts_server_android.compose.SoftSegmentedTextToggle
+import com.github.jing332.tts_server_android.compose.systts.role.softFillBarColor
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -84,6 +85,9 @@ internal fun BackupDialog(
                             }
                         },
                         modifier = Modifier.fillMaxWidth(),
+                        // 11-10 用户令「备份恢复上方那个胶囊也是这个颜色」：
+                        // 选中态底统一到 C 档（softFillBarColor），与角色页/密钥页同一浅绿。
+                        selectedContainerColor = softFillBarColor(),
                     )
                     Text(
                         text = stringResource(modeWarningRes(profile)),

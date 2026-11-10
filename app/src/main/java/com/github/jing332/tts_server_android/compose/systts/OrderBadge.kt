@@ -12,6 +12,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.github.jing332.tts_server_android.compose.systts.role.softFillBarColor
 
 /** 序号徽章的最小边长（1 位数时宽=高=本值 ⇒ 正圆） */
 private val BadgeMinSize = 20.dp
@@ -49,7 +50,11 @@ internal fun OrderBadge(
             .height(BadgeMinSize)
             .defaultMinSize(minWidth = BadgeMinSize)
             .background(
-                color = MaterialTheme.colorScheme.secondaryContainer,
+                // 11-10 用户令「分组序号 1234、密钥列表 1234 的填充色统一成 C 档」：
+                // 原 secondaryContainer 本色（B 档 #D6F1DF），改走全站统一填充色
+                // （C 档 #DAF2E2 = secondaryContainer 往卡底混 10%，见 softFillBarColor）。
+                // 分组序号与密钥池序号共用本组件，改一处两处同步。
+                color = softFillBarColor(),
                 // 百分比圆角：任何宽高比下都是胶囊端；1 位数（宽=高）即正圆
                 shape = RoundedCornerShape(percent = 50)
             )

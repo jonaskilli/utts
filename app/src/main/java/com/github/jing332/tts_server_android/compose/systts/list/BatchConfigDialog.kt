@@ -40,6 +40,7 @@ import com.github.jing332.compose.widgets.AppDialog
 import com.github.jing332.compose.widgets.AppSpinner
 import com.github.jing332.tts_server_android.R
 import com.github.jing332.tts_server_android.compose.SoftSegmentedTextToggle
+import com.github.jing332.tts_server_android.compose.systts.role.softFillBarColor
 import com.github.jing332.tts_server_android.compose.systts.list.ui.widgets.LayerSlider
 import com.github.jing332.tts_server_android.compose.systts.list.ui.widgets.audioParamsDimNames
 
@@ -258,6 +259,8 @@ fun BatchConfigDialog(
                             selectedIndex = layer,
                             onSelect = { layer = it },
                             modifier = Modifier.padding(top = 8.dp),
+                            // 11-10：选中态底统一 C 档（全站同一种浅绿）
+                            selectedContainerColor = softFillBarColor(),
                         )
                         val dims = audioParamsDimNames
                         // 左缩进 8dp、行距 4dp：与配置项弹窗的维度内容同规格。

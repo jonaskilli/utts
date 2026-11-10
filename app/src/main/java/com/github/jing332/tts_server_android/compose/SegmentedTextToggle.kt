@@ -14,6 +14,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.github.jing332.tts_server_android.compose.systts.role.softFillBarColor
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
@@ -69,7 +70,8 @@ fun SegmentedTextToggle(
                     .heightIn(min = minHeight)
                     .clip(shape)
                     .background(
-                        if (selected) MaterialTheme.colorScheme.secondaryContainer
+                        // 11-10：选中态底统一 C 档（全站同一种浅绿），未选中保持页底
+                        if (selected) softFillBarColor()
                         else MaterialTheme.colorScheme.surface
                     )
                     .border(1.dp, MaterialTheme.colorScheme.outline, shape)

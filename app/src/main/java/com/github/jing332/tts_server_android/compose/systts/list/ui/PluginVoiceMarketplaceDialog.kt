@@ -87,6 +87,7 @@ import com.github.jing332.tts.speech.plugin.engine.VoiceCatalogItem
 import com.github.jing332.tts.speech.plugin.engine.TtsPluginUiEngineV2
 import com.github.jing332.tts_server_android.R
 import com.github.jing332.tts_server_android.compose.systts.role.softContainerColor
+import com.github.jing332.tts_server_android.compose.systts.role.softFillBarColor
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -1197,7 +1198,8 @@ private fun CatalogVoiceRow(
                     item.tags.take(3).forEach { tag ->
                         Surface(
                             shape = MaterialTheme.shapes.extraSmall,
-                            color = MaterialTheme.colorScheme.secondaryContainer,
+                            // 11-10：分类标签统一 C 档浅绿（与角色页/密钥页同一种填充）
+                            color = softFillBarColor(),
                         ) {
                             Text(
                                 tag,
