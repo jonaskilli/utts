@@ -1177,14 +1177,6 @@ fun VoicePickerDialog(
             // 标题贴死名字(0dp)、名字到第二行被 48dp 按钮盒撑出一大块、到终值又只剩 2dp。
             // 定稿按「标题贴值、组与组之间才松」重排：标题底 2、第二行上下各 6、终值 top 8/bottom 4。
             Column(Modifier.fillMaxWidth().padding(vertical = 7.dp)) {
-                Text(
-                    // 标题已改叫「角色卡（角色名）」（终版），本行回归纯「当前发音人」
-                    "当前发音人",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    // 标题与它的值是一组：只留 2dp，不要原来的 0（贴死反而看不出是标题）
-                    modifier = Modifier.padding(bottom = 2.dp),
-                )
                 // 第一行（11-09 用户令装机版终稿）：显示名 + 已点亮标记 emoji + 🎲 + ▶ + ⋮。
                 // 分类/标签框彻底撤掉（用户令「分类也不能要，直接显示显示名」）；🎲 恢复
                 // （长按标签随机换声作废）；无对勾（当前发音人不标 ✓）；标记 emoji 紧跟
@@ -1197,6 +1189,19 @@ fun VoicePickerDialog(
                 // 按钮移到第二行右端，两者互不抢空间。
                 Column(Modifier.fillMaxWidth()) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    // 11-11 用户令「把当前发音人和他的名字放在同一行」：
+                    // 原来「当前发音人」独占一行、名字在下一行（只差 2dp），读起来像
+                    // 一行字被硬拆成两截，也是「行间距不均」的来源之一。
+                    Text(
+                        // 11-11 用户令「前面是小字儿，后面是大字儿，中间也没有冒号」：
+                        // 原写法「当前发音人」小字直接接「然月」大字，两块字挤在一起又无连接符。
+                        // 加全角冒号（中文标签-值最自然的写法），冒号跟着小字标签同色同号。
+                        "当前发音人：",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        modifier = Modifier.padding(end = 4.dp),
+                    )
                     // 显示名（大字半粗；吃剩余宽度先缩，emoji 钉右不参与省略）
                     // 11-09 用户令一行式：插件名缀在显示名后（「显示名 · 插件名」一行放完，
                     // 用户怕字号大放不下——超宽时只缩显示名，插件名 outline 小字钉住永不截）
@@ -1283,7 +1288,10 @@ fun VoicePickerDialog(
                                     )
                                 }
                                 .padding(horizontal = 8.dp, vertical = 2.dp),
-                            style = MaterialTheme.typography.titleLarge,
+                            // 11-11 用户令「筛子太大」：titleLarge(22sp) → titleMedium(16sp)，
+                            // 与旁边的 ▶ 同大。原来 22sp 的骰子比插件名(11sp)高一倍，
+                            // 整行视觉重心被它拉走，也是「行间距不均」的主因之一。
+                            style = MaterialTheme.typography.titleMedium,
                         )
                     }
                     // ▶ 裸字符键；按键收窄右移（horizontal 12→8，与 🎲 同款）
@@ -2120,13 +2128,17 @@ private fun CandidateRow(
         }
         // ▶ 裸字符键（用户 09-13 方案A）；按键收窄右移（11-09 用户令「▶/⋮ 往右移
         // 给左边空位置」：horizontal 12→8）
+        // 11-11 用户令「换声面板下方的候选列表行间距也有点宽」：去掉 vertical = 12dp。
+        // 与角色列表同一根因——16sp 字形 + 上下各 12 把每行撑到约 52dp，而名字只有 11~13sp。
+        // 去掉后行高由名字 + Row 的 padding(vertical = 2dp) 决定，约 30dp。
+        // ⚠️ 点区没变小：▶ 仍有「字形宽 + 左右各 8dp」≈30×24dp；整行本就挂行点击（点行=选中）。
         Text(
             previewText,
             color = previewColor,
             style = MaterialTheme.typography.titleMedium,
             modifier = Modifier
                 .clickable(onClick = onPreview)
-                .padding(horizontal = 8.dp, vertical = 12.dp),
+                .padding(horizontal = 8.dp),
         )
         // 11-11 用户令「他都是一个界面，肯定要统一」：候选行原用标准 48dp 盒，
         // ▶ 与 ⋮ 的视觉间距 8+12=20dp，比顶部那行宽 6dp，同一个面板里两种疏密。

@@ -478,9 +478,15 @@ fun RoleListScreen(
                                 bookEditName = TextFieldValue(currentBook, TextRange(currentBook.length))
                                 editingBook = true
                             }
-                            .padding(horizontal = 12.dp, vertical = 4.dp)
+                            // 11-11 用户令「编辑键跟后面的管理键间距有点儿宽」：
+                            // 12dp → 8dp，与右侧「管理」的 8dp 对称（两键视觉同重）
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
                     )
-                    Spacer(Modifier.width(10.dp))
+                    // 11-11 用户令：两键之间原为「✎内衬12 + Spacer10 + 管理内衬8 = 30dp」，
+                    // 中间那个纯 Spacer 占 10dp 是主要空隙来源。收到 6dp 后合计 22dp：
+                    // 不再明显发空，同时守住点区（✎ 点区仍有字形 + 左右各 8dp）。
+                    // ⚠️ 「管理」的 8dp 内衬不动——它字形比 ✎ 宽，视觉本就需要多留一点。
+                    Spacer(Modifier.width(6.dp))
                     Text(
                         // 去「▾」前缀：箭头语义是「就地展开」，而本键打开的是书籍列表
                         // 弹窗；且整条卡片本身可点、入口相同，箭头无信息增量，还白占约 12dp 宽
@@ -1240,7 +1246,10 @@ private fun RoleRow(
                     Row(
                         Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.End,
-                        verticalAlignment = Alignment.Top,
+                        // 11-11 用户令「播放键太靠上」：Top → CenterVertically。
+                        // 第一行高度由标签框（13sp + 上下 5dp ≈ 26dp）决定，而 ▶ 字形只有 16sp，
+                        // Top 对齐会让它贴上沿、悬在标签框上半部。居中后与标签框垂直对齐。
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
                         // 显示名标签框：点=换声弹窗、长按=随机换声
                         // （仅 14 类可换类别响应，单例类别长按无动作）；失效标签灰底+红 ⚠
@@ -1339,8 +1348,13 @@ private fun RoleRow(
                             // 96dp 后，文字原先贴左、右侧空一大块，看着像"没对齐"。
                             // BoxWithConstraints 给**子节点**传的约束仍是 minWidth=0，所以
                             // 内部的 Text 不会自动撑满→直接 contentAlignment 居中即可。
+                            // 11-11 用户令「第一行和第二行间距有点宽」：垂直内衬 5dp → 3dp。
+                            // 实测两行之间本来只有 padding(top = 1dp)，看到的那点空隙主要来自
+                            // 这个方框的内衬（框底边 → 文字 → 第二行文字）。
+                            // 标签框高 26dp → 22dp 后，第一行高度改由 ▶（约 24dp）决定，
+                            // 整体更紧凑；13sp 文字在 22dp 框里仍宽松（上下各 3dp）。
                             BoxWithConstraints(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
                                 contentAlignment = Alignment.Center,
                             ) {
                                 TruncatedAnnotatedText(

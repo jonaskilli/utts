@@ -951,14 +951,11 @@ private fun PinnedLogHeader(
     Column(
         Modifier
             .fillMaxWidth()
-            .background(
-                // 比页底深半档，让吸顶区与日志流有明确分界（滚动时不会糊在一起）
-                lerp(
-                    MaterialTheme.colorScheme.secondaryContainer,
-                    MaterialTheme.colorScheme.surfaceContainerLow,
-                    0.55f
-                )
-            )
+            // 11-11 用户令「不应该有填充色，后面应该是等待选择的胶囊，选中才填色」：
+            // 原来整条吸顶横带铺了一层淡绿（lerp(secondaryContainer, Low, 0.55) ≈ #E9F5ED），
+            // 于是填充色跑到胶囊外面去了——那排看着像"每颗都已选中"。
+            // 现在横带退回页底色（不设背景），颜色只留在被选中的那颗胶囊内部。
+            .background(MaterialTheme.colorScheme.background)
     ) {
         // ① 筛选开关行
         Row(
@@ -1098,8 +1095,11 @@ private fun PinnedChip(
             .clip(RoundedCornerShape(50))
             .background(bg)
             .then(
-                if (selected && !error)
-                    Modifier.border(1.dp, cs.outlineVariant, RoundedCornerShape(50))
+                // 11-11 用户令「后面应该是等待选择的胶囊，选中才填色」：
+                // 未选中也给一道淡描边——空心胶囊=看得出"这里有颗可以点的胶囊"，
+                // 选中才在胶囊内部填色。错误档选中是实色红底，不需要再叠描边。
+                if (selected && !error) Modifier.border(1.dp, cs.outlineVariant, RoundedCornerShape(50))
+                else if (!selected) Modifier.border(1.dp, cs.outlineVariant.copy(alpha = 0.55f), RoundedCornerShape(50))
                 else Modifier
             )
             .clickable(onClick = onClick)
