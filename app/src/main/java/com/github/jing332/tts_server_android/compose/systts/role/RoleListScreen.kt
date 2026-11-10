@@ -1246,7 +1246,14 @@ private fun RoleRow(
                                     },
                                     onLongClickLabel = stringResource(R.string.role_menu_reassign),
                                 )
-                                .widthIn(max = halfRow)
+                                // 11-10 二十三改（用户令「显示名太短的话标签框太短，
+                                // 点击/更换发音人操作不太方便，给它设个最短宽度」）：
+                                // **加 96dp 下限**。两字名（「清一」「王姨」）原先框只有约 83dp
+                                // （实测截图 1260 宽下 250px ≈ 83dp），既是点击目标也是长按
+                                // 随机换声的热区，偏窄时容易点偏。96dp ≈ 4.2 个汉字宽，
+                                // 常见短名留白舒服、触点在框内宽松，且不会像 120dp 那样显空。
+                                // 上限仍是 halfRow（半屏），长名字照旧封顶截断，两头都有边界。
+                                .widthIn(min = 96.dp, max = halfRow)
                                 .minimumInteractiveComponentSize(),
                         ) {
                             Text(
