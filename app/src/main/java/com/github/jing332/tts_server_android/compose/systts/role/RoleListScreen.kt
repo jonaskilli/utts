@@ -1498,7 +1498,6 @@ private fun RoleRow(
                                 onToggleMark = onToggleMark,
                                 deleteEnabled = hasAnchor,
                                 onDelete = onDeleteConfig,
-                                compact = true,
                             )
                         }
                     }
