@@ -1052,26 +1052,26 @@ fun VoicePickerDialog(
                 CharacterRecordsFile.readVoiceOwnerMap(config.speechRule.tagRuleId)
             }
 
-            // 「被其他角色占用」的 tag 集合（不含本角色自己）：
-            //   owner 列表中存在「不是 bindingKey 的名字」即算被占用。
-            // 非绑定模式（旁白/音效槽）没有"角色占用"概念，返回空集。
+            // 占用计数（不含本角色自己）：tag → 被多少个**其他**角色绑定。
+            //   owner 列表里「不是 bindingKey 的名字」才计数，所以本角色自己不算占用。
+            // 非绑定模式（旁白/音效槽）没有"角色占用"概念，返回空表（全部按 0 计）。
             // ⚠️ 这里**不能**引 exclude——那是 pickRandomIn 的入参，在此作用域不存在；
             //    "排除当前这一个"在 filter 里用 it != exclude 单独判即可。
-            val occupiedTags: Set<String> = if (isBindingMode) {
-                voiceOwners.filterValues { names -> names.any { it != bindingKey } }.keys
-            } else emptySet()
+            val voiceUsage: Map<String, Int> = if (isBindingMode) {
+                voiceOwners.mapValues { (_, names) -> names.count { it != bindingKey } }
+            } else emptyMap()
 
-            // ## 29 改（用户令 11-10）：**优先未被占用**，而不是简单排除
+            // ## 30 改（用户令 11-10）：面板随机改成**三级**，与改绑链 `pickCategoryVoice` 完全同口径
             //
-            // 用户最初就说过要"优先未占用"。28 改只做了"排除已用"，够用但不最优：
-            // 当候选池里未被占用的项少、而已用项多时，排除后池子变小，随机仍可能显得局限。
-            // 更贴用户意图的两级策略（与 CharacterRecordsFile.pickCategoryVoice 同口径）：
-            //   ① 先只在**未被任何角色占用**的候选里随机
-            //   ② 若①为空（该分类全被占满），退回到全部可用候选里随机
-            // 这样既保证优先用"空闲"发音人，又不会在极端情况下"随机不到"。
-            //
-            // 注：不同于 pickCategoryVoice——那边按 usage 计数做三级（未用 → 最少用），
-            // 这里只有"占用/未占用"二元信息，二级策略已足够。
+            // 29 改是两级（未占用 → 全量随便挑）。用户发现最后一档是"盲选"：
+            // 该分类全被占满时，被 1 个角色用的和被 6 个角色用的候选机会均等，
+            // 于是随机出来还是老撞"大家都在用的那几个"。改绑链那边一直按 usage 计数挑最少的，
+            // 面板现在也照这个口径来：
+            //   ① 有**没人用**的候选 → 在其中均匀随机（优先空闲）
+            //   ② 全被用过 → 取**用得最少**的那一档，只在档内均匀随机
+            //      （不再像 29 改那样在整个候选池里盲抽，避免堆在热门发音人上）
+            // 计数排除本角色自己（voiceUsage 已按 bindingKey 扣掉），所以"自己当前这个"
+            // 不会把自己算成占用；exclude 仍单独排除当前项，避免随机到原地不动。
             fun pickRandomIn(category: String?, search: String, exclude: String?): String? {
                 val base = poolEnabled.filter {
                     it != exclude &&
@@ -1079,8 +1079,10 @@ fun VoicePickerDialog(
                         tagHitSearch(it, search)
                 }
                 if (base.isEmpty()) return null
-                val free = base.filter { it !in occupiedTags }
-                return (if (free.isNotEmpty()) free else base).randomOrNull()
+                val free = base.filter { (voiceUsage[it] ?: 0) == 0 }
+                if (free.isNotEmpty()) return free.randomOrNull()
+                val minUse = base.minOf { voiceUsage[it] ?: 0 }
+                return base.filter { (voiceUsage[it] ?: 0) == minUse }.randomOrNull()
             }
             // 显示名限长（10-06 用户令）：吃设置页「限制显示名称长度」滑杆，0=不限；
             // 候选行/顶部当前发音人/Toast 三处同一份，与主列表卡片、日志显示名全站一口径。
