@@ -67,7 +67,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import com.github.jing332.tts_server_android.R
 import com.github.jing332.tts_server_android.compose.backup.BackupRestoreActivity
-import com.github.jing332.tts_server_android.compose.EnabledCountBadge
+import com.github.jing332.tts_server_android.compose.AutoEnabledCountBadge
 import com.github.jing332.tts_server_android.compose.KeyPoolBadge
 import com.github.jing332.tts_server_android.compose.forwarder.systts.ForwarderWebDialog
 import com.github.jing332.tts_server_android.compose.nav.NavTopAppBar
@@ -255,7 +255,11 @@ fun SettingsScreen() {
                 SettingItem(search, "朗读规则", "规则", "speech", "rule") {
                         // 启用徽章（10-13 用户令「主界面右上角菜单和设置页的朗读规则和插件也要
                         // 后面显示已启用x，未启用」）：紧贴标题（图一形式）；朗读规则全局最多启用一条。
-                        val ruleCount = remember { dbm.speechRuleDao.allEnabled.size }
+                        // 11-11 修「外面显示未启用，进去勾选规则、退出后仍是未启用，重启才正常」：
+                        // 原 remember { 查库 } 无 key，只在本页首次组合时查一次；从规则管理页
+                        // 返回时页面只是重新可见、并未重建，徽章一直是旧值。
+                        // 改走 AutoEnabledCountBadge（ON_RESUME 重查），与主界面菜单同一组件。
+                        val ruleCountProvider = { dbm.speechRuleDao.allEnabled.size }
                         BasePreferenceWidget(
                             // 显式 Intent：本文件 import 了 ContextCompat.startActivity（要 Intent 的静态重载），
                             // 它遮蔽 Context.startActivity(Class) —— 直接传 Class 会编译报「期望 Intent」
@@ -264,21 +268,21 @@ fun SettingsScreen() {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(stringResource(id = R.string.speech_rule_manager))
                                     Spacer(Modifier.width(4.dp))
-                                    EnabledCountBadge(ruleCount)
+                                    AutoEnabledCountBadge(ruleCountProvider)
                                 }
                             },
                             icon = { Icon(Icons.AutoMirrored.Default.MenuBook, null) }
                         )
                     }
                     SettingItem(search, "插件", "plugin", "插件管理") {
-                        val pluginCount = remember { dbm.pluginDao.allEnabled.size }
+                        val pluginCountProvider = { dbm.pluginDao.allEnabled.size }
                         BasePreferenceWidget(
                             onClick = { context.startActivity(Intent(context, PluginManagerActivity::class.java)) },
                             title = {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(stringResource(id = R.string.plugin_manager))
                                     Spacer(Modifier.width(4.dp))
-                                    EnabledCountBadge(pluginCount)
+                                    AutoEnabledCountBadge(pluginCountProvider)
                                 }
                             },
                             icon = { Icon(painterResource(id = R.drawable.ic_shortcut_plugin), null) }

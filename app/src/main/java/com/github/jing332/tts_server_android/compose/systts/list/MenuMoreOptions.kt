@@ -35,7 +35,7 @@ import com.github.jing332.database.dbm
 import com.github.jing332.compose.widgets.AppDropdownMenu
 import com.github.jing332.compose.widgets.CheckedMenuItem
 import com.github.jing332.tts_server_android.R
-import com.github.jing332.tts_server_android.compose.EnabledCountBadge
+import com.github.jing332.tts_server_android.compose.AutoEnabledCountBadge
 import com.github.jing332.tts_server_android.compose.KeyPoolBadge
 import com.github.jing332.tts_server_android.compose.asAppCompatActivity
 import com.github.jing332.tts_server_android.compose.systts.plugin.PluginManagerActivity
@@ -146,14 +146,17 @@ internal fun MenuMoreOptions(
         // 朗读规则/插件行尾跟启用徽章（10-13 用户令「主界面右上角菜单和设置页的朗读规则和
         // 插件也要后面显示已启用x，未启用两种显示方式」）：与密钥行同款=紧贴标题（图一形式）；
         // 朗读规则全局最多启用一条、插件看启用条数，count=0 → 红字「未启用」。
-        // 同步读 DB（allEnabled，毫秒级查询；菜单即点即现，短生命周期可接受）。
-        val ruleCount = remember { dbm.speechRuleDao.allEnabled.size }
+        // 11-11 修「外面显示未启用，进去勾选了规则、退出来还是未启用，重启才正常」：
+        // 原来是 remember { 查库 }——没有 key，只在本菜单首次组合时查一次，之后一直用旧值。
+        // 改走 AutoEnabledCountBadge：ON_RESUME 时重查（菜单本身是弹层，每次打开都重新组合，
+        // 而设置页那种常驻页面就需要生命周期刷新，统一用同一组件免得两处行为不一致）。
+        val ruleCountProvider = { dbm.speechRuleDao.allEnabled.size }
         DropdownMenuItem(
             text = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(stringResource(id = R.string.speech_rule_manager))
                     Spacer(Modifier.width(4.dp))
-                    EnabledCountBadge(ruleCount)
+                    AutoEnabledCountBadge(ruleCountProvider)
                 }
             },
             onClick = {
@@ -165,13 +168,13 @@ internal fun MenuMoreOptions(
             }
         )
 
-        val pluginCount = remember { dbm.pluginDao.allEnabled.size }
+        val pluginCountProvider = { dbm.pluginDao.allEnabled.size }
         DropdownMenuItem(
             text = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(stringResource(id = R.string.plugin_manager))
                     Spacer(Modifier.width(4.dp))
-                    EnabledCountBadge(pluginCount)
+                    AutoEnabledCountBadge(pluginCountProvider)
                 }
             },
             onClick = {
