@@ -1102,7 +1102,10 @@ private fun PinnedChip(
         // 全排统一 11sp（11-11 用户令「字号都要一致」）：
         // 原 DEBUG 走 small = 10.5sp 分支，是唯一的字号差异来源，已撤。
         fontSize = 11.sp,
-        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+        // 11-11 用户令「选中后文字太过了」：SemiBold(600) → Medium(500)。
+        // 选中态原本同时变「底色 + 字色 + 字重」三个维度，字重那一维最扎眼；
+        // 降到 500 后仍有轻微加粗感，但不会"跳出来"。未选中仍是 Normal(400)，差一档够用。
+        fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
         color = fg,
         maxLines = 1,
         // 11-11 用户令「宽度最小也要设定一下，最少有四个字的宽度，文字不够四个字就放到胶囊中间」：
