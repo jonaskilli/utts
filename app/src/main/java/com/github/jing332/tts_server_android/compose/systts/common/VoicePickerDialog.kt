@@ -89,7 +89,6 @@ import com.github.jing332.tts.CachedEngineManager
 import com.github.jing332.tts_server_android.R
 import com.github.jing332.tts_server_android.compose.SharedViewModel
 import com.github.jing332.tts_server_android.compose.SoftSegmentedTextToggle
-import com.github.jing332.tts_server_android.compose.systts.list.resolveTagRuleId
 import com.github.jing332.tts_server_android.compose.systts.list.ui.PluginDescriptor
 import com.github.jing332.tts_server_android.compose.systts.list.ui.widgets.AudioParamsDimensionSection
 import com.github.jing332.tts_server_android.conf.AppConfig
@@ -215,6 +214,15 @@ fun VoicePickerDialog(
         return
     }
     val source = config.source as? PluginTtsSource
+    // tagRuleId 空值兜底（用户令 11-11：配置列表与 z阅读 通用，库里可能不再带这一项）。
+    // 本面板下面十几处都要拿它定位角色卡/发音人池/标记表（/chajian/<tagRuleId>/…），
+    // 传空串会读写到 /chajian 根目录、与角色管理互相看不见——所以统一在这里取一次有效值。
+    // 规则全局只启用一条，空值即「当前启用规则」，无歧义。
+    val effectiveRuleId = remember(entity.id) {
+        val raw = config.speechRule.tagRuleId
+        if (raw.isNotBlank()) raw
+        else runCatching { dbm.speechRuleDao.allEnabled.firstOrNull()?.ruleId }.getOrNull().orEmpty()
+    }
     // 规则 tags 表（tag id→显示名）：大分类显示的权威来源（与编辑页标签两层弹窗同源）。
     // config.speechRule.tagName 只是绑定时的快照，规则改版后会过期——实测
     // 非绑定分类显示不对，改从 rule.tags 现查
@@ -224,7 +232,7 @@ fun VoicePickerDialog(
         // tagRuleId 空值兜底（用户令 11-11）：导出与 z阅读 通用后配置不再带该字段，
         // 规则全局只启用一条，空值取启用中的那条，避免分类名/候选池整片回落成快照。
         ruleTags = withIO {
-            dbm.speechRuleDao.getByRuleIdAll(resolveTagRuleId(config.speechRule.tagRuleId))?.tags
+            dbm.speechRuleDao.getByRuleIdAll(effectiveRuleId)?.tags
         }
     }
     // 大分类口径：分类以 tag id 查 rule.tags 得显示名——显示名带尾序号的
@@ -296,7 +304,7 @@ fun VoicePickerDialog(
             // 这样任何候选都 ≠ boundVoice，确认键才能走到建记录分支（否则选锚点自身的
             // 标签会被「与当前绑定相同」守卫吞掉，新角色永远建不出来）
             CharacterRecordsFile.readCharacterVoice(
-                config.speechRule.tagRuleId, bindingKey
+                effectiveRuleId, bindingKey
             ) ?: if (addMode) "" else config.speechRule.tag
         )
     }
@@ -312,8 +320,8 @@ fun VoicePickerDialog(
     var marksVersion by remember(entity.id) { mutableStateOf(0) }
     // 标记表一次读盘（10-05 性能：原候选行逐行 VoiceMarksFile.get 各读一遍整文件，
     // N 行=N 次读盘+JSON 解析，是「点开面板卡」主源之一）；marksVersion 自增时重读
-    val marksMap = remember(config.speechRule.tagRuleId, marksVersion) {
-        VoiceMarksFile.readAll(config.speechRule.tagRuleId)
+    val marksMap = remember(effectiveRuleId, marksVersion) {
+        VoiceMarksFile.readAll(effectiveRuleId)
     }
     // ② 行集合/池子：删除配置项 ⇒ 启用标签集合与候选池都变。DB 通道同样没有观察者，
     //    只能靠版本号驱动重组。参照 v10：filterAndShowVoiceList 每次调用前先 refreshFayinrenList()，
@@ -435,7 +443,7 @@ fun VoicePickerDialog(
     fun deletePreviewedConfig(target: SystemTtsV2) {
         val targetDto = target.config as? TtsConfigurationDTO ?: return
         val targetTag = targetDto.speechRule.tag
-        val tagRuleId = targetDto.speechRule.tagRuleId
+        val tagRuleId = targetDto.speechRule.tagRuleId.ifBlank { effectiveRuleId }
         scope.launch {
             var tagNowEmpty = false
             var reassignedCount = 0
@@ -812,9 +820,9 @@ fun VoicePickerDialog(
                                             scope.launch {
                                                 val ok = withIO {
                                                     if (isRelease) CharacterRecordsFile.releaseAndFix(
-                                                        config.speechRule.tagRuleId, releaseOwnerName, n, selected,
+                                                        effectiveRuleId, releaseOwnerName, n, selected,
                                                     ) else CharacterRecordsFile.addCharacter(
-                                                        config.speechRule.tagRuleId, n, selected,
+                                                        effectiveRuleId, n, selected,
                                                     )
                                                 }
                                                 if (ok) {
@@ -859,7 +867,7 @@ fun VoicePickerDialog(
                                             withIO {
                                                 targets.forEach { name ->
                                                     if (CharacterRecordsFile.rebind(
-                                                            config.speechRule.tagRuleId, name, selected,
+                                                            effectiveRuleId, name, selected,
                                                         )
                                                     ) okCount++
                                                 }
@@ -1056,7 +1064,7 @@ fun VoicePickerDialog(
             // 原位置在候选列表的 item 作用域里，pickRandomIn 够不到。
             // remember 键不变（entity/dataVersion/rowVersion），缓存语义与之前一致。
             val voiceOwners = remember(entity.id, dataVersion, rowVersion) {
-                CharacterRecordsFile.readVoiceOwnerMap(config.speechRule.tagRuleId)
+                CharacterRecordsFile.readVoiceOwnerMap(effectiveRuleId)
             }
 
             // 占用计数（不含本角色自己）：tag → 被多少个**其他**角色绑定。
@@ -1220,7 +1228,7 @@ fun VoicePickerDialog(
                                     val markId = VoiceMarksFile.MARK_ITEMS
                                         .firstOrNull { it.second == emojiText }?.first
                                     if (markId != null && topMarkKey.isNotBlank() &&
-                                        VoiceMarksFile.toggle(config.speechRule.tagRuleId, topMarkKey, markId)
+                                        VoiceMarksFile.toggle(effectiveRuleId, topMarkKey, markId)
                                     ) {
                                         marksVersion++
                                         onChanged?.invoke("marked", topMarkKey)
@@ -1324,7 +1332,7 @@ fun VoicePickerDialog(
                         marks = topMarks,
                         onToggleMark = { mark ->
                             if (topMarkKey.isNotBlank() &&
-                                VoiceMarksFile.toggle(config.speechRule.tagRuleId, topMarkKey, mark)
+                                VoiceMarksFile.toggle(effectiveRuleId, topMarkKey, mark)
                             ) {
                                 // 标记走文件通道、无观察者：版本号自增驱动本行 emoji 与候选行重读
                                 marksVersion++
@@ -1600,7 +1608,7 @@ fun VoicePickerDialog(
                                 },
                                 marks = rowMarks,
                                 onToggleMark = { mark ->
-                                    if (VoiceMarksFile.toggle(config.speechRule.tagRuleId, tag, mark)) {
+                                    if (VoiceMarksFile.toggle(effectiveRuleId, tag, mark)) {
                                         marksVersion++
                                         onChanged?.invoke("marked", tag)
                                         // 主列表标记显示同步刷新（文件通道无观察者，靠版本号驱动重组）
@@ -1766,7 +1774,7 @@ fun VoicePickerDialog(
                                 },
                                 marks = rowMarks,
                                 onToggleMark = { mark ->
-                                    if (VoiceMarksFile.toggle(config.speechRule.tagRuleId, v, mark)) {
+                                    if (VoiceMarksFile.toggle(effectiveRuleId, v, mark)) {
                                         marksVersion++
                                         onChanged?.invoke("marked", v)
                                         // 主列表标记显示同步刷新（文件通道无观察者，靠版本号驱动重组）
@@ -1848,7 +1856,7 @@ fun VoicePickerDialog(
         val tagLabel = ruleTags?.get(delTag) ?: delDto?.speechRule?.tagName.orEmpty()
         val tagShown = tagLabel.ifBlank { delTag }
         val assigned = remember(delTarget.id) {
-            CharacterRecordsFile.readVoiceOwnerMap(config.speechRule.tagRuleId)[delTag]
+            CharacterRecordsFile.readVoiceOwnerMap(effectiveRuleId)[delTag]
                 .orEmpty().isNotEmpty()
         }
         AlertDialog(
