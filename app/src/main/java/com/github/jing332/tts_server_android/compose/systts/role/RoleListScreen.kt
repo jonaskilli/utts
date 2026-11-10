@@ -1179,7 +1179,12 @@ private fun RoleRow(
                     interactionSource = remember { MutableInteractionSource() },
                 )
                 .padding(vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically
+            // 11-11 用户令「第一行和第二行应该中线水平对齐」+「第一行要对齐，不要考虑第二行」：
+            // 改回 Top——左右两列都从顶部起排，左侧名字第一行与右侧标签行顶端齐平。
+            // ⚠️ 上一版曾为修「播放键太靠上」把这里改成 CenterVertically，那是错改层级：
+            // ▶ 的居中该由**第一行自己的 Row**负责（见下方 firstRow verticalAlignment），
+            // 不该让整个外层 Row 居中——那样右列（39dp）会在左列（多别名时 50dp）里居中下坠。
+            verticalAlignment = Alignment.Top
         ) {
             // 名字列：照 v9 排布（主名第一行，别名逐个竖排，每行带性别色圆点）
             Column(
