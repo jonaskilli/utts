@@ -145,7 +145,12 @@ class ListManagerViewModel : ViewModel() {
                         val result = if (key.isBlank()) {
                             visible
                         } else {
-                            filterList(visible, key, searchType, enabledIds)
+                            // tagRuleId 空值兜底（用户令 11-11）：标记搜索要读 /chajian/<id>/voice_marks.json，
+                            // 空串会查 /chajian 根（永远空）→「已标记」搜索一条都出不来。
+                            // 规则全局只启用一条，空值即当前启用规则；这里整表解析一次，
+                            // 不逐项查库（列表可能上千项）
+                            val markRuleId = this@ListManagerViewModel.markEnabledRuleId()
+                            filterList(visible, key, searchType, enabledIds, markRuleId)
                         }
                         _list.value = result
                         _isInitialized.value = true
@@ -166,11 +171,22 @@ class ListManagerViewModel : ViewModel() {
         val enabledPluginIds: Set<String>,
     )
 
+    /**
+     * 当前启用规则 id（tagRuleId 空值兜底用，用户令 11-11）。
+     * 朗读规则全局只启用一条；查不到返回空串，调用方按「无规则」处理。
+     * ⚠️ 会查库，须在 IO/协程上下文调用（本类调用点在 Flow.collect 内，安全）。
+     */
+    private suspend fun markEnabledRuleId(): String = withContext(Dispatchers.IO) {
+        runCatching { dbm.speechRuleDao.allEnabled.firstOrNull()?.ruleId }.getOrNull().orEmpty()
+    }
+
     private fun filterList(
         list: List<GroupWithSystemTts>,
         key: String,
         searchType: SearchType,
         enabledIds: Set<String> = emptySet(),
+        // 当前启用规则 id：供「已标记」搜索给空 tagRuleId 的配置项兜底定位标记表
+        enabledRuleId: String = "",
     ): List<GroupWithSystemTts> {
         return when (searchType) {
             SearchType.NAME -> {
@@ -247,7 +263,7 @@ class ListManagerViewModel : ViewModel() {
                     val filteredItems = groupWithTts.list.filter { item ->
                         val dto = item.config as? TtsConfigurationDTO ?: return@filter false
                         val marks = VoiceMarksFile.marksFor(
-                            dto.speechRule.tagRuleId,
+                            dto.speechRule.tagRuleId.ifBlank { enabledRuleId },
                             dto.speechRule.tag,
                             (dto.source as? PluginTtsSource)?.voice.orEmpty(),
                         )

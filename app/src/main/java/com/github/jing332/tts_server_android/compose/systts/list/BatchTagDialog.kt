@@ -50,10 +50,16 @@ fun BatchTagDialog(
     }
 
     // 检测选中项是否使用同一个 tagRuleId
-    val commonTagRuleId by remember(selectedItems) {
+    // 空值兜底（用户令 11-11：配置列表与 z阅读 通用，库里可能不带这一项）：
+    // 规则全局只启用一条，空值等价于「当前启用规则」，所以这里先按这个口径归一，
+    // 否则「带 id 的老项 + 不带 id 的新项」混选会被误判成「规则不一致」而整块禁用。
+    val enabledRuleId = remember {
+        runCatching { dbm.speechRuleDao.allEnabled.firstOrNull()?.ruleId }.getOrNull().orEmpty()
+    }
+    val commonTagRuleId by remember(selectedItems, enabledRuleId) {
         derivedStateOf {
             val ruleIds = selectedItems.map {
-                (it.config as TtsConfigurationDTO).speechRule.tagRuleId
+                (it.config as TtsConfigurationDTO).speechRule.tagRuleId.ifBlank { enabledRuleId }
             }.distinct()
             if (ruleIds.size == 1) ruleIds.first() else null
         }

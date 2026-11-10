@@ -131,9 +131,14 @@ fun SpeechRuleEditScreen(
                 config = config.copy(
                     speechRule = config.speechRule.copy(
                         tagName = tagName,
-                        // 保存时把兜底出来的规则 id 写回：之后该配置就自带归属，
-                        // 不再依赖「空值 = 当前启用规则」的推断（换规则后也不会漂移）
-                        tagRuleId = config.speechRule.tagRuleId.ifBlank { effectiveRuleId },
+                        // 只在真的「按标签朗读」时把兜底出的规则 id 写回；纯音色（全部/旁白）
+                        // 没有标签归属，就不写——保持配置项干净，与 z阅读 侧一致。
+                        // 写回后该配置自带归属，不再依赖「空值 = 当前启用规则」的推断。
+                        tagRuleId = when {
+                            config.speechRule.tagRuleId.isNotBlank() -> config.speechRule.tagRuleId
+                            config.speechRule.target == SpeechTarget.TAG -> effectiveRuleId
+                            else -> ""
+                        },
                     )
                 )
             )
