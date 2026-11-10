@@ -77,6 +77,7 @@ import androidx.compose.ui.graphics.lerp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.drake.net.utils.withIO
 import com.github.jing332.common.utils.limitByDisplayWidth
+import com.github.jing332.tts_server_android.compose.theme.pluginChipColor
 import com.github.jing332.common.ACCENT_GREEN
 import com.github.jing332.tts_server_android.compose.theme.AppShapes
 import com.github.jing332.compose.widgets.ControlBottomBarVisibility
@@ -1445,7 +1446,10 @@ private fun RoleRow(
                                 Text(
                                     " · $pluginName",
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.secondary,
+                                    // 11-10 用户令「参考日志里插件名的颜色」：日志插件牌是固定灰青
+                                    // #5B6472 / 深色 #9AA0A8（信息类别色，不随主题变），
+                                    // 此处原用主题 secondary（随主题变绿/紫/蓝），改为同日志口径。
+                                    color = pluginChipColor(),
                                     maxLines = 1,
                                     overflow = TextOverflow.Clip,
                                     softWrap = false,

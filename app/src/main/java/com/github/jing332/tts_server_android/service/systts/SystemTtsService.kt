@@ -858,8 +858,9 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                         // 截取口径从「码点 4」改为**按显示宽度 8**（中文 4 字 / 英文 8 字母 / 混排按实宽）。
                         // 原 limitDisplayLength(4) 对中英一视同仁，英文只显示 4 个字母、宽度浪费一半；
                         // 且「剪映（需填变量）」会被切成「剪映（需」以外的怪形状。
-                        // 新函数 limitByDisplayWidth 只剔除**末尾孤立**的开括号/连接符，
-                        // 「剪映（需」这种括号后有汉字的保留（用户明确认可）。
+                        // 11-10 再改（用户令「遇到括号或者其他符号后面跟的内容就直接留前面的」）：
+                        // limitByDisplayWidth 改为**遇符号即切**——剪映_v12→剪映、讯飞（Pro）→讯飞；
+                        // 连字符 '-' 例外不切（豆包-猫箱、萧文-超拟人是真实名）。
                         // 不补省略号，与 10-06 口径一致；括号仍留在 font 内部（避免两截色）。
                         val pnameLimited = pnameFull.limitByDisplayWidth()
                         append("<font color=\"" + PLUGIN_CHIP_COLOR + "\">（")

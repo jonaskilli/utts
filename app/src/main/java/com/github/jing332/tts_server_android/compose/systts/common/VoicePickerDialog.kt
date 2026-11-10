@@ -70,6 +70,7 @@ import com.drake.net.utils.withIO
 import com.drake.net.utils.withMain
 import com.github.jing332.tts_server_android.compose.theme.AppShapes
 import com.github.jing332.common.utils.limitByDisplayWidth
+import com.github.jing332.tts_server_android.compose.theme.pluginChipColor
 import com.github.jing332.common.utils.limitDisplayLength
 import com.github.jing332.common.utils.toParamText
 import com.github.jing332.compose.widgets.AppSelectionDialog
@@ -1134,7 +1135,8 @@ fun VoicePickerDialog(
             // 长按=随机换同分类（🎲 直键退役，长按即入口）；单例类别/非绑定无候选不响应
             // （11-09 装机版终稿：分类标签框/长按随机换声均退役——topCategoryTag/
             // topCategoryClickable 已删；随机换声走恢复的 🎲 直键）
-            // 插件名缀尾（11-08 用户令「换声面板也需要插件名…显示插件的四个字」）：
+            // 插件名缀尾（11-08 用户令「换声面板也需要插件名…显示插件的四个字」；
+            // 11-10 口径改为遇符号即切，见 String.limitByDisplayWidth）：
             // 与角色列表注释行同口径——前 4 码点、全角｜替换；随暂存目标走（跟随目标配置项
             // 的插件，暂存换了发音人但同插件则不变；查不到插件/本地音效=不显示）
             val topPluginName = remember(topMarkKey, paramsTarget.id, dataVersion) {
@@ -1240,8 +1242,9 @@ fun VoicePickerDialog(
                         Text(
                             topPluginName,
                             style = MaterialTheme.typography.labelSmall,
-                            // 插件名 secondary（18 改口径不变）：带主题色相、与名字明度+色相双重区分
-                            color = MaterialTheme.colorScheme.secondary,
+                            // 11-10 用户令：插件名改用日志插件牌的灰青固定色（不随主题变），
+                            // 原 secondary 会随主题变绿/紫/蓝，与"来源标识"语义不符。
+                            color = pluginChipColor(),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             // 插件名不吃 weight：它按内容宽占位，剩余空间交给下面的 Spacer。
@@ -2005,8 +2008,8 @@ private fun CandidateRow(
                     Text(
                         "· $pluginName",
                         style = MaterialTheme.typography.labelSmall,
-                        // 同顶部：secondary（11-10 十八改）
-                        color = MaterialTheme.colorScheme.secondary,
+                        // 同顶部：日志插件牌灰青固定色（11-10 用户令）
+                        color = pluginChipColor(),
                         maxLines = 1,
                         overflow = TextOverflow.Clip,
                         modifier = Modifier.padding(start = 4.dp),

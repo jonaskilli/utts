@@ -56,6 +56,8 @@ import androidx.constraintlayout.compose.ConstraintLayout
 import androidx.constraintlayout.compose.Dimension
 import com.github.jing332.common.utils.StringUtils.limitLength
 import com.github.jing332.common.utils.limitDisplayLength
+import com.github.jing332.common.utils.limitByDisplayWidth
+import com.github.jing332.tts_server_android.compose.theme.pluginChipColor
 import com.github.jing332.common.utils.performLongPress
 import com.github.jing332.compose.widgets.AppDropdownMenu
 import com.github.jing332.compose.widgets.LongClickIconButton
@@ -399,15 +401,13 @@ internal fun Item(
                 }
 
                 Text(
-                    text = type.limitLength(12, "…"),
+                    // 11-10 用户令：插件名遇符号即切（剪映_v12→剪映、讯飞（Pro）→讯飞），
+                    // 与角色列表/换声面板/日志统一走 limitByDisplayWidth，不再各自一套口径
+                    text = type.limitByDisplayWidth(),
                     style = MaterialTheme.typography.labelMedium,
-                    // 插件名（11-10 十一改，回混元口径）：secondary → tertiary。
-                    // 十改曾为「统一卡内色相」改成 secondary，但那偏离了混元分支的原始设计——
-                    // 混元里插件名就是 tertiary（青蓝），与分类标签的 secondary（绿灰）本就分属两类：
-                    // 插件名是「来源标识」，分类标签是「归属标识」，色相不同是有意为之。
-                    // 用户令「就参照以前 hunyuan 分支的来改」，故回 tertiary。
-                    color = MaterialTheme.colorScheme.tertiary,
-                    // 插件名按字符数截短（12字+省略号，中文字符宽度统一可预测），
+                    // 11-10 用户令「参考日志里插件名的颜色」：改用日志插件牌的固定灰青，
+                    // 原 tertiary 会随主题变（青蓝/绿/紫），与"来源标识"语义不符
+                    color = pluginChipColor(),
                     // 右侧留 8dp 空隙避免与左侧采样率标签贴死
                     maxLines = 1,
                     textAlign = TextAlign.End,

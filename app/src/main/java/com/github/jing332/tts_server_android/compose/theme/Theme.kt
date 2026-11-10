@@ -242,3 +242,20 @@ fun AppTheme(
         )
     }
 }
+
+/**
+ * 插件名（"来源标识"）的统一显示色：固定灰青，**不随主题变**。
+ *
+ * 11-10 用户令「参考日志里插件名的颜色，把角色列表和换声面板插件名颜色改一下」。
+ * 日志页的插件牌一直是这个固定色（`LogScreen.pluginChipColor`），因为它和发音人信息、
+ * 角色名一样属于**信息类别色**——一眼分清"哪个是插件/哪个是人/哪句是正文"。
+ * 角色列表与换声面板原先用主题 `secondary`，换主题就变绿变紫，语义上跑偏了，
+ * 故抽到此处共用，避免三处各写一份色值后再漂移。
+ *
+ * 浅色 #5B6472 / 深色 #9AA0A8（与 LogScreen 现行值一致）。
+ */
+@Composable
+fun pluginChipColor(): Color {
+    val dark = isAppInDarkTheme()
+    return if (dark) Color(0xFF9AA0A8) else Color(0xFF5B6472)
+}
