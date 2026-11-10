@@ -2013,17 +2013,23 @@ private fun CandidateRow(
             ) {
                 Text(
                     (if (isCurrent) "✓ " else "") + text,
-                    // 21 改（同顶部）：名字超长时省略号截断，保住后面的插件名/已用/emoji。
-                    // SAME 陷阱：原来 modifier 无约束 + Clip，长名字按全宽测量会把
-                    // 插件名、「已用」徽章、标记 emoji 全挤出去。
-                    // weight(1f, fill=false)：短名字按内容宽（不撑开、不留空），
-                    // 长名字才吃剩余并截断。外层的 Spacer(weight 1f) 因此只在
-                    // 名字没吃满时生效，两者不会平分空间。
-                    modifier = Modifier.weight(1f, fill = false),
+                    // 11-10 修（用户实拍「空间很充裕，显示名却被省略了，还带省略号」）：
+                    //
+                    // 两个问题一并修掉：
+                    // ① **平分陷阱**：名字 `weight(1f, fill=false)`，而外层还有一个
+                    //    `Spacer(weight(1f))` 把 ▶/⋮ 往右推——两个 1f 平分剩余宽，
+                    //    名字只拿到一半，右边明明空着却在「聆飞瀚-…」处断掉。
+                    //    修法：名字改 `fill = true` 独占剩余（短名字也不会因此拉出空白，
+                    //    因为它测得的宽度就是内容宽，多出的由 Spacer 吃掉；
+                    //    长名字才真正用满可用宽）。
+                    // ② **省略号**：用户明确要求「超过就直接截断，不要省略号」，
+                    //    改为 TextOverflow.Clip。
+                    modifier = Modifier.weight(1f, fill = true),
                     // 选择列表行名 14sp（11-09 用户令「字号改小点」）
                     style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp),
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                    // 直接截断，不补省略号（用户 11-10 令）
+                    overflow = TextOverflow.Clip,
                     color = nameColor,
                 )
                 // 插件名（11-09 用户令「已用和 emoji 标签应该在插件名之后」）：
