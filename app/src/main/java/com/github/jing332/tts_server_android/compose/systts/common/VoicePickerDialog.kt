@@ -953,22 +953,36 @@ fun VoicePickerDialog(
                             ?.takeIf { t -> t.isNotEmpty() }
                     }.toMutableSet()
             }
-            // 候选来源分两类：
-            // - 角色槽位：发音人池 fayinren.json ∩ 启用标签（池子只装 GENSHIN 音色标签）
-            // - 本地音效槽位：**不能**用池子——规则 detectAvailableVoices 只遍历 GENSHIN_CHARACTERS
-            //   （localSound 前缀不在其中），音效标签根本进不了池子，取出来全是 TTS 音色。
-            //   改为直接在启用配置里枚举同族槽位（tag=localSoundN），即"本槽位可借用哪些音效槽位的配置"
-            // 10-05 性能：readVoicePool（整文件读+JSON解析）必须包进 remember——
-            // 原直接写在组合体里，面板每次重组（输入搜索字、滑动、状态变化）都读一次盘，
-            // 是「点开面板卡顿/操作卡」的第一主源
-            val rawVoicePool = remember(entity.id, dataVersion) {
-                if (isLocalSoundSlot) emptyList()
-                else CharacterRecordsFile.readVoicePool(config.speechRule.tagRuleId)
-            }
+            // 候选池（27 改，用户令 11-10「就是在启用配置里面选呀。没启用你选啥选？
+            // 你也识别不出来呀」「这两个难道不是一致的吗？只有启用了才会在发音人 JSON 里」）。
+            //
+            // ## 从「交集」改为「只认启用配置」
+            //
+            // 原：poolEnabled = fayinren.json ∩ enabledTags
+            // 现：poolEnabled = enabledTags（角色槽位）/ 音效槽位子集
+            //
+            // ## 为什么交集是错的
+            //
+            // fayinren.json 由**规则脚本运行时生成**（朗读规则 handleText 里
+            // `ttsrv.writeTxtFile("fayinren.json", …)`），内容 = characterManager.availableVoices
+            // = 硬编 GENSHIN_CHARACTERS + duihua 动态解析。它与"启用配置"口径不同，会分叉：
+            //   ① 规则版本不同步：脚本更新后硬编标签变了，文件要等规则跑过才覆写（期间是旧内容）
+            //   ② CONFIG.saveVoicesToFile ≠ 1：文件干脆不写，永远停在老快照
+            //   ③ duihua 动态标签解析失败：那批标签进不了池子
+            // 三者任一成立，「已启用、规则也认得」的发音人就被挡在候选池外 ——
+            // 用户实测「启用了却永远随不到、只在特定几个里跳」正是这个原因。
+            //
+            // ## 为什么只认启用配置是安全的
+            //
+            // 能建出「启用配置」本身就证明该发音人可用（配置里带着 tag、插件、参数，
+            // 朗读链走的是配置而不是这个池子文件）；池子文件只是一个"规则认得哪些标签"的快照。
+            // 故候选池取启用配置全集，既不会选中不可用的发音人，又能覆盖用户真正配过的那批。
+            //
+            // 音效槽位（localSoundN）本来就绕开池子、直接在启用配置里枚举同族槽位，逻辑不变。
             val poolEnabled = if (isLocalSoundSlot) {
                 enabledTags.filter { LOCAL_SOUND_TAG.matches(it) }
             } else {
-                rawVoicePool.filter { it in enabledTags }
+                enabledTags.toList()
             }
             var selectedCategory by remember(entity.id, ruleTags) {
                 // 默认选中配置项当前标签所属分类（显示名现查剥尾号；ruleTags 异步到达后重算）
