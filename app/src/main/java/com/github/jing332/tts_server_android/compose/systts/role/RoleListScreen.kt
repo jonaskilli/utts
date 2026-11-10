@@ -9,7 +9,6 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -1269,9 +1268,13 @@ private fun RoleRow(
                             )
                         }
                         // ▶ 试听（与换声弹窗顶部试听同链）：无锚点配置项（失效标签）不渲染
-                        // 11-09 用户令「第一行右侧都留空了」：▶/⋮ 按键 12dp 水平内边距+触控盒
-                        // 居中，图标右缘距内容线约 12dp 空白——收窄至 8dp+offset(x=6.dp)
-                        // 视觉右移贴线（触控区不动）
+                        // 右缘留白沿革（11-10 十六改）：
+                        //   原版 12dp（11-09 03:01 前）→ 用户「第一行右侧都留空了」嫌太空
+                        //   → 改 8dp padding + offset(+6dp) 视觉右移 → 右缘只剩 2dp
+                        //   → 用户实拍「三个点菜单是不是离右边太近」→ **撤 offset，回 8dp**
+                        // 现在 ▶/⋮ 左右各 8dp 对称；换声弹窗的 ⋮ 同步改为 8dp
+                        //（IconButton 补 padding(end=8dp)），两处口径一致。
+                        // ⚠️ 别再叠 offset 压右缘：padding 已经给足，再加 offset 会把右留白挤没。
                         if (hasAnchor) {
                             Text(
                                 previewLabel,
@@ -1279,8 +1282,7 @@ private fun RoleRow(
                                 style = MaterialTheme.typography.titleMedium,
                                 modifier = Modifier
                                     .clickable(onClick = onPreview)
-                                    .padding(horizontal = 8.dp, vertical = 12.dp)
-                                    .offset(x = 6.dp),
+                                    .padding(horizontal = 8.dp, vertical = 12.dp),
                             )
                             // ⋮ 菜单（与换声弹窗 VoiceOverflowMenu 同款）：
                             // 标记三项 toggle（点亮打勾、菜单不关可连点）+ 删除配置项
@@ -1291,8 +1293,8 @@ private fun RoleRow(
                                     style = MaterialTheme.typography.titleMedium,
                                     modifier = Modifier
                                         .clickable { menuOpen = true }
-                                        .padding(horizontal = 8.dp, vertical = 12.dp)
-                                        .offset(x = 6.dp),
+                                        // 左右各 8dp（同 ▶，见上方沿革注释）——撤掉原 offset(+6dp)
+                                        .padding(horizontal = 8.dp, vertical = 12.dp),
                                 )
                                 DropdownMenu(
                                     expanded = menuOpen,

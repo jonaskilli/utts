@@ -1819,7 +1819,15 @@ private fun VoiceOverflowMenu(
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     Box {
-        IconButton(onClick = { menuOpen = true }) {
+        // 右缘留白（11-10 十六改，用户令「换声弹窗也换成 8dp」）：
+        // IconButton 自带 48dp 触控盒 + M3 默认内衬，字形本身离盒缘还有一段，
+        // 与角色列表行统一到 **8dp 视觉右缘**——角色列表那边是 padding(8dp)+无 offset。
+        // 实现=IconButton 后补 padding(end=8.dp)：IconButton 的触控区尺寸不动
+        //（仍 48dp，符合无障碍最小触控），只把图标整体往左推 8dp。
+        IconButton(
+            onClick = { menuOpen = true },
+            modifier = Modifier.padding(end = 8.dp),
+        ) {
             Icon(Icons.Filled.MoreVert, contentDescription = "更多操作")
         }
         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
