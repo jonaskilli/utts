@@ -177,7 +177,8 @@ object CharacterRecordsFile {
 
     /**
      * 同类别选一个发音人（照 1003 assignVoice 口径）。[poolEnabled] 为已筛好的候选集合
-     * （池 ∩ 启用标签）。[selfIndex] 是要改的记录下标（占用计数时排除自己）；
+     * （11-10 起 = 启用标签全集，不再与 fayinren.json 取交集）。
+     * [selfIndex] 是要改的记录下标（占用计数时排除自己）；
      * 批量调用时把 [records] 里已改的当占用即自然实现「同批尽量不同声」。无候选返回 null。
      */
     fun pickCategoryVoice(
@@ -212,7 +213,12 @@ object CharacterRecordsFile {
     fun reassignVoicesForTag(tagRuleId: String, oldTag: String, enabledTags: Collection<String>): Int {
         val records = readRecords(tagRuleId)
         if (records.isEmpty()) return 0
-        val poolEnabled = readVoicePool(tagRuleId).filter { it in enabledTags }
+        // 28 改（用户令 11-10）：候选池只认启用配置，不再与 fayinren.json 取交集。
+        // 理由同换声面板（见 VoicePickerDialog 同段注释）：池文件由规则脚本运行时生成，
+        // 受「规则版本未同步 / saveVoicesToFile 关闭 / duihua 解析失败」影响，会漏掉
+        // 已启用且实际可用的标签——取交集会让这些标签在改绑时被跳过。
+        // 能建出启用配置即证明该发音人可用，故直接用启用标签全集。
+        val poolEnabled = enabledTags.toList()
         var changed = 0
         for (i in records.indices) {
             val rec = records[i]
@@ -229,7 +235,12 @@ object CharacterRecordsFile {
     fun rerollVoice(tagRuleId: String, index: Int, enabledTags: Collection<String>): String? {
         val records = readRecords(tagRuleId)
         val rec = records.getOrNull(index) ?: return null
-        val poolEnabled = readVoicePool(tagRuleId).filter { it in enabledTags }
+        // 28 改（用户令 11-10）：候选池只认启用配置，不再与 fayinren.json 取交集。
+        // 理由同换声面板（见 VoicePickerDialog 同段注释）：池文件由规则脚本运行时生成，
+        // 受「规则版本未同步 / saveVoicesToFile 关闭 / duihua 解析失败」影响，会漏掉
+        // 已启用且实际可用的标签——取交集会让这些标签在改绑时被跳过。
+        // 能建出启用配置即证明该发音人可用，故直接用启用标签全集。
+        val poolEnabled = enabledTags.toList()
         val newVoice = pickCategoryVoice(rec.voice, records, index, poolEnabled) ?: return null
         rec.obj.put("voice", newVoice)
         saveRecords(tagRuleId, records)

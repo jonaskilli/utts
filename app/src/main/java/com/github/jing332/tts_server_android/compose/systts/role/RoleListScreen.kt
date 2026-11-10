@@ -902,6 +902,14 @@ fun RoleListScreen(
         }?.voice.takeUnless { it.isNullOrBlank() }
         val anchorTag = ownerTag
             ?: records.firstOrNull { it.voice.isNotBlank() }?.voice
+            // 28 改（同 27 改口径）：锚点兜底优先取**启用配置**的首个标签，
+            // 池文件只在启用配置为空时兜底。
+            // 原因：fayinren.json 由规则脚本运行时生成，可能过时/为空（规则版本未同步、
+            // saveVoicesToFile 关闭、duihua 解析失败）；拿它当锚点会得到一个已停用的标签，
+            // 弹窗初始显示名查不到、参数基准也不对。启用配置是用户真实配过的，必定有效。
+            ?: dbm.systemTtsV2.allEnabled.firstOrNull()
+                ?.let { (it.config as? TtsConfigurationDTO)?.speechRule?.tag }
+                ?.takeIf { it.isNotEmpty() }
             ?: CharacterRecordsFile.readVoicePool(tagRuleId).firstOrNull().orEmpty()
         VoicePickerDialog(
             anchorConfigId = null,
@@ -966,6 +974,14 @@ fun RoleListScreen(
     // 优先取现有角色的绑定标签，无记录回落池子首个；候选列表=池子∩启用标签，与锚点无关 =====
     if (addingChar) {
         val anchorTag = records.firstOrNull { it.voice.isNotBlank() }?.voice
+            // 28 改（同 27 改口径）：锚点兜底优先取**启用配置**的首个标签，
+            // 池文件只在启用配置为空时兜底。
+            // 原因：fayinren.json 由规则脚本运行时生成，可能过时/为空（规则版本未同步、
+            // saveVoicesToFile 关闭、duihua 解析失败）；拿它当锚点会得到一个已停用的标签，
+            // 弹窗初始显示名查不到、参数基准也不对。启用配置是用户真实配过的，必定有效。
+            ?: dbm.systemTtsV2.allEnabled.firstOrNull()
+                ?.let { (it.config as? TtsConfigurationDTO)?.speechRule?.tag }
+                ?.takeIf { it.isNotEmpty() }
             ?: CharacterRecordsFile.readVoicePool(tagRuleId).firstOrNull().orEmpty()
         VoicePickerDialog(
             anchorConfigId = null,
