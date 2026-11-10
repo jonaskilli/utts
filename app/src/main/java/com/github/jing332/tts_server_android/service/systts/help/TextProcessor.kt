@@ -167,15 +167,27 @@ class TextProcessor : ITextProcessor {
                         val configFromId =
                             sameTagList.find { it.speechInfo.configId == txtWithTag.id }
 
-                        // Exact match ID > random match in tag > match by voice(方案B) > random match in all
-                        // 注：正常配置=一个标签只启用一条，sameTagList 常态仅 1 项，
-                        // randomOrNull 只是多配置误操作时的兜底，非"随机轮播"设计意图，勿据此做交互
+                        // 匹配链：精确 ID > 同 tag > 同 voice。**到此为止，不再兜底**。
+                        //
+                        // ## 11-10 用户令：删掉「全库随机」这一层
+                        //
+                        // 原第四层是 `?: configs.randomOrNull(random)` ——从**所有已启用配置**
+                        // 里随机挑一个。它在 forEach 内部执行，于是同一篇文章里
+                        // **每一句旁白都各自随机一次、每句换一个声**，整库轮着读，
+                        // 用户听感是「其余所有声音挨个读一遍，非常乱」。
+                        //
+                        // 用户定稿：「不给它兜底了，旁白没启用就直接停、报个错就行，
+                        // 其他 tag 也一样」——宁可整段不读并显式报错，也不要跨类乱借声音。
+                        // 报错经 MissingConfig 走到 SystemTtsService.handleTextProcessorError，
+                        // 有 Toast + 日志，用户看得到是哪个 tag 缺配置，而不是默默念错。
+                        //
+                        // ⚠️ 角色管理里的「同类别自动分配」(CharacterRecordsFile.pickCategoryVoice)
+                        // 是**改绑时**的动作，与朗读期匹配无关，保持原样不动。
                         val config = configFromId
                             ?: sameTagList.randomOrNull(random)
                             ?: configs.filter {
                                 !it.speechInfo.isStandby && it.speechInfo.voice == effectiveTag
                             }.randomOrNull(random)
-                            ?: configs.randomOrNull(random)
                             ?: return Err(
                                 TextProcessorError.MissingConfig(
                                     ConfigType.TAG,
