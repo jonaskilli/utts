@@ -1119,18 +1119,18 @@ fun VoicePickerDialog(
                             fontWeight = FontWeight.SemiBold
                         ),
                         maxLines = 1,
-                        // 21 改（用户令「文字太长时省略显示名，让后面的插件、已用标签、
-                        // emoji 都显示全」）：Ellipsis + weight(1f, fill = false)。
+                        // 24 改（用户实拍「当前发音人那个省略是直接截断的，不带省略号」）：
+                        // **fill=false 会让 Ellipsis 失效** —— fill=false 的语义是"不占满剩余
+                        // 空间"，Compose 于是按**内容宽**测量（想要多宽给多宽），
+                        // 既然宽度无界，Ellipsis 无处可省，超长部分直接被父容器硬裁 = 无省略号。
+                        // 改成 weight(1f)（fill 默认 true）后：分配到的宽度是**有界**的，
+                        // 文本超长才会真正触发 "…"。
                         //
-                        // 原来 modifier 无任何约束 + Clip：名字一长就按**全宽**测量，
-                        // 把插件名/emoji/🎲/▶/⋮ 整排挤出屏幕，而且 Clip 是硬切不打点。
-                        // weight(1f, fill = false) 的关键在 fill=false——
-                        // 短名字按内容宽（不撑开、不留空），长名字才吃剩余宽度并截断，
-                        // 后面所有元素因此全部保住。
+                        // 这里 fill=true 不会像 21 改担心的那样"把插件名拉开"——23 改后
+                        // 插件名已移到第二行，第一行只剩「名字 + emoji」，
+                        // 名字占满整行正是标题行该有的样子。
                         overflow = TextOverflow.Ellipsis,
-                        // 11-09 的教训仍在：别再给外层盒子 weight 造成"内容左对齐、
-                        // 插件名飘到右端"的空白；这里 weight 只给名字自身，fill=false。
-                        modifier = Modifier.weight(1f, fill = false),
+                        modifier = Modifier.weight(1f),
                     )
                     // 插件名已于 23 改移到第二行（见下方），第一行只留名字 + 标记 emoji。
                     // 已点亮标记 emoji（紧跟显示名后；点击取消，QQ 式）
