@@ -1317,6 +1317,34 @@ private fun RoleRow(
                         // 现在 ▶/⋮ 左右各 8dp 对称；换声弹窗的 ⋮ 同步改为 8dp
                         //（IconButton 补 padding(end=8dp)），两处口径一致。
                         // ⚠️ 别再叠 offset 压右缘：padding 已经给足，再加 offset 会把右留白挤没。
+                        // 已点亮标记 emoji（11-10 用户令：从第二行挪到**标签后、试听前**）：
+                        // 选中态补淡主题色圆角底（用户问「选中之后的底色我怎么没看见」——
+                        // 原实现只有 clip(AppShapes.md) 而没设底色，clip 等于空转，故无底衬）。
+                        // 触控：横向 6dp 内衬 + 加大纵向内衬到 6dp，点击区约 32dp；
+                        // 与 ▶ 之间留 4dp（Spacer），减少「点 emoji 误触试听」的概率。
+                        // 固定行高 16sp：emoji 13sp 字形全高渲染会把本行撑高，
+                        // 导致第一行与左侧角色名错位（装机实锤过）。
+                        if (litMarks.isNotEmpty()) {
+                            litMarks.forEach { (_, emojiText) ->
+                                Text(
+                                    emojiText,
+                                    fontSize = 13.sp,
+                                    lineHeight = 16.sp,
+                                    maxLines = 1,
+                                    modifier = Modifier
+                                        // 选中底色：淡主题色（与标签框同族，明度更高一档，
+                                        // 避免和标签框抢视觉）。
+                                        // ⚠️ 顺序：先 clip 成圆角再画底，否则底是直角的
+                                        // （原实现只写了 clip 没背景，等于空转——用户问
+                                        // 「选中之后的底色我怎么没看见」的根因）。
+                                        .clip(AppShapes.md)
+                                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
+                                        .clickable { onToggleMark(emojiMarkOf(emojiText)) }
+                                        .padding(horizontal = 6.dp, vertical = 4.dp),
+                                )
+                            }
+                            Spacer(Modifier.width(4.dp))
+                        }
                         if (hasAnchor) {
                             Text(
                                 previewLabel,
@@ -1325,19 +1353,6 @@ private fun RoleRow(
                                 modifier = Modifier
                                     .clickable(onClick = onPreview)
                                     .padding(horizontal = 8.dp, vertical = 12.dp),
-                            )
-                            // ⋮ 菜单（11-10 用户令「换成换声面板那版」，改用共用组件）：
-                            // 旧实现是本地复制的一份——用文本 "⋮" 当触发图标（细、点距松、
-                            // 触控区只有文字大小），且删除项没有置灰能力（无锚点时仍可点）。
-                            // 换声弹窗那版是 Icon(MoreVert) + IconButton 48dp 触控盒 +
-                            // deleteEnabled 置灰，是标准做法，故统一到 VoiceOverflowMenu。
-                            // 行为不变：标记三项 toggle（点亮打勾、菜单不关可连点）+ 删除配置项；
-                            // 标记键=rec.voice（与候选行同口径）；无锚点配置项时删除项置灰。
-                            VoiceOverflowMenu(
-                                marks = marks,
-                                onToggleMark = onToggleMark,
-                                deleteEnabled = hasAnchor,
-                                onDelete = onDeleteConfig,
                             )
                         }
                     }
@@ -1429,27 +1444,19 @@ private fun RoleRow(
                                 )
                             }
                         }
-                        // 已点亮标记 emoji（钉行尾永不截；点击取消，QQ 式）
-                        // 固定行高 16sp：emoji 13sp 字形全高渲染会把本行撑高
-                        //（装机实锤「有 emoji 的行第一行与角色名错位」根因）
-                        if (litMarks.isNotEmpty()) {
-                            // 间距口径（11-10 二十改，用户实拍「加了 emoji 之后多出一块空白」）：
-                            // 原来 Spacer(6dp) + emoji 自带 padding(horizontal=6dp) **叠加成 12dp**，
-                            // 加上 emoji 字形本身的左空，实测与前一文字间距约 14dp，比字距大三倍。
-                            // 现改为：**取消 Spacer**，只保留 emoji 的 6dp 内衬（兼作触控热区）——
-                            // 视觉间距回 6dp，与「·」前后字距同档；触控区不变。
-                            litMarks.forEach { (_, emojiText) ->
-                                Text(
-                                    emojiText,
-                                    fontSize = 13.sp,
-                                    lineHeight = 16.sp,
-                                    maxLines = 1,
-                                    modifier = Modifier
-                                        .clip(AppShapes.md)
-                                        .clickable { onToggleMark(emojiMarkOf(emojiText)) }
-                                        .padding(horizontal = 6.dp, vertical = 2.dp),
-                                )
-                            }
+                        // ⋮ 菜单（11-10 用户令：从第一行挪到**第二行末尾**，
+                        // 「分类名/插件名这一块和三个点紧密挨着、整体靠右对齐」）。
+                        // 用紧凑模式：第二行是纯文字行，标准 48dp IconButton 会把行撑高、
+                        // 连带两行与左侧角色名的顶对齐一起偏。触控靠 VoiceOverflowMenu 自身。
+                        // 无锚点配置项时删除项置灰（deleteEnabled=hasAnchor）。
+                        if (hasAnchor) {
+                            VoiceOverflowMenu(
+                                marks = marks,
+                                onToggleMark = onToggleMark,
+                                deleteEnabled = hasAnchor,
+                                onDelete = onDeleteConfig,
+                                compact = true,
+                            )
                         }
                     }
                 }

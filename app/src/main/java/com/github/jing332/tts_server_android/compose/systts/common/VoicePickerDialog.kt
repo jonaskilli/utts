@@ -1906,6 +1906,12 @@ internal fun VoiceOverflowMenu(
     onToggleMark: (String) -> Unit,
     deleteEnabled: Boolean,
     onDelete: () -> Unit,
+    // 紧凑模式（11-10 用户令「角色列表的 ⋮ 挪到第二行末尾」）：
+    // 角色列表第二行是纯文字标注行（行高约 20dp），塞标准 48dp IconButton 会把整行
+    // 撑高、连带两行与左侧角色名的顶对齐一起偏。紧凑模式把图标盒压到 maxSize 见方，
+    // 触控区靠外层 RoleRow 的整行点击兜底（⋮ 自身仍可点，只是视觉盒变小）。
+    // 换声弹窗的两处调用不传此参数，行为与之前完全一致。
+    compact: Boolean = false,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     Box {
@@ -1916,9 +1922,16 @@ internal fun VoiceOverflowMenu(
         //（仍 48dp，符合无障碍最小触控），只把图标整体往左推 8dp。
         IconButton(
             onClick = { menuOpen = true },
-            modifier = Modifier.padding(end = 8.dp),
+            modifier = Modifier
+                .then(if (compact) Modifier.size(32.dp) else Modifier)
+                .padding(end = if (compact) 0.dp else 8.dp),
         ) {
-            Icon(Icons.Filled.MoreVert, contentDescription = "更多操作")
+            Icon(
+                Icons.Filled.MoreVert,
+                contentDescription = "更多操作",
+                // 紧凑模式图标也要缩一档，否则 48dp 字形塞进 32dp 盒会溢出
+                modifier = if (compact) Modifier.size(20.dp) else Modifier,
+            )
         }
         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
             VoiceMarksFile.MARK_ITEMS.forEach { (mark, emojiText, label) ->
