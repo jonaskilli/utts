@@ -48,18 +48,9 @@ class TextProcessor : ITextProcessor {
         isMultiVoice = SystemTtsConfig.isMultiVoiceEnabled.value
         logger.debug { "isMultiVoice=$isMultiVoice, configs.size=${configs.size}" }
         if (isMultiVoice) {
-            // tagRuleId 空值兜底（用户令 11-11）：配置列表导出与 z阅读 通用后，JSON 里不再带
-            // tagRuleId，手写/外部导入的项也常缺这一项。朗读规则全局只允许启用一条
-            // （SpeechRuleManagerScreen 启用即停用其它），所以「没写规则」等价于「用当前启用的那条」，
-            // 不存在歧义。原先这里直接 getByRuleId("") → null → MissingRule，整篇不读并弹警告。
-            //
-            // 取哪条配置的 tagRuleId 作依据：优先第一个**非空**的（原实现只取 component1()，
-            // 首项恰好为空时即使后面都绑定了也白搭）。全都为空时才回退到启用中的规则。
-            // 规则归属是常量（tagRuleId 字段已删）：本机只有一套规则
+            // 规则归属是常量（tagRuleId 字段已于 11-11 删除）：本机只有一套朗读规则，
+            // 不再需要从配置里推断，也不再存在「配置没绑定规则」这种失败态。
             val ruleId = SpeechRuleIds.RULE_ID
-            if (boundRuleId == null && ruleId.isNotBlank()) {
-                logger.debug { "tagRuleId 缺省，回退到当前启用规则: $ruleId" }
-            }
             val speechRule =
                 dbm.speechRuleDao.getByRuleId(ruleId)
                     ?: return Err(TextProcessorError.MissingRule(ruleId))
