@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.size
 
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -81,6 +82,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import com.github.jing332.tts_server_android.compose.theme.AppShapes
 import androidx.compose.ui.unit.dp
@@ -452,8 +454,12 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                 }
 
                 // 筛选标签显示
+                // 11-11 用户令「只看错误的时候，不要出现上方的那个 WARN 和 ERROR」：
+                // 「只看错误」的实现是往 selectedLevels 塞 ERROR+WARN，于是这条分级筛选条
+                // 会跟着冒出来——用户看到的是一条本不该存在的筛选栏。
+                // 它是「只看错误」的副作用而非独立筛选意图，故该态下不显示。
                 AnimatedVisibility(
-                    visible = vm.selectedLevels.isNotEmpty(),
+                    visible = vm.selectedLevels.isNotEmpty() && !vm.isErrorsOnly(),
                     enter = fadeIn(),
                     exit = fadeOut()
                 ) {
@@ -972,10 +978,14 @@ private fun PinnedLogHeader(
             // 不然就有点儿区分不开」：一道线是「标签｜选项」的分界，两道以上就成了装饰噪音）。
             PinnedFilterLabel()
             PinnedChip("实时最新", autoFollow, onToggleAutoFollow)
+            // 11-11 用户令：保留红底红字（「填充色是红色，字号也是红色也行吧，要不就不改了」），
+            // 排障语义"红色=错误"维持；只改字号统一与最小宽度。
             PinnedChip("只看错误", errorOnly, onToggleErrorOnly, error = true)
             PinnedChip("朗读规则", showRule, onToggleRule)
             PinnedChip("插件", showPlugin, onTogglePlugin)
-            PinnedChip("DEBUG", showDebug, onToggleDebug, small = true)
+            // 11-11 用户令「所有的筛选项，字号都要一致」：DEBUG 原先 small = true（10.5sp），
+            // 其余都是 11sp，整排字号不齐。撤掉 small，与其它胶囊同字号。
+            PinnedChip("DEBUG", showDebug, onToggleDebug)
         }
 
         // ② 书名行（无书名不显示）
@@ -1070,8 +1080,10 @@ private fun PinnedChip(
     label: String,
     selected: Boolean,
     onClick: () -> Unit,
+    // 错误档：保留淡红填充 + 红字（11-11 用户令「只看错误填充色是红色，字号也是红色也行吧，
+    // 要不就不改了」）。曾经尝试把它改成和其它筛选同款的浅绿选中态，用户否掉，
+    // 排障语义（"红色=错误"）保留。
     error: Boolean = false,
-    small: Boolean = false,
 ) {
     val cs = MaterialTheme.colorScheme
     val bg = when {
@@ -1087,19 +1099,27 @@ private fun PinnedChip(
     Text(
         text = label,
         style = MaterialTheme.typography.labelSmall,
-        fontSize = if (small) 10.5.sp else 11.sp,
+        // 全排统一 11sp（11-11 用户令「字号都要一致」）：
+        // 原 DEBUG 走 small = 10.5sp 分支，是唯一的字号差异来源，已撤。
+        fontSize = 11.sp,
         fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
         color = fg,
         maxLines = 1,
+        // 11-11 用户令「宽度最小也要设定一下，最少有四个字的宽度，文字不够四个字就放到胶囊中间」：
+        // 四个字宽 ≈ 11sp × 4 = 44dp，再加左右各 9dp 内衬 = **62dp** 最小值。
+        // 短标签（「插件」2 字、「DEBUG」）因此与四字标签等宽，整排胶囊宽窄一致、不再参差。
+        // 居中靠 textAlign = Center：widthIn 把盒子撑到 62dp 后，文字在盒内居中渲染。
+        textAlign = TextAlign.Center,
         modifier = Modifier
+            .widthIn(min = 62.dp)
             .clip(RoundedCornerShape(50))
             .background(bg)
             .then(
                 // 11-11 用户令「后面应该是等待选择的胶囊，选中才填色」：
-                // 未选中也给一道淡描边——空心胶囊=看得出"这里有颗可以点的胶囊"，
-                // 选中才在胶囊内部填色。错误档选中是实色红底，不需要再叠描边。
-                if (selected && !error) Modifier.border(1.dp, cs.outlineVariant, RoundedCornerShape(50))
-                else if (!selected) Modifier.border(1.dp, cs.outlineVariant.copy(alpha = 0.55f), RoundedCornerShape(50))
+                // 未选中 = 空心胶囊 + 1dp 描边（看得出"这里可以点"）；选中才填色。
+                // 描边色用满不透明的 outlineVariant（原先未选中乘了 0.55 透明，屏幕上几乎看不见）。
+                // error 档选中是实色淡红底，不再叠描边。
+                if (!(selected && error)) Modifier.border(1.dp, cs.outlineVariant, RoundedCornerShape(50))
                 else Modifier
             )
             .clickable(onClick = onClick)
