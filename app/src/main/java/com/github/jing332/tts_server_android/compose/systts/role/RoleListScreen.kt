@@ -1317,7 +1317,16 @@ private fun RoleRow(
                             // padding 放在 BoxWithConstraints **外面**：这样 maxWidth
                             // 就是文字真正可用的宽度，测量与渲染口径一致（放里面的话
                             // 量到的是含内衬的宽，截断点会偏后）。内衬沿 5dp 原值。
-                            BoxWithConstraints(Modifier.padding(horizontal = 10.dp, vertical = 5.dp)) {
+                            //
+                            // 11-11 用户令「标签框有最低宽度，但里面的文字应该居中，不该居左」：
+                            // 框有 96dp 下限，两三个字的短名（「墨老大」「安小航」）被撑到
+                            // 96dp 后，文字原先贴左、右侧空一大块，看着像"没对齐"。
+                            // BoxWithConstraints 给**子节点**传的约束仍是 minWidth=0，所以
+                            // 内部的 Text 不会自动撑满→直接 contentAlignment 居中即可。
+                            BoxWithConstraints(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
                                 TruncatedAnnotatedText(
                                     text = tagText,
                                     style = tagStyle,
