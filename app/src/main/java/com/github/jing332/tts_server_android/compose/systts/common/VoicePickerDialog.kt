@@ -1173,12 +1173,17 @@ fun VoicePickerDialog(
             // 方案A 强调块退役（10-12 用户令「当前发音人下的底色去掉」）：Surface 垫底撤，
             // 结构照旧（标签行+名字行），无底不加内衬
             if (!addMode) {
+            // 11-11 用户令「该紧的不紧、该松的不松」：这一块原来四种高度互不相干——
+            // 标题贴死名字(0dp)、名字到第二行被 48dp 按钮盒撑出一大块、到终值又只剩 2dp。
+            // 定稿按「标题贴值、组与组之间才松」重排：标题底 2、第二行上下各 6、终值 top 8/bottom 4。
             Column(Modifier.fillMaxWidth().padding(vertical = 7.dp)) {
                 Text(
                     // 标题已改叫「角色卡（角色名）」（终版），本行回归纯「当前发音人」
                     "当前发音人",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    // 标题与它的值是一组：只留 2dp，不要原来的 0（贴死反而看不出是标题）
+                    modifier = Modifier.padding(bottom = 2.dp),
                 )
                 // 第一行（11-09 用户令装机版终稿）：显示名 + 已点亮标记 emoji + 🎲 + ▶ + ⋮。
                 // 分类/标签框彻底撤掉（用户令「分类也不能要，直接显示显示名」）；🎲 恢复
@@ -1242,7 +1247,11 @@ fun VoicePickerDialog(
                     // 本行 fillMaxWidth + 两段：插件名左起、按钮组右对齐；
                     // 右缘与候选行 ⋮ 对齐（候选行外层同样 fillMaxWidth、行尾无额外 padding）。
                     Row(
-                        Modifier.fillMaxWidth(),
+                        // 上下各 6dp：这一行的视觉高度原先完全由内部 48dp 按钮盒决定，
+                        // 名字与它之间的空隙是"按钮盒顶出来的"而非设计意图。
+                        // 现在按钮盒收紧（见下方 compact）+ 这里显式给 6dp，
+                        // 间距由布局支配，不再随某个按钮的触控尺寸漂移。
+                        Modifier.fillMaxWidth().padding(vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                     if (topPluginName != null) {
@@ -1325,7 +1334,12 @@ fun VoicePickerDialog(
                     // ⋮ 图标内边距收紧右移（用户令「▶/⋮ 往右移给左边空位置」同款），
                     // VoiceOverflowMenu 是共用组件不能动尺寸，这里用外层 padding 补偿不可行——
                     // 顶部 ⋮ 用 padding(start=0) 收紧即可（字形自带少量留白）
+                    // 11-11 用户令：顶部这行不要被 48dp 盒撑高。改 compact=true（32dp 视觉盒、
+                    // 20dp 字形）。⚠️ 触控不会变小：M3 IconButton 自带 minimumInteractiveComponentSize，
+                    // 视觉盒缩了但触控目标仍是 48dp，无障碍合规。
+                    // 同时这也让顶部 ⋮ 与候选行的 ⋮ 口径一致（候选行一直用标准盒，行高由列表控制）。
                     VoiceOverflowMenu(
+                        compact = true,
                         marks = topMarks,
                         onToggleMark = { mark ->
                             if (topMarkKey.isNotBlank() &&
@@ -1361,8 +1375,11 @@ fun VoicePickerDialog(
                 ),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.primary,
-                // 上下各 2dp（用户 09-11：顶部三行是紧密信息，行距收小，与音频参数弹窗同步）
-                modifier = Modifier.padding(top = 2.dp, bottom = 2.dp),
+                // 11-11 用户令定稿：top 8 / bottom 4。
+                // 原值上下各 2dp（09-11「顶部三行是紧密信息」），但它上方还夹着第二行的
+                // 按钮组，2dp 让「插件名 → 终值」比「名字 → 插件名」紧得多，读起来像贴在一起。
+                // 终值是与上面整块（标题+名字+插件名+按钮）并列的另一组，应当松一档。
+                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
             )
             } // if (!addMode) 顶部块收尾
 
@@ -1925,16 +1942,20 @@ internal fun VoiceOverflowMenu(
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     Box {
-        // 右缘留白（11-10 十六改，用户令「换声弹窗也换成 8dp」）：
-        // IconButton 自带 48dp 触控盒 + M3 默认内衬，字形本身离盒缘还有一段，
-        // 与角色列表行统一到 **8dp 视觉右缘**——角色列表那边是 padding(8dp)+无 offset。
-        // 实现=IconButton 后补 padding(end=8.dp)：IconButton 的触控区尺寸不动
-        //（仍 48dp，符合无障碍最小触控），只把图标整体往左推 8dp。
+        // 右缘留白（11-11 用户令「把换声面板那个三个点菜单右移一点，参照角色管理列表里
+        // 那个，它触控区不是也不小吗」）：
+        // 原实现给非紧凑模式补 padding(end = 8.dp)。那是 11-10 为了"别让 ⋮ 离右缘太近"，
+        // 但角色列表走 compact 分支（内衬 0、32dp 盒），两边其实是**不一致**的：
+        //   角色列表 ⋮ 字形离内容区右缘 ≈22dp；换声面板原值 ≈36dp，硬生生多出 14dp。
+        // 现在非紧凑模式也把内衬收到 0，与角色列表同一条右缘。
+        //
+        // ⚠️ 触控区没有变小：IconButton 自带 M3 minimumInteractiveComponentSize，
+        // 视觉盒缩小后触摸目标仍是 48dp（这正是用户说的"它触控区也不小"）。
         IconButton(
             onClick = { menuOpen = true },
-            modifier = Modifier
-                .then(if (compact) Modifier.size(32.dp) else Modifier)
-                .padding(end = if (compact) 0.dp else 8.dp),
+            // 两种模式都不再加右缘内衬：紧凑盒 32dp、标准盒 48dp 都直接贴内容区右缘，
+            // 字形到边的距离由 IconButton 自身的居中留白决定，两边口径一致。
+            modifier = Modifier.then(if (compact) Modifier.size(32.dp) else Modifier),
         ) {
             Icon(
                 Icons.Filled.MoreVert,
