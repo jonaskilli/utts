@@ -8,7 +8,7 @@ import com.github.jing332.database.entities.SpeechRule
 import com.github.jing332.database.entities.systts.JReadConfigMigration
 import com.github.jing332.database.entities.systts.SpeechRuleInfo
 import com.github.jing332.database.entities.systts.SystemTtsV2
-import com.github.jing332.database.entities.systts.TagRuleResolver
+import com.github.jing332.database.entities.systts.SpeechRuleIds
 import com.github.jing332.database.entities.systts.TtsConfigurationDTO
 import com.github.jing332.database.entities.systts.source.PluginTtsSource
 import com.github.jing332.tts_server_android.conf.AppConfig
@@ -63,11 +63,10 @@ suspend fun computeTagName(
 private const val TAG_MIGRATE = "TagNameMigrator"
 
 /**
- * tagRuleId 空值 → 当前启用规则的薄封装（实体见 lib-database 的 [TagRuleResolver]）。
- * 保留此别名是为了让 compose 层的既有调用点读起来更短；口径只有一处，勿再另写。
- * 必须在 IO 线程调用（会查库）。
+ * 本机唯一朗读规则的 id（`tagRuleId` 字段已于 11-11 删除，归属是常量）。
+ * 保留此别名只为让 compose 层调用点读起来短；口径只有一处，勿再另写。
  */
-fun resolveTagRuleId(ruleId: String): String = TagRuleResolver.resolve(ruleId)
+fun resolveTagRuleId(@Suppress("UNUSED_PARAMETER") ruleId: String): String = SpeechRuleIds.RULE_ID
 
 /**
  * tagName 迁移：用 getTagName 重算配置项的 tagName，并从 tagData 中删除废弃的 personality 字段。
@@ -100,7 +99,6 @@ suspend fun migrateTagNamesIfNeed(
                     dbm.speechRuleDao.getAllEnabledWithoutCode().firstOrNull()
                 } else null
                 if (enabled != null) {
-                    ruleData = ruleData.copy(tagRuleId = enabled.ruleId)
                     ruleId = enabled.ruleId
                     updated.add(
                         systts.copy(config = config.copy(speechRule = ruleData))

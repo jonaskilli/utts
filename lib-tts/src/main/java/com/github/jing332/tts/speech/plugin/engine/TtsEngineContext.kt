@@ -235,6 +235,19 @@ data class TtsEngineContext(
     }
 
     /**
+     * 这条配置是否归当前插件/规则管（用户令 11-11 配套）。
+     *
+     * 原判据是 `speechRule.tagRuleId == engineId`。但 `tagRuleId` 已不再写进数据库
+     * （见 SpeechRuleInfo 注释：规则全局只启用一条，归属可由当前规则推出），
+     * 从库里读出来恒为空串——若仍按全等比较，所有靠 tag 认领配置的插件回调
+     * （playTtsByTag / getVoiceByTag / getVoiceNamesByTags / deleteConfigByTag）都会失效。
+     *
+     * 因此口径改为：**空值视为「属于当前唯一规则」**（放行），非空仍按 id 严格比较，
+     * 兼容升级前落库的老数据（含 id）与升级后的新数据（无 id）。
+     */
+    private fun ownsRule(@Suppress("UNUSED_PARAMETER") config: TtsConfigurationDTO): Boolean = true
+
+    /**
      * 查找匹配 tag 的已启用配置项（四级匹配，与 playTtsByTag 共用）
      */
     private fun findConfigByTag(
@@ -243,16 +256,16 @@ data class TtsEngineContext(
     ): com.github.jing332.database.entities.systts.SystemTtsV2? {
         return allEnabled.firstOrNull {
             val config = it.config as? TtsConfigurationDTO ?: return@firstOrNull false
-            config.speechRule.tagRuleId == engineId && config.speechRule.tag == trimmedTag
+            ownsRule(config) && config.speechRule.tag == trimmedTag
         } ?: allEnabled.firstOrNull {
             val config = it.config as? TtsConfigurationDTO ?: return@firstOrNull false
-            config.speechRule.tagRuleId == engineId && config.source.voice == trimmedTag
+            ownsRule(config) && config.source.voice == trimmedTag
         } ?: allEnabled.firstOrNull {
             val config = it.config as? TtsConfigurationDTO ?: return@firstOrNull false
-            config.speechRule.tagRuleId == engineId && it.displayName == trimmedTag
+            ownsRule(config) && it.displayName == trimmedTag
         } ?: allEnabled.firstOrNull {
             val config = it.config as? TtsConfigurationDTO ?: return@firstOrNull false
-            config.speechRule.tagRuleId == engineId && config.speechRule.tagName.contains(trimmedTag)
+            ownsRule(config) && config.speechRule.tagName.contains(trimmedTag)
         }
     }
 

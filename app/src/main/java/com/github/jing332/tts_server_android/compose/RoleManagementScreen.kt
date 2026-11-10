@@ -255,7 +255,6 @@ fun RoleManagementScreen(sharedVM: SharedViewModel, pagerState: PagerState) {
         // 回退走 git 历史；数据文件由朗读规则运行生成，不依赖插件安装）
         if (roleFilesReady && isPageVisible.value) {
             RoleListScreen(
-                tagRuleId = ROLE_RULE_ID,
                 reloadKey = reloadKey,
                 bottomPadding = paddingValues.calculateBottomPadding(),
                 modifier = Modifier
@@ -276,7 +275,6 @@ fun RoleManagementScreen(sharedVM: SharedViewModel, pagerState: PagerState) {
     // 密钥管理已改独立页面（KeyManagerActivity），不在此渲染；恢复备份后角色列表重读
     if (showBackupCenter) {
         BackupCenterDialog(
-            tagRuleId = ROLE_RULE_ID,
             version = backupVersion,
             onDismiss = { showBackupCenter = false },
             onRestored = { backupVersion++; reloadKey++ },

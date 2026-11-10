@@ -214,7 +214,6 @@ object PluginCategoryImporter {
                         tagName = runCatching {
                             ruleEngine?.getTagName(tagLabel, emptyMap())
                         }.getOrNull()?.takeIf { it.isNotBlank() } ?: tagLabel,
-                        tagRuleId = speechRule?.ruleId ?: ""
                     )
                 }
 

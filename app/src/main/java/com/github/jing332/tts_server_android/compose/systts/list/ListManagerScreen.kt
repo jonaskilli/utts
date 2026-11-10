@@ -171,6 +171,7 @@ import org.burnoutcrew.reorderable.detectReorderAfterLongPress
 import org.burnoutcrew.reorderable.rememberReorderableLazyListState
 import org.burnoutcrew.reorderable.reorderable
 import java.io.File
+import com.github.jing332.database.entities.systts.SpeechRuleIds
 
 
 /**
@@ -288,23 +289,14 @@ internal fun ListManagerScreen(
     // 空值即当前启用规则。
     // 用 produceState 异步取：不在组合期同步查库（首次进列表不让主线程等一次 DB）。
     // 取到后触发重组，届时标记与写入都用真实 id；取到前用空串（等价旧行为，不会写坏数据）。
-    val enabledRuleIdForMarks by produceState(initialValue = "") {
-        value = withContext(Dispatchers.IO) {
-            runCatching { dbm.speechRuleDao.allEnabled.firstOrNull()?.ruleId }.getOrNull().orEmpty()
-        }
-    }
+    val enabledRuleIdForMarks = SpeechRuleIds.RULE_ID
     // 标记写入专用：produceState 首帧还是空串，此时点标记会写进 /chajian 根目录。
     // 写入前再兜底查一次（点击是低频动作，代价可忽略），保证永不写错目录。
     val scopeForMarks = rememberCoroutineScope()
     fun toggleMarkFor(item: SystemTtsV2, mark: String, onDone: () -> Unit) {
         val dto = item.config as? TtsConfigurationDTO ?: return
         scopeForMarks.launch {
-            val ruleId = dto.speechRule.tagRuleId.ifBlank {
-                withContext(Dispatchers.IO) {
-                    runCatching { dbm.speechRuleDao.allEnabled.firstOrNull()?.ruleId }.getOrNull().orEmpty()
-                }
-            }
-            if (ruleId.isBlank()) return@launch
+            val ruleId = SpeechRuleIds.RULE_ID
             if (withContext(Dispatchers.IO) { VoiceMarksFile.toggle(ruleId, dto.speechRule.tag, mark) }) {
                 onDone()
             }
@@ -313,7 +305,7 @@ internal fun ListManagerScreen(
     fun marksOf(item: SystemTtsV2): List<String> {
         val dto = item.config as? TtsConfigurationDTO ?: return emptyList()
         return VoiceMarksFile.marksFor(
-            dto.speechRule.tagRuleId.ifBlank { enabledRuleIdForMarks },
+            enabledRuleIdForMarks,
             dto.speechRule.tag,
             (dto.source as? PluginTtsSource)?.voice.orEmpty(),
         )
@@ -649,18 +641,13 @@ internal fun ListManagerScreen(
         ruleCache: MutableMap<String, SpeechRule?>? = null,
         engineCache: MutableMap<String, SpeechRuleEngine>? = null,
     ) {
-        // tagRuleId 空值兜底（用户令 11-11）：配置列表与 z阅读 通用后不再带该字段，
-        // 空值按「当前启用规则」处理（规则全局只启用一条），而不是直接回退成无规则显示名。
-        // 该解析会查库，放 IO 线程
-        val ruleId = withContext(Dispatchers.IO) { resolveTagRuleId(ruleData.tagRuleId) }
+        // tagRuleId 已不进 DB（用户令 11-11），读出来恒为空串 → 一律按「当前启用规则」解析
+        // （规则全局只启用一条，故无歧义）。该解析会查库，放 IO 线程
+        val ruleId = SpeechRuleIds.RULE_ID
         if (ruleId.isBlank()) {
             ruleData.tagName = computeTagName(context, null, ruleData, fallback, engineCache)
             return
         }
-        // 顺手把解析出的规则 id 写回（只对有实际标签的项）：
-        // 一键整理标签 / 批量分配标签 这类操作只改 tag，若不回填，整理完的项仍然「无归属」，
-        // 之后换规则或导出分享就会漂。写回后配置自带归属，一次整理即可收敛。
-        if (ruleData.tag.isNotBlank()) ruleData.tagRuleId = ruleId
         val speechRule = if (ruleCache != null) {
             ruleCache.getOrPut(ruleId) {
                 withContext(Dispatchers.IO) {
@@ -781,11 +768,8 @@ internal fun ListManagerScreen(
                 val seq = if (zeroPad) String.format("%02d", idx + 1) else (idx + 1).toString()
                 val newTag = prefix + seq
                 val config = item.config as TtsConfigurationDTO
-                // 标签已正确则跳过，避免大规模分组(数百项)全量重算 JS 与无效写库。
-                // 「标签对但 tagRuleId 空」必须放行一次，否则整理过的项永远补不上归属（用户令 11-11）
-                if (config.speechRule.tag == newTag && config.speechRule.tagRuleId.isNotBlank()) {
-                    return@forEachIndexed
-                }
+                // 标签已正确则跳过，避免大规模分组(数百项)全量重算 JS 与无效写库
+                if (config.speechRule.tag == newTag) return@forEachIndexed
                 val newRule = config.speechRule.copy(tag = newTag)
                 computeTagNameOrFallback(context, newRule, newTag, ruleCache, engineCache)
                 toUpdate.add(item.copy(config = config.copy(speechRule = newRule)))
@@ -807,17 +791,11 @@ internal fun ListManagerScreen(
      */
     suspend fun reassignNarrationTags(list: List<SystemTtsV2>): Int {
         val toUpdate = mutableListOf<SystemTtsV2>()
-        // 空值回填（用户令 11-11）：整理只改 tag，不给已对但没归属的项补 id，之后换规则就漂
-        val fallbackRuleId = withContext(Dispatchers.IO) { resolveTagRuleId("") }
         list.filter { it.config is TtsConfigurationDTO }.forEach { item ->
             val config = item.config as TtsConfigurationDTO
             val tag = config.speechRule.tag
-            // 标签已对且已有归属 → 跳过；「标签对但 id 空」放行一次以回填
-            if (tag == "narration" && config.speechRule.tagRuleId.isNotBlank()) return@forEach
+            if (tag == "narration") return@forEach
             val newRule = config.speechRule.copy(tag = "narration", tagName = "旁白")
-            if (newRule.tagRuleId.isBlank() && fallbackRuleId.isNotBlank()) {
-                newRule.tagRuleId = fallbackRuleId
-            }
             toUpdate.add(item.copy(config = config.copy(speechRule = newRule)))
         }
         if (toUpdate.isNotEmpty()) {
@@ -867,12 +845,8 @@ internal fun ListManagerScreen(
                 val seq = if (detected.zeroPad) String.format("%02d", idx + 1) else (idx + 1).toString()
                 val newTag = detected.prefix + seq
                 val config = item.config as TtsConfigurationDTO
-                // 标签已正确则跳过，避免大规模分组(数百项)全量重算 JS 与无效写库。
-                // 但「标签对、tagRuleId 空」必须单独放行一次：否则整理过的项永远补不上归属，
-                // 之后换规则/导出分享就漂（用户令 11-11）
-                if (config.speechRule.tag == newTag && config.speechRule.tagRuleId.isNotBlank()) {
-                    return@forEachIndexed
-                }
+                // 标签已正确则跳过，避免大规模分组(数百项)全量重算 JS 与无效写库
+                if (config.speechRule.tag == newTag) return@forEachIndexed
                 val newRule = config.speechRule.copy(tag = newTag)
                 pending.add(PendingUpdate(item, newRule, newTag))
             }
@@ -881,16 +855,12 @@ internal fun ListManagerScreen(
 
         // ruleId 为空的项无需 JS 评估，直接赋 fallback；其余按 ruleId 分组并行
         val ruleCache = ConcurrentHashMap<String, SpeechRule?>()
-        // 空值回填（用户令 11-11）：整理只改 tag，若不补 id，整理完仍是「无归属」，
-        // 换规则/导出分享时会漂。这里先解析一次当前启用规则，给空值项补上。
-        val fallbackRuleId = withContext(Dispatchers.IO) { resolveTagRuleId("") }
-        val (noRule, withRule) = pending.partition { it.newRule.tagRuleId.isBlank() }
+        // 整理前解析一次当前启用规则（tagRuleId 不进 DB，读出来恒空 → 需现查）
+        val enabledRuleId = SpeechRuleIds.RULE_ID
+        val (noRule, withRule) = pending.partition { enabledRuleId.isBlank() }
         val allUpdates = mutableListOf<SystemTtsV2>()
-        // 无规则项：tagName 直接回退 fallback，无 JS 可任意并行快速处理
+        // 无启用规则：tagName 直接回退 fallback，无 JS 可任意并行快速处理
         noRule.forEach { u ->
-            if (fallbackRuleId.isNotBlank() && u.newRule.tag.isNotBlank()) {
-                u.newRule.tagRuleId = fallbackRuleId
-            }
             u.newRule.tagName = u.fallback
             val config = u.item.config as TtsConfigurationDTO
             allUpdates.add(u.item.copy(config = config.copy(speechRule = u.newRule)))
@@ -2454,13 +2424,8 @@ internal fun ListManagerScreen(
         val config = systts.config as TtsConfigurationDTO
         if (config.speechRule.target == SpeechTarget.BGM) return
         val ruleData = config.speechRule.copy()
-        // tagRuleId 空值兜底（用户令 11-11）：与 z阅读 通用后配置不再带该字段，
-        // 空值走「当前启用规则」，规则全局只启用一条故无歧义
-        val effectiveRuleId = resolveTagRuleId(config.speechRule.tagRuleId)
-        // 落库时把解析出的规则 id 一并写回，避免下次仍为空（也保证换声面板能找对角色目录）
-        if (ruleData.tagRuleId.isBlank() && effectiveRuleId.isNotBlank()) {
-            ruleData.tagRuleId = effectiveRuleId
-        }
+        // tagRuleId 不进 DB（用户令 11-11），恒为空 → 按当前启用规则解析
+        val effectiveRuleId = SpeechRuleIds.RULE_ID
 
         if (config.speechRule.target == SpeechTarget.TAG) dbm.speechRuleDao.getByRuleId(
             effectiveRuleId

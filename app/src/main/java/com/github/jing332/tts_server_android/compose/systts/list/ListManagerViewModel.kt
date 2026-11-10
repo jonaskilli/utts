@@ -263,7 +263,7 @@ class ListManagerViewModel : ViewModel() {
                     val filteredItems = groupWithTts.list.filter { item ->
                         val dto = item.config as? TtsConfigurationDTO ?: return@filter false
                         val marks = VoiceMarksFile.marksFor(
-                            dto.speechRule.tagRuleId.ifBlank { enabledRuleId },
+                            enabledRuleId,
                             dto.speechRule.tag,
                             (dto.source as? PluginTtsSource)?.voice.orEmpty(),
                         )
