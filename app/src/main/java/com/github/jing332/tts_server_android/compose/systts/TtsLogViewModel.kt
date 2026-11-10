@@ -323,22 +323,30 @@ class TtsLogViewModel : ViewModel() {
     fun isErrorsOnly(): Boolean =
         selectedLevels.toList() == listOf(LogLevel.ERROR, LogLevel.WARN)
 
+    /**
+     * 清空日志。
+     *
+     * ⚠️ 11-10 修「清空后继续朗读，日志出现一片红，重启 TTS 才正常」：
+     * 旧实现在这里 `f.delete()` 掉了 `system_tts_*.log` 等滚动备份——那是 **logback 的
+     * RollingFileAppender 正在持有的文件**。删掉后它的句柄失效，之后每次写日志都抛异常；
+     * 异常又被当成一条 ERROR 日志写回日志界面，于是自激成一片红，直到服务重启、
+     * logback 重新打开文件才恢复——与用户「重启 TTS 就好了」的观察完全吻合。
+     *
+     * 现在的口径：
+     * ① 主文件只用 **截断**（FileWriter(false) 保留 inode，logback 句柄继续有效），**绝不 delete**；
+     * ② 滚动备份与 debug/crash 文件一律不动，交给各自的滚动策略老化
+     *   （system_tts 10MB/1天、debug 10MB/2份、crash 2MB/3份，本来就会自己清理）；
+     * ③ 清空本身失败不再回灌进日志列表（那会制造新的红字），只写 Logcat。
+     */
     fun clear() {
         logs.clear()
         pluginLogs.clear()
         speechRuleLogs.clear()
         runCatching {
             FileWriter(file, false).use { it.write(CharArray(0)) }
-            // 连同其余日志文件与滚动备份一起清理（用户 09-08：删除键应清全部本地日志）
-            file.parentFile?.listFiles()?.forEach { f ->
-                if (!f.isFile) return@forEach
-                val n = f.name
-                if (n.startsWith("debug") || n.startsWith("crash") || n.startsWith("system_tts_")) {
-                    f.delete()
-                }
-            }
         }.onFailure {
-            logs.add(LogEntry(level = LogLevel.ERROR, message = it.stackTraceToString()))
+            // 只进 Logcat：这里若 logs.add(ERROR)，用户会看到「清空失败」的假红字，
+            // 而真正的原因（文件被占用等）他既看不懂也没法处理
             Log.e(TAG, "clear: ", it)
         }
     }
@@ -482,6 +490,40 @@ class TtsLogViewModel : ViewModel() {
             Log.e(TAG, "pull: ", it)
         }
 
+        // 插件 / 朗读规则日志回读（11-10 用户令「希望能够保存下来」）：
+        // 这两个文件由 SysttsLogger.persistConsole 追加，格式 time | LEVEL | message
+        //（无 configId/roleName，也不带 § 书章段）。单独解析成本很低，不必并进上面的主解析。
+        consoleFile(isPlugin = true)?.let { pullConsoleFile(it, isPlugin = true) }
+        consoleFile(isPlugin = false)?.let { pullConsoleFile(it, isPlugin = false) }
+    }
+
+    /** 插件 / 朗读规则日志文件路径（与 SysttsLogger.persistConsole 同址） */
+    private fun consoleFile(isPlugin: Boolean): File? = runCatching {
+        File(file.parentFile, if (isPlugin) "plugin.log" else "speech_rule.log")
+    }.getOrNull()
+
+    private suspend fun pullConsoleFile(f: File, isPlugin: Boolean) {
+        if (!f.exists()) return
+        runCatching {
+            val entries = readTailLines(f, 1500).mapNotNull { line ->
+                runCatching { toConsoleEntry(line, isPlugin) }.getOrNull()
+            }
+            withMain { entries.forEach { routeEntry(it) } }
+        }.onFailure {
+            Log.e(TAG, "pullConsoleFile: ", it)
+        }
+    }
+
+    /** 解析 console 日志行：time | LEVEL | message（message 可含 " | "，全量重组） */
+    private fun toConsoleEntry(line: String, isPlugin: Boolean): LogEntry {
+        val parts = line.split(" | ")
+        return LogEntry(
+            level = parts.getOrNull(1)?.toLogLevel() ?: LogLevel.INFO,
+            time = parts.getOrNull(0) ?: "",
+            message = parts.drop(2).joinToString(" | "),
+            isPluginLog = isPlugin,
+            isSpeechRuleLog = !isPlugin,
+        )
     }
 
     /**

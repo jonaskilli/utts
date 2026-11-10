@@ -2,6 +2,10 @@ package com.github.jing332.tts_server_android
 
 import com.github.jing332.common.LogEntry
 import com.github.jing332.common.LogLevel
+import com.github.jing332.tts_server_android.constant.AppConst
+import java.io.File
+import java.io.FileWriter
+import java.time.format.DateTimeFormatter
 import java.util.concurrent.CopyOnWriteArraySet
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -30,10 +34,63 @@ object SysttsLogger {
         listeners.forEach { it.log(entry) }
     }
 
-    /** 服务启动时挂一次（幂等）：朗读规则/插件 console 日志也进原因缓冲 */
+    // ===== 插件 / 朗读规则日志落盘（11-10 用户令「我希望能够保存下来，而不是临时」）=====
+    // 背景：Console.write 只把日志交给内存监听器（TtsLogViewModel 的 500 条缓冲），
+    // **从来没写过文件**——进程一死就全丢。这里在 hookConsole 的同一个幂等钩子上补落盘。
+    //
+    // 为什么不写进 system_tts.log：那是 logback 的 RollingFileAppender 管的文件
+    //（10MB 滚动、SysttsFilter 只放行 SystemTtsService 的 logger），
+    // 我们再往里追加会绕开它的滚动与文件锁，正是问题 3「一片红」的同类风险。
+    // 故独立两个文件，各自限大小、超限从尾巴截，绝不动 logback 的文件。
+    private val consoleLogLock = Any()
+    private const val CONSOLE_LOG_MAX_BYTES = 4L * 1024 * 1024
+    private val consoleTimeFmt by lazy {
+        DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS")
+    }
+
+    private fun consoleLogFile(entry: LogEntry): File? = runCatching {
+        val dir = File(AppConst.externalFilesDir.parentFile, "cache/log")
+        if (!dir.exists()) dir.mkdirs()
+        File(dir, if (entry.isPluginLog) "plugin.log" else "speech_rule.log")
+    }.getOrNull()
+
+    /** 落盘一条 console 日志：只追加、失败静默（日志不该因写盘失败反过来打断朗读） */
+    private fun persistConsole(entry: LogEntry) {
+        if (!entry.isPluginLog && !entry.isSpeechRuleLog) return
+        val f = consoleLogFile(entry) ?: return
+        val level = when (entry.level) {
+            LogLevel.ERROR -> "ERROR"
+            LogLevel.WARN -> "WARN"
+            LogLevel.INFO -> "INFO"
+            LogLevel.DEBUG -> "DEBUG"
+            else -> "TRACE"
+        }
+        synchronized(consoleLogLock) {
+            runCatching {
+                // 超限截半：读尾 1MB 重写，避免长期累积吃满存储（用户手机容量有限）
+                if (f.exists() && f.length() > CONSOLE_LOG_MAX_BYTES) {
+                    val tail = f.readBytes().let { it.copyOfRange(it.size / 2, it.size) }
+                    f.writeBytes(tail)
+                }
+                // console 通道的 LogEntry 不带 time（到达时由 VM 事后补），落盘必须自带真实时间，
+                // 否则重启回读后这些行没有时间戳、也进不了按日期/章节的归组
+                val time = entry.time.ifEmpty {
+                    java.time.LocalDateTime.now().format(consoleTimeFmt)
+                }
+                FileWriter(f, true).use { w ->
+                    w.append("$time | $level | ${entry.message}\n")
+                }
+            }.onFailure { android.util.Log.w("SysttsLogger", "persistConsole: ", it) }
+        }
+    }
+
+    /** 服务启动时挂一次（幂等）：朗读规则/插件 console 日志也进原因缓冲 + 落盘 */
     fun hookConsole() {
         if (consoleHooked.compareAndSet(false, true)) {
-            com.github.jing332.script.runtime.console.Console.extraListeners.add { recordReason(it) }
+            com.github.jing332.script.runtime.console.Console.extraListeners.add {
+                recordReason(it)
+                persistConsole(it)
+            }
         }
     }
 

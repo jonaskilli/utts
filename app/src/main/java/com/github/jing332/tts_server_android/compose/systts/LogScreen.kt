@@ -8,6 +8,7 @@ import androidx.compose.animation.shrinkOut
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.scrollBy
@@ -41,7 +42,7 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SmallFloatingActionButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
@@ -1175,6 +1176,14 @@ internal fun LogScreen(
 
         // 侧边浮动键（用户 1002）：右下浮动 ↓=回底部；回顶部走双击标题栏空白区
         // 排版实验 1008（①已拍板）：56dp 标准键 → 40dp 小键，原地缩小少盖正文
+        //
+        // 11-10 用户实报「点这个向下箭头总是误触日志换发声人弹窗」：
+        // 键本体只有 40dp（低于 Material 标准的 48dp 最小可点），又正压在「最新日志」
+        // 那一行上——拇指向下戳时稍偏几个像素就落到下面的请求行，而请求行是**整行可点**
+        // 弹车声面板的。修法不是缩小它，而是把**可点区域**放大到 56dp（视觉仍是 40dp），
+        // 外加一圈同色描边+投影让它从正文里「浮起来」，误触判定立刻分化。
+        // 为什么不再改成长按：长按已被本页的「拖选多选」独占（见 dragSelectEnabled
+        // 那套 awaitEachGesture），再挂一个长按会和进多选直接打架（用户 11-10 指出）。
         AnimatedVisibility(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -1185,21 +1194,41 @@ internal fun LogScreen(
             enter = fadeIn() + expandIn(expandFrom = Alignment.BottomCenter),
             exit = shrinkOut(shrinkTowards = Alignment.BottomCenter) + fadeOut(),
         ) {
-            SmallFloatingActionButton(
-                modifier = Modifier.padding(8.dp),
-                shape = CircleShape,
-                onClick = {
-                    scope.launch {
-                        kotlin.runCatching {
-                            listState.scrollToItem(currentGroups.items.lastIndex)
+            // 外层 Box 承担 56dp 触摸区（透明），内层 40dp 才是可见键——
+            // Compose 里触摸区由最外层有尺寸的节点决定，所以不能只给 FAB 加 padding
+            Box(
+                modifier = Modifier
+                    .size(56.dp)
+                    .clickable(
+                        // 去涟漪但保留可达性语义：这个键只干一件事（滚到底）
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                    ) {
+                        scope.launch {
+                            kotlin.runCatching {
+                                listState.scrollToItem(currentGroups.items.lastIndex)
+                            }
                         }
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                // 视觉键（40dp）：加投影让它在日志正文上明确"浮起"，
+                // 点击仍走外层 56dp 区（这里不挂 onClick，避免双触发）
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    shadowElevation = 3.dp,
+                    modifier = Modifier.size(40.dp),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            Icons.Default.KeyboardDoubleArrowDown,
+                            stringResource(id = R.string.move_to_bottom),
+                            modifier = Modifier.size(20.dp),
+                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                        )
                     }
-                }) {
-                Icon(
-                    Icons.Default.KeyboardDoubleArrowDown,
-                    stringResource(id = R.string.move_to_bottom),
-                    modifier = Modifier.size(20.dp),
-                )
+                }
             }
         }
     }

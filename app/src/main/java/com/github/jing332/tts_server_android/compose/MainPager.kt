@@ -213,8 +213,13 @@ fun AnimatedContentScope.MainPager(sharedVM: SharedViewModel) {
                         .padding(bottom = if (pagerState.currentPage == PagerDestination.SystemTts.index) 0.dp else bottomPad)
                         .fillMaxSize(),
                     state = pagerState,
-                    // 恢复左右滑动手势
-                    userScrollEnabled = true,
+                    // 关闭左右滑动换栏（11-11 用户令「把那个每栏左右滑切换给它删掉」）。
+                    // 四栏各有自己的横向手势，全局横滑必然抢戏：
+                    //   配置列表/角色管理=卡片左滑删除 + 长按拖动排序；
+                    //   日志页=自带那套 awaitEachGesture 长按拖选（横滑会被它判成"换栏意图"）；
+                    // 而且误触一次就整屏换栏、滚动位置和展开态全丢。
+                    // 去掉后换栏只剩底部导航栏一个入口——单入口、不可能误触。
+                    userScrollEnabled = false,
                     // 保留相邻1页状态，避免角色管理栏UI被销毁重建导致状态丢失
                     beyondViewportPageCount = 1,
                 ) { index ->

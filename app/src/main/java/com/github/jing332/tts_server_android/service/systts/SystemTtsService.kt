@@ -713,10 +713,19 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                 indent = indent
             )
         )
-        // 持久化到日志文件，保证重启后仍可在日志界面读取显示
+        // 持久化到日志文件，保证重启后仍可在日志界面读取显示。
+        // ⚠️ 11-10：这里**不能**写 system_tts.log——那是 logback RollingFileAppender 的文件，
+        // 我们自己再 append 一是不带 MDC 字段（会被解析器当成旧格式，丢掉书章/角色名），
+        // 二是与 logback 的文件指针互相打架（10-11 起这行其实已被 logback 通道取代）。
+        // 改为独立 child 文件：只承载"获取成功"这类子行，读回时按子行呈现。
         runCatching {
-            val logFile = File(AppConst.externalFilesDir.parentFile, "cache/log/system_tts.log")
+            val logFile = File(AppConst.externalFilesDir.parentFile, "cache/log/system_tts_child.log")
             synchronized(logFileLock) {
+                // 与主文件同样的自限：超 2MB 截半，防止长期运行无限增长
+                if (logFile.exists() && logFile.length() > 2L * 1024 * 1024) {
+                    val bytes = logFile.readBytes()
+                    logFile.writeBytes(bytes.copyOfRange(bytes.size / 2, bytes.size))
+                }
                 FileWriter(logFile, true).use { it.append("$time | SUCCESS | $msg\n") }
             }
         }.onFailure { Log.e(TAG, "logS write file: ", it) }
