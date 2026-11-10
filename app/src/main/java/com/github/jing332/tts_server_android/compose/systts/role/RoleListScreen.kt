@@ -1184,8 +1184,9 @@ private fun RoleRow(
             //   1 个名字 → 中心 21.5 = 右侧两行正中间
             //   2 个名字 → 第1行中心 11 ↔ 标签行、第2行中心 33 ↔ 注行（逐行居中对齐）
             //   3 个名字 → 中间那行中心 33 = 两行正中间，上下各一行
-            // 前提：右列两行 = 标签行 22dp（中心 11）+ 间隔 1dp + 注行 20dp（中心 33），
-            //       两行中心差正是 22dp —— 这就是左列行高取 22dp 的原因，别改成别的值。
+            // 前提：右列两行 = 标签行 22dp（中心 11）+ 间隔 1dp + 注行 16dp（中心 31），
+            //       两行中心差 = 20dp —— 这就是左列行高取 20sp 的原因，别改成别的值。
+            //       （11-11 压到极限前是 22dp 差，右列 45dp；现 39dp / 20dp 差）
             // ⚠️ 沿革：曾改 Top（"第一行对齐"），但那样单名贴顶、多别名时右侧下坠；
             // 居中 + 22dp 行高是唯一能让 1/2/3 个别名都对上的组合。
             verticalAlignment = Alignment.CenterVertically
@@ -1219,9 +1220,12 @@ private fun RoleRow(
                             // 行高显式钉 22dp（bodyLarge 默认 24dp）：这是「1/2/3 个别名
                             // 都能与右侧两行对齐」的关键值，= 右列标签行与注行的中心差。
                             // 改它之前先看外层 Row 的居中注释，别单独改。
+                            // 11-11 行高 22sp → **20sp**：右侧压到极限后总高 39dp
+                            // （标签行 22 + 间距 1 + 注行 16），两行中心差 = 20dp。
+                            // 这个 20 必须与右列中心差相等，否则 1/2/3 个别名的居中对齐会错位。
                             style = MaterialTheme.typography.bodyLarge.copy(
                                 fontSize = 16.sp,
-                                lineHeight = 22.sp,
+                                lineHeight = 20.sp,
                             ),
                             color = MaterialTheme.colorScheme.onSurface,
                             // 名字超半屏折行续排，不省略（10-12「显示完全」口径保持）
@@ -1400,7 +1404,11 @@ private fun RoleRow(
                             Text(
                                 previewLabel,
                                 color = previewColor,
-                                style = MaterialTheme.typography.titleMedium,
+                                // 11-11 用户令（右侧压到极限）：显式 lineHeight = 16.sp。
+                                // titleMedium 默认行高 24dp，比标签框(22dp)还高，会把第一行撑到 24dp；
+                                // 钉成 16sp 后第一行高度交还给标签框，右侧总高从 45 → 39dp 的第一步。
+                                // ▶ 与所在行（第一行）垂直居中：Row 是 CenterVertically，行高变矮后自动跟随。
+                                style = MaterialTheme.typography.titleMedium.copy(lineHeight = 16.sp),
                                 modifier = Modifier
                                     .clickable(onClick = onPreview)
                                     .padding(horizontal = 8.dp),
@@ -1415,6 +1423,9 @@ private fun RoleRow(
                     // 宽度：整行钉住不截（显示名截断压力已在第一行标签框上）
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
+                        // 11-11 用户令「右侧压到极限」：本行目标高度 16dp（纯文字高度）。
+                        // 唯一撑高它的是右端 ⋮ 的视觉盒——已同步收到 16dp（见 VoiceOverflowMenu），
+                        // 与本行文字等高，本行因此回到 16dp。
                         modifier = Modifier.padding(top = 1.dp),
                     ) {
                         // 分类 · 插件名（纯文字标注；分类=tag id「女青年29」）
