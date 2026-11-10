@@ -255,6 +255,7 @@ fun RoleManagementScreen(sharedVM: SharedViewModel, pagerState: PagerState) {
         // 回退走 git 历史；数据文件由朗读规则运行生成，不依赖插件安装）
         if (roleFilesReady && isPageVisible.value) {
             RoleListScreen(
+                tagRuleId = ROLE_RULE_ID,
                 reloadKey = reloadKey,
                 bottomPadding = paddingValues.calculateBottomPadding(),
                 modifier = Modifier
