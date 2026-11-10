@@ -6,6 +6,7 @@ import com.github.jing332.database.constants.ReplaceExecution
 import com.github.jing332.database.dbm
 import com.github.jing332.database.entities.systts.SpeechRuleInfo
 import com.github.jing332.database.entities.systts.SystemTtsV2
+import com.github.jing332.database.entities.systts.TagRuleResolver
 import com.github.jing332.tts.ConfigType
 import com.github.jing332.tts.error.TextProcessorError
 import com.github.jing332.tts.synthesizer.ITextProcessor
@@ -47,7 +48,20 @@ class TextProcessor : ITextProcessor {
         isMultiVoice = SystemTtsConfig.isMultiVoiceEnabled.value
         logger.debug { "isMultiVoice=$isMultiVoice, configs.size=${configs.size}" }
         if (isMultiVoice) {
-            val ruleId = configs.values.toList().component1().speechInfo.tagRuleId
+            // tagRuleId 空值兜底（用户令 11-11）：配置列表导出与 z阅读 通用后，JSON 里不再带
+            // tagRuleId，手写/外部导入的项也常缺这一项。朗读规则全局只允许启用一条
+            // （SpeechRuleManagerScreen 启用即停用其它），所以「没写规则」等价于「用当前启用的那条」，
+            // 不存在歧义。原先这里直接 getByRuleId("") → null → MissingRule，整篇不读并弹警告。
+            //
+            // 取哪条配置的 tagRuleId 作依据：优先第一个**非空**的（原实现只取 component1()，
+            // 首项恰好为空时即使后面都绑定了也白搭）。全都为空时才回退到启用中的规则。
+            val configsList = configs.values.toList()
+            val boundRuleId = configsList.firstOrNull { it.speechInfo.tagRuleId.isNotBlank() }
+                ?.speechInfo?.tagRuleId
+            val ruleId = TagRuleResolver.resolve(boundRuleId.orEmpty())
+            if (boundRuleId == null && ruleId.isNotBlank()) {
+                logger.debug { "tagRuleId 缺省，回退到当前启用规则: $ruleId" }
+            }
             val speechRule =
                 dbm.speechRuleDao.getByRuleId(ruleId)
                     ?: return Err(TextProcessorError.MissingRule(ruleId))
@@ -66,6 +80,9 @@ class TextProcessor : ITextProcessor {
                     val systts = cfg.tag as? SystemTtsV2
                     cfg.copy(
                         speechInfo = cfg.speechInfo.copy(
+                            // 空值项在运行期统一补成实际生效的规则：后续 VoicePicker/插件回调
+                            // 拿 speechInfo.tagRuleId 找目录时也不会落到 /chajian/ 根上
+                            tagRuleId = cfg.speechInfo.tagRuleId.ifBlank { ruleId },
                             configId = entry.key,
                             voice = cfg.source.voice,
                             displayName = systts?.displayName ?: ""

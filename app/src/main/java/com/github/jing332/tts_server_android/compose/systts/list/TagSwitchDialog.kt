@@ -274,8 +274,12 @@ fun TagSwitchDialog(
     var loaded by remember { mutableStateOf(false) }
     LaunchedEffect(tagRuleId) {
         loaded = false
-        if (tagRuleId.isNotBlank()) {
-            val rule = withContext(Dispatchers.IO) { dbm.speechRuleDao.getByRuleId(tagRuleId) }
+        // tagRuleId 空值兜底（用户令 11-11）：导出与 z阅读 通用后配置不再带 tagRuleId，
+        // 规则全局只启用一条，故空值直接用启用中的那条，不再弹「未绑定朗读规则」。
+        // resolveTagRuleId 会查库，必须在 IO 线程
+        val effectiveRuleId = withContext(Dispatchers.IO) { resolveTagRuleId(tagRuleId) }
+        if (effectiveRuleId.isNotBlank()) {
+            val rule = withContext(Dispatchers.IO) { dbm.speechRuleDao.getByRuleId(effectiveRuleId) }
             if (rule != null) {
                 // 标签扩容：按配置列表里实际用到的最大序号补齐 tags，确保点标签时列表覆盖全部序号
                 withContext(Dispatchers.IO) {
@@ -294,6 +298,11 @@ fun TagSwitchDialog(
             scope.launch {
                 withContext(Dispatchers.IO) {
                     val ruleData = config!!.speechRule.copy()
+                    // 空值兜底后落库要带上规则 id：否则切完标签还是空串，下次又走回退，
+                    // 且 VoicePicker 按它找角色目录会落到 /chajian/ 根（见语音选择弹窗注释）
+                    speechRule?.ruleId?.takeIf { ruleData.tagRuleId.isBlank() }?.let {
+                        ruleData.tagRuleId = it
+                    }
                     ruleData.tag = tag
                     ruleData.tagName = computeTagName(context, speechRule, ruleData, tag)
                     dbm.systemTtsV2.update(

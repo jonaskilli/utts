@@ -8,6 +8,7 @@ import com.github.jing332.database.entities.SpeechRule
 import com.github.jing332.database.entities.systts.JReadConfigMigration
 import com.github.jing332.database.entities.systts.SpeechRuleInfo
 import com.github.jing332.database.entities.systts.SystemTtsV2
+import com.github.jing332.database.entities.systts.TagRuleResolver
 import com.github.jing332.database.entities.systts.TtsConfigurationDTO
 import com.github.jing332.database.entities.systts.source.PluginTtsSource
 import com.github.jing332.tts_server_android.conf.AppConfig
@@ -60,6 +61,13 @@ suspend fun computeTagName(
 }
 
 private const val TAG_MIGRATE = "TagNameMigrator"
+
+/**
+ * tagRuleId 空值 → 当前启用规则的薄封装（实体见 lib-database 的 [TagRuleResolver]）。
+ * 保留此别名是为了让 compose 层的既有调用点读起来更短；口径只有一处，勿再另写。
+ * 必须在 IO 线程调用（会查库）。
+ */
+fun resolveTagRuleId(ruleId: String): String = TagRuleResolver.resolve(ruleId)
 
 /**
  * tagName 迁移：用 getTagName 重算配置项的 tagName，并从 tagData 中删除废弃的 personality 字段。

@@ -89,6 +89,7 @@ import com.github.jing332.tts.CachedEngineManager
 import com.github.jing332.tts_server_android.R
 import com.github.jing332.tts_server_android.compose.SharedViewModel
 import com.github.jing332.tts_server_android.compose.SoftSegmentedTextToggle
+import com.github.jing332.tts_server_android.compose.systts.list.resolveTagRuleId
 import com.github.jing332.tts_server_android.compose.systts.list.ui.PluginDescriptor
 import com.github.jing332.tts_server_android.compose.systts.list.ui.widgets.AudioParamsDimensionSection
 import com.github.jing332.tts_server_android.conf.AppConfig
@@ -220,8 +221,10 @@ fun VoicePickerDialog(
     var ruleTags by remember(entity.id) { mutableStateOf<Map<String, String>?>(null) }
     LaunchedEffectOnce(entity.id) {
         // getByRuleIdAll 不带 isEnabled 过滤（getByRuleId 对禁用规则返回 null → 只能拿旧快照）
+        // tagRuleId 空值兜底（用户令 11-11）：导出与 z阅读 通用后配置不再带该字段，
+        // 规则全局只启用一条，空值取启用中的那条，避免分类名/候选池整片回落成快照。
         ruleTags = withIO {
-            dbm.speechRuleDao.getByRuleIdAll(config.speechRule.tagRuleId)?.tags
+            dbm.speechRuleDao.getByRuleIdAll(resolveTagRuleId(config.speechRule.tagRuleId))?.tags
         }
     }
     // 大分类口径：分类以 tag id 查 rule.tags 得显示名——显示名带尾序号的
