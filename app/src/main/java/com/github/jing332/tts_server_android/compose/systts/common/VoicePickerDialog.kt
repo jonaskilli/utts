@@ -1186,25 +1186,21 @@ fun VoicePickerDialog(
                     // 显示名（大字半粗；吃剩余宽度先缩，emoji 钉右不参与省略）
                     // 11-09 用户令一行式：插件名缀在显示名后（「显示名 · 插件名」一行放完，
                     // 用户怕字号大放不下——超宽时只缩显示名，插件名 outline 小字钉住永不截）
-                    Text(
-                        currentVoiceName,
-                        style = MaterialTheme.typography.titleMedium.copy(
-                            fontWeight = FontWeight.SemiBold
-                        ),
-                        maxLines = 1,
-                        // 24 改（用户实拍「当前发音人那个省略是直接截断的，不带省略号」）：
-                        // **fill=false 会让 Ellipsis 失效** —— fill=false 的语义是"不占满剩余
-                        // 空间"，Compose 于是按**内容宽**测量（想要多宽给多宽），
-                        // 既然宽度无界，Ellipsis 无处可省，超长部分直接被父容器硬裁 = 无省略号。
-                        // 改成 weight(1f)（fill 默认 true）后：分配到的宽度是**有界**的，
-                        // 文本超长才会真正触发 "…"。
-                        //
-                        // 这里 fill=true 不会像 21 改担心的那样"把插件名拉开"——23 改后
-                        // 插件名已移到第二行，第一行只剩「名字 + emoji」，
-                        // 名字占满整行正是标题行该有的样子。
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
-                    )
+                    // 11-10 二十六改（用户点名「换声面板显示名的省略你处理了吗」）：
+                    // 顶部「当前发音人」原名也吃 Ellipsis（带 "…"）。用户已多次明确
+                    // 「超过就直接截断，不要省略号」，且截断必须是**完整字符**
+                    // （TextOverflow.Clip 按像素裁会切出半个汉字）。
+                    // 改为 TruncatedAnnotatedText：weight(1f) 吃剩余宽，emoji 仍钉在右侧。
+                    BoxWithConstraints(Modifier.weight(1f)) {
+                        TruncatedAnnotatedText(
+                            text = AnnotatedString(currentVoiceName),
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.SemiBold
+                            ),
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxWidth = maxWidth,
+                        )
+                    }
                     // 插件名已于 23 改移到第二行（见下方），第一行只留名字 + 标记 emoji。
                     // 已点亮标记 emoji（紧跟显示名后；点击取消，QQ 式）
                     val topLitMarks1 = VoiceMarksFile.MARK_ITEMS.filter { it.first in topMarks }
@@ -1241,18 +1237,17 @@ fun VoicePickerDialog(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                     if (topPluginName != null) {
-                        Text(
-                            topPluginName,
-                            style = MaterialTheme.typography.labelSmall,
-                            // 11-10 用户令：插件名改用日志插件牌的灰青固定色（不随主题变），
-                            // 原 secondary 会随主题变绿/紫/蓝，与"来源标识"语义不符。
-                            color = pluginChipColor(),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            // 插件名不吃 weight：它按内容宽占位，剩余空间交给下面的 Spacer。
-                            // （若这里也 weight，会与 Spacer 平分剩余宽度，插件名被无故拉开）
-                            modifier = Modifier,
-                        )
+                        // 11-10：插件名同样去省略号、按整字截断（与候选行/角色列表同口径）
+                        BoxWithConstraints {
+                            TruncatedAnnotatedText(
+                                text = AnnotatedString(topPluginName),
+                                style = MaterialTheme.typography.labelSmall,
+                                // 11-10 用户令：插件名用日志插件牌的灰青固定色（不随主题变），
+                                // 原 secondary 会随主题变绿/紫/蓝，与"来源标识"语义不符。
+                                color = pluginChipColor(),
+                                maxWidth = maxWidth,
+                            )
+                        }
                     }
                     // 唯一的 weight 源：把 🎲▶⋮ 推到行尾
                     Spacer(Modifier.weight(1f))
@@ -2013,13 +2008,24 @@ private fun CandidateRow(
             Row(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                // 名字：11-10 三修（用户实拍「空间很充裕却省略、还带省略号」+
-                // 「字显示不全、不是完整的汉字」）：
-                // ① 平分陷阱——名字 `weight(1f, fill=false)` 与外层 `Spacer(weight(1f))`
-                //    平分剩余宽，名字只拿到一半。改 fill=true 独占剩余。
-                // ② 不要省略号、也不要半个字——用 TruncatedAnnotatedText 按**整字符**
-                //    二分算好能放几个字（TextOverflow.Clip 是按像素裁，会切出半个汉字）。
-                BoxWithConstraints(Modifier.weight(1f, fill = true)) {
+                // 名字：11-10 四修（用户第二次追问「空间充裕却省略显示名，你处理了吗」）
+                //
+                // ## 为什么之前两次都没修好
+                //
+                // 本行是 Row{ Column(weight 1f){ Row{ 名字, 插件名, 已用, emoji, Spacer(weight 1f) } }, ▶, ⋮ }。
+                // 名字只要挂 weight 1f，就会与外层 **Spacer 的 weight 1f 平分**剩余宽，
+                // 于是拿到约一半、右边空着却断字；改成 fill=true 只是让它"想撑满"，
+                // 平分关系没变，仍然只拿到一半。这是同一个坑踩两次。
+                //
+                // ## 现在
+                //
+                // 名字与 Spacer **都不再用 weight**：
+                //   · 名字 `widthIn(max = 可用宽)` + TruncatedAnnotatedText 自己按整字截；
+                //   · 外面那个 Spacer 去掉，改由名字后侧的 `Spacer(weight 1f)` 单独推右。
+                // 结果：名字是**唯一**的 weight 分配者（fill=false：按内容宽收缩，
+                // 不强行撑开），有界约束使 TruncatedAnnotatedText 拿到真实可用宽；
+                // 末尾 Spacer 改成普通 Spacer(0dp) 不再抢宽。
+                BoxWithConstraints(Modifier.weight(1f, fill = false)) {
                     TruncatedAnnotatedText(
                         text = AnnotatedString((if (isCurrent) "✓ " else "") + text),
                         // 选择列表行名 14sp（11-09 用户令「字号改小点」）
@@ -2072,11 +2078,12 @@ private fun CandidateRow(
                             .padding(horizontal = 4.dp, vertical = 1.dp),
                     )
                 }
-                // Spacer(weight 1f)：名字/插件名/已用/emoji 全按内容宽紧排后，
-                // 由它独占剩余把 ▶/⋮ 推到最右（单一 weight，无平分问题；
-                // 11-09 用户令「中间的空格咋回事」——原名字 weight(1f) 盒子吃满
-                // 剩余、内容左对齐，插件名飘在空隙右端）
-                Spacer(Modifier.weight(1f))
+                // 11-10 四修：**删掉原来的 Spacer(weight 1f)**。
+                // 它与名字的 weight 平分剩余宽，正是「空间很充裕、显示名却被省略」的根因：
+                // 名字只拿到约一半宽，右边明明空着却断字。
+                // 现在名字是行内**唯一**的 weight（fill=false，按内容宽收缩），
+                // 插件名/已用/emoji 按内容紧随；▶ 与 ⋮ 在外层 Row，
+                // 由 Column(weight 1f) 吃满剩余自然顶到右缘，不需要这个 Spacer。
             }
         }
         // ▶ 裸字符键（用户 09-13 方案A）；按键收窄右移（11-09 用户令「▶/⋮ 往右移
@@ -2183,13 +2190,16 @@ private fun CategoryChip(
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.width(6.dp))
-            Text(
-                value.ifBlank { "—" },
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.primary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            // 11-10：分类名同样去省略号、按整字截断（统一口径；分类名通常很短，
+            // 这里只是不再留 "…" 这条例外）
+            BoxWithConstraints {
+                TruncatedAnnotatedText(
+                    text = AnnotatedString(value.ifBlank { "—" }),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxWidth = maxWidth,
+                )
+            }
             if (switchable) {
                 Spacer(Modifier.width(4.dp))
                 Icon(
