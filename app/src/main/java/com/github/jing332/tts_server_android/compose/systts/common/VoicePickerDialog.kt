@@ -72,6 +72,7 @@ import com.drake.net.utils.withMain
 import com.github.jing332.tts_server_android.compose.theme.AppShapes
 import com.github.jing332.common.utils.limitByDisplayWidth
 import com.github.jing332.tts_server_android.compose.TruncatedAnnotatedText
+import com.github.jing332.tts_server_android.compose.systts.role.softFillBarColor
 import com.github.jing332.tts_server_android.compose.theme.pluginChipColor
 import com.github.jing332.common.utils.limitDisplayLength
 import com.github.jing332.common.utils.toParamText
@@ -1368,6 +1369,10 @@ fun VoicePickerDialog(
                 modifier = Modifier
                     .padding(top = 8.dp)
                     .align(Alignment.CenterHorizontally),
+                // 11-10 用户令「更换发音人里面那个填充色统一为 C 方案」：
+                // 选中态底由官方默认 secondaryContainer（B 档 #D6F1DF）换成全站统一填充色
+                // （C 档 #DAF2E2，见 softFillBarColor）。描边/文字/勾选图标仍是官方默认。
+                selectedContainerColor = softFillBarColor(),
             )
 
             if (panelTab == 0 && source != null) {

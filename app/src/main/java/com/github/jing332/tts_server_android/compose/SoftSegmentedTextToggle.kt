@@ -5,6 +5,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -34,6 +35,10 @@ fun SoftSegmentedTextToggle(
     selectedIndex: Int,
     onSelect: (Int) -> Unit,
     modifier: Modifier = Modifier,
+    // 选中项底色（11-10 用户令「更换发音人的填充色统一为 C 方案」）。
+    // 默认 null = 走官方 secondaryContainer（其余调用点不受影响）；
+    // 传值后只改选中态底，描边/文字/勾选图标仍是官方默认。
+    selectedContainerColor: Color? = null,
 ) {
     SingleChoiceSegmentedButtonRow(
         modifier = modifier.fillMaxWidth()
@@ -45,6 +50,10 @@ fun SoftSegmentedTextToggle(
                 // 其余调用点均自带"值不变不动作"保护（BackupDialog 有 if 挡、其余为幂等赋值），行为不变
                 onClick = { onSelect(index) },
                 shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size),
+                colors = if (selectedContainerColor != null)
+                    SegmentedButtonDefaults.colors(
+                        activeContainerColor = selectedContainerColor,
+                    ) else SegmentedButtonDefaults.colors(),
                 modifier = Modifier.weight(1f),
             ) {
                 Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis)

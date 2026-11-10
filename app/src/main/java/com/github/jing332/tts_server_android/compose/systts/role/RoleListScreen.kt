@@ -169,31 +169,40 @@ private val BOOK_NAME_COLOR = Color(0xFF333333)
  * ⚠️ 别再给本页标签引浅色专用色值：十套主题 × 深浅色共 20 组，硬编码只能覆盖一组。
  */
 @Composable
-internal fun softContainerColor(): Color = MaterialTheme.colorScheme.secondaryContainer
+internal fun softContainerColor(): Color = lerp(
+    MaterialTheme.colorScheme.secondaryContainer,
+    MaterialTheme.colorScheme.surfaceContainerLow,
+    0.10f
+)
 
 /**
- * 浅色填充条（书籍框 / 显示名标签框共用·11-10 十四改）。
+ * 全站「小填充」统一色（书籍框 / 显示名标签框 / 更换发音人选中态 / 分类胶囊共用）。
  *
- * ## 为什么抽成一个函数
+ * ## 11-10 C 档定稿（用户拍板，改动前先读这段）
  *
- * 用户令「书籍框调成和标签框一样的中淡绿」。两者在角色页上是相邻的两个可点条状物，
- * 浓度必须**永远一致**——写成两处 `lerp(..., 0.10f)` 也能跑，但以后调浓度时
- * 极容易只改一处，又变成"一大一小两档绿"（这正是 12 改之前的毛病）。
- * 抽成单源后，改浓度只改下面这个 0.10f。
+ * 用户反馈原来的 `卡底混主色10%`（#E2F0E9）**"灰灰的、太暗"**。
+ * 量过数据后确认原因不是亮度而是**饱和度**：
+ *   · 旧 #E2F0E9  S=0.318  ← 深绿 primary 混进中性灰卡底，被稀释成灰绿
+ *   · C  #DAF2E2  S=0.480  ← 明显更绿、更清亮，亮度只降 0.012
+ * 用户从 A/B/C/D 四档预览里选定 **C**。
  *
  * ## 公式
  *
- * 卡底（surfaceContainerLow，中性灰·用户 04:39 定）往主色混 10%。
- * - 起点是**卡底**而不是 Highest：Highest 本身 L≈0.92，再混主色会掉到 0.86，发暗发脏。
- * - 混的是 primary 而不是从 secondaryContainer 取：用户 06:10 从五档里选定的
- *   就是「卡底混 10%」这一档（绿 ≈ #E2F0E9），这里只是把它复用给书籍框。
+ * 从 **secondaryContainer**（主题自带浅容器档，浅而有彩）往卡底混 10%。
  *
- * 四套主题自动成立，各自带自己色相（绿 #E2F0E9 / 紫 / 蓝 / 深灰）。
+ * ⚠️ 起点必须是 secondaryContainer，**不能**用中性卡底混 primary——
+ * 这是这条色改过十几轮的根因：primary 是深色，混进浅底只会被稀释成灰绿，越调越灰。
+ * 各主题自动成立（绿 #DAF2E2 / 紫 / 蓝 / 深灰，各自带自己色相）。
+ *
+ * ## 为什么抽成单源
+ *
+ * 用户在角色页上有多个相邻的可点条（书籍框、显示名标签框），浓度必须**永远一致**。
+ * 写成多处 `lerp(...)` 也能跑，但调浓度时极易只改一处，又变成"一大一小两档绿"。
  */
 @Composable
 internal fun softFillBarColor(): Color = lerp(
+    MaterialTheme.colorScheme.secondaryContainer,
     MaterialTheme.colorScheme.surfaceContainerLow,
-    MaterialTheme.colorScheme.primary,
     0.10f
 )
 
