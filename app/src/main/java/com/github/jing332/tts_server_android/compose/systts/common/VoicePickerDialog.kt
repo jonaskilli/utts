@@ -1101,10 +1101,16 @@ fun VoicePickerDialog(
                 // 第一行（11-09 用户令装机版终稿）：显示名 + 已点亮标记 emoji + 🎲 + ▶ + ⋮。
                 // 分类/标签框彻底撤掉（用户令「分类也不能要，直接显示显示名」）；🎲 恢复
                 // （长按标签随机换声作废）；无对勾（当前发音人不标 ✓）；标记 emoji 紧跟
-                // 显示名后（点击取消，QQ 式）；▶/⋮ 经 Spacer weight 钉行尾（11-09 用户令
-                // 「往右移，给左边空点位置」——按钮收窄右移，见下方各键 padding 注释）
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    // 显示名（大字半粗；吃剩余宽度先缩，emoji/骰/▶/⋮ 钉右不参与省略）
+                // 显示名后（点击取消，QQ 式）
+                // ===== 23 改：顶部改成固定两行（用户令 11-10）=====
+                //   第一行 = 显示名 + 标记 emoji，**必须放得下一行**（放不下就缩名字 + 省略号）
+                //   第二行 = 插件名（左） + 🎲 ▶ ⋮（右）
+                // 为什么这么改：16sp 半粗大字名字 + 插件名 + emoji + 三个按钮挤一行时，
+                // 名字会被压到只剩几个字；拆两行后名字独占整行宽度（328dp≈20 个汉字），
+                // 按钮移到第二行右端，两者互不抢空间。
+                Column(Modifier.fillMaxWidth()) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    // 显示名（大字半粗；吃剩余宽度先缩，emoji 钉右不参与省略）
                     // 11-09 用户令一行式：插件名缀在显示名后（「显示名 · 插件名」一行放完，
                     // 用户怕字号大放不下——超宽时只缩显示名，插件名 outline 小字钉住永不截）
                     Text(
@@ -1126,23 +1132,7 @@ fun VoicePickerDialog(
                         // 插件名飘到右端"的空白；这里 weight 只给名字自身，fill=false。
                         modifier = Modifier.weight(1f, fill = false),
                     )
-                    if (topPluginName != null) {
-                        Text(
-                            // 分隔点灰字（11-09 用户令「还是别用括号，用分隔点将名字和
-                            // 插件名分开」+「中间为啥有空格」）：撤括号与 start padding——
-                            // 分隔点直接缀在显示名后（「· 剪映」），空隙只剩分隔点自带
-                            // 半字宽；插件名 11sp 灰字（显示名空间恢复的关键：插件名不再
-                            // 同字号占宽）。超宽只缩显示名
-                            "· $topPluginName",
-                            style = MaterialTheme.typography.labelSmall,
-                            // 插件名换 secondary（11-10 十八改，与角色列表第二行同口径）：
-                            // 带主题色相、与显示名形成明度+色相双重区分；
-                            // 四套主题对比度 4.51~6.36 全达标（见 RoleListScreen 同段注释）
-                            color = MaterialTheme.colorScheme.secondary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Clip,
-                        )
-                    }
+                    // 插件名已于 23 改移到第二行（见下方），第一行只留名字 + 标记 emoji。
                     // 已点亮标记 emoji（紧跟显示名后；点击取消，QQ 式）
                     val topLitMarks1 = VoiceMarksFile.MARK_ITEMS.filter { it.first in topMarks }
                     topLitMarks1.forEach { (_, emojiText) ->
@@ -1167,11 +1157,30 @@ fun VoicePickerDialog(
                                 .padding(horizontal = 4.dp, vertical = 1.dp),
                         )
                     }
-                    // 🎲 一键换恢复（11-09 用户令「长按随机换也不要了，还是后面加骰子」）：
-                    // 在当前分类+搜索范围内随机换一个（排除当前暂存/绑定），结果落暂存；
-                    // 按键收窄右移（用户令「▶/⋮ 往右移给左边空位置」同款）：horizontal 12→8
-                    // Spacer(weight 1f) 在此：显示名/插件名/emoji 全按内容宽紧排后，
-                    // 由它独占剩余把骰/▶/⋮ 推到最右（单一 weight，无平分问题）
+                    } // ===== 第一行结束（显示名 + 标记 emoji，恒一行）=====
+                    // ===== 第二行：插件名（左） + 🎲 ▶ ⋮（右，行尾对齐）=====
+                    // 23 改：插件名从第一行挪到本行，并**去掉原来的「·」分隔点**——
+                    // 那个点是"名字·插件名"同行的连接符，分两行后已无连接语义（用户令）。
+                    // 本行 fillMaxWidth + 两段：插件名左起、按钮组右对齐；
+                    // 右缘与候选行 ⋮ 对齐（候选行外层同样 fillMaxWidth、行尾无额外 padding）。
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                    if (topPluginName != null) {
+                        Text(
+                            topPluginName,
+                            style = MaterialTheme.typography.labelSmall,
+                            // 插件名 secondary（18 改口径不变）：带主题色相、与名字明度+色相双重区分
+                            color = MaterialTheme.colorScheme.secondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            // 插件名不吃 weight：它按内容宽占位，剩余空间交给下面的 Spacer。
+                            // （若这里也 weight，会与 Spacer 平分剩余宽度，插件名被无故拉开）
+                            modifier = Modifier,
+                        )
+                    }
+                    // 唯一的 weight 源：把 🎲▶⋮ 推到行尾
                     Spacer(Modifier.weight(1f))
                     if (isBindingMode) {
                         Text(
@@ -1186,7 +1195,7 @@ fun VoicePickerDialog(
                                         silentIfEmpty = false,
                                     )
                                 }
-                                .padding(horizontal = 8.dp, vertical = 12.dp),
+                                .padding(horizontal = 8.dp, vertical = 2.dp),
                             style = MaterialTheme.typography.titleLarge,
                         )
                     }
@@ -1231,7 +1240,7 @@ fun VoicePickerDialog(
                                     )
                                 }
                             }
-                            .padding(horizontal = 8.dp, vertical = 12.dp),
+                            .padding(horizontal = 8.dp, vertical = 2.dp),
                     )
                     // ⋮ 菜单（用户 09-17 方案A）：打开面板想删当前这条配置项，得关掉面板回列表翻半天，
                     // 就地给一个入口。菜单项与候选行同源（标记 + 删除配置项），零学习成本。
@@ -1253,11 +1262,8 @@ fun VoicePickerDialog(
                         deleteEnabled = topDeleteTarget != null,
                         onDelete = { topDeleteTarget?.let { deleteConfirmTarget = it } },
                     )
-                }
-                // 第二行小字（11-09 用户令改一行式）：插件名并入第一行——
-                // 「显示名 · 插件名」一行放完（用户担心字号大放不下，处理=显示名
-                // titleMedium 半粗可截，插件名 outline 小字钉在后面永不截，
-                // 超宽时只缩显示名；原第二行插件名行撤）
+                    } // ===== 第二行结束（插件名 + 🎲 ▶ ⋮）=====
+                } // ===== Column 结束（顶部固定两行）=====
             }
 
             // ===== 终值（播放链同源三层乘积；三维恒显，用户 09-10）=====
