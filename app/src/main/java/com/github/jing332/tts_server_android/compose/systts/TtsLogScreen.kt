@@ -13,7 +13,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -71,6 +73,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -395,10 +398,8 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                         // 漏斗/文件夹/清空三键（10-10 恢复 3779dba 甲案：四键常驻——
                         // 搜索态不再隐藏，级别筛选/开日志目录/清空全程可达。
                         // dda939c 教训：撤 if 门控时条件与大括号必须一起动，勿留孤儿 lambda）
-                        // 筛选按钮
-                        IconButton(onClick = { vm.showFilterDialog.value = true }) {
-                            Icon(Icons.Default.FilterList, stringResource(R.string.filter))
-                        }
+                        // 11-11 用户令：漏斗键删除——筛选开关已全部挪进吸顶区
+                        //（实时最新/只看错误/朗读规则/插件/DEBUG），弹窗不再需要。
 
                         // 文件夹按钮 - 先弹日志文件列表自由选择（用户 09-08），点击文件再用外部查看器打开
                         IconButton(onClick = { showLogFilesDialog = true }) {
@@ -501,6 +502,37 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                         HorizontalDivider()
                     }
                 }
+
+                // ===================== 吸顶区（11-11 用户令）=====================
+                // 三行：①筛选开关 ②书名+切换书 ③章名+切换章。
+                // 只在有书章时显示书章两行；筛选行始终显示（它是日常操作）。
+                // ⚠️ 放在 topBar 里而不是列表 stickyHeader：topBar 天然不随列表滚动，
+                // 且与搜索行/分隔线同属一个固定区，不会出现「sticky 与 topBar 抢层级」。
+                PinnedLogHeader(
+                    autoFollow = vm.autoScrollToBottom.value,
+                    onToggleAutoFollow = {
+                        vm.autoScrollToBottom.value = !vm.autoScrollToBottom.value
+                    },
+                    errorOnly = vm.isErrorsOnly(),
+                    onToggleErrorOnly = {
+                        if (vm.isErrorsOnly()) vm.showAllLevels() else vm.showErrorsOnly()
+                    },
+                    showRule = vm.showSpeechRuleLogs.value,
+                    onToggleRule = { vm.showSpeechRuleLogs.value = !vm.showSpeechRuleLogs.value },
+                    showPlugin = vm.showPluginLogs.value,
+                    onTogglePlugin = { vm.showPluginLogs.value = !vm.showPluginLogs.value },
+                    showDebug = vm.showDebugLogs.value,
+                    onToggleDebug = { vm.showDebugLogs.value = !vm.showDebugLogs.value },
+                    book = logGroups.pinnedBook,
+                    bookCount = logGroups.pinnedBookCount,
+                    chapter = logGroups.pinnedChapter,
+                    chapterCount = logGroups.pinnedChapterCount,
+                    onSwitchBook = { bookPickerFor = it },
+                    onSwitchChapter = { b, c -> chapterPickerFor = b to c },
+                )
+                HorizontalDivider(
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                )
             }
         }
     ) { paddingValues ->
@@ -758,44 +790,10 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
         )
     }
 
-    // 筛选对话框
-    if (vm.showFilterDialog.value) {
-        LogFilterDialog(
-            errorOnly = vm.isErrorsOnly(),
-            onShowAll = { vm.showAllLevels() },
-            onErrorsOnly = { vm.showErrorsOnly() },
-            showPluginLogs = vm.showPluginLogs.value,
-            onPluginLogsToggle = { vm.showPluginLogs.value = !vm.showPluginLogs.value },
-            showSpeechRuleLogs = vm.showSpeechRuleLogs.value,
-            onSpeechRuleLogsToggle = { vm.showSpeechRuleLogs.value = !vm.showSpeechRuleLogs.value },
-            autoScrollToBottom = vm.autoScrollToBottom.value,
-            onAutoScrollToggle = { vm.autoScrollToBottom.value = !vm.autoScrollToBottom.value },
-            showDebugLogs = vm.showDebugLogs.value,
-            onDebugLogsToggle = { vm.showDebugLogs.value = !vm.showDebugLogs.value },
-            // 按书/章（11-10）：显示当前范围名，供弹窗画「当前：…」与三枚开关
-            scopeBook = vm.scopeBook.value,
-            scopeChapter = vm.scopeChapter.value,
-            onShowAllBooks = { vm.clearScope() },
-            // 只看本书：开=锁当前书（清章范围）；关=回到全部
-            onScopeBookToggle = {
-                vm.scopeBook.value = if (vm.scopeBook.value != null) null else currentBookInView()
-                vm.scopeChapter.value = null
-            },
-            // 只看本章：开=锁当前书+当前章（章取列表里最后一条的书章）；关=清章范围
-            onScopeChapterToggle = {
-                if (vm.scopeChapter.value != null) {
-                    vm.scopeChapter.value = null
-                } else {
-                    val last = vm.logs.lastOrNull { it.chapterTitle.isNotBlank() }
-                    if (last != null) {
-                        vm.scopeBook.value = last.bookName.takeIf { it.isNotBlank() }
-                        vm.scopeChapter.value = last.chapterTitle
-                    }
-                }
-            },
-            onDismiss = { vm.showFilterDialog.value = false }
-        )
-    }
+    // 11-11 用户令：筛选弹窗整体删除——9 个控件全部挪进吸顶区（筛选开关行）
+    // 与书章切换（书条/章条的「切换书/切换章」）。弹窗里的 scopeBook/scopeChapter
+    // 两个「只看本书/只看本章」也一并作废：切书后列表本来就只显示那本书。
+
 }
 
 @Composable
@@ -921,4 +919,212 @@ private fun BookPickRow(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
+}
+
+// ===================== 日志吸顶区（11-11 用户令「书名和章节名一直置顶」）=====================
+// 三行结构，从上到下：
+//   ① 筛选开关：实时最新 | 只看错误 ‖ 朗读规则 | 插件 ‖ DEBUG（竖线分三档，按用户给的优先级排）
+//   ② 书名 + 切换书
+//   ③ 章名 + 切换章
+// 书章两行只在有数据时显示（老规则/单语音模式下整块隐藏，不出现空条）。
+// 字号按主次：书名 12.5sp 半粗 > 章名 11.5sp > 筛选 11sp > DEBUG 10.5sp。
+// 关键判据：书名字号略小于日志正文，避免吸顶抢内容的视觉重心——它只是路标。
+@Composable
+private fun PinnedLogHeader(
+    autoFollow: Boolean,
+    onToggleAutoFollow: () -> Unit,
+    errorOnly: Boolean,
+    onToggleErrorOnly: () -> Unit,
+    showRule: Boolean,
+    onToggleRule: () -> Unit,
+    showPlugin: Boolean,
+    onTogglePlugin: () -> Unit,
+    showDebug: Boolean,
+    onToggleDebug: () -> Unit,
+    book: String,
+    bookCount: Int,
+    chapter: String,
+    chapterCount: Int,
+    onSwitchBook: (String) -> Unit,
+    onSwitchChapter: (String, String) -> Unit,
+) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(
+                // 比页底深半档，让吸顶区与日志流有明确分界（滚动时不会糊在一起）
+                lerp(
+                    MaterialTheme.colorScheme.secondaryContainer,
+                    MaterialTheme.colorScheme.surfaceContainerLow,
+                    0.55f
+                )
+            )
+    ) {
+        // ① 筛选开关行
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(start = 14.dp, end = 10.dp, top = 6.dp, bottom = 5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
+        ) {
+            PinnedChip("实时最新", autoFollow, onToggleAutoFollow)
+            PinnedChip("只看错误", errorOnly, onToggleErrorOnly, error = true)
+            PinnedDivider()
+            PinnedChip("朗读规则", showRule, onToggleRule)
+            PinnedChip("插件", showPlugin, onTogglePlugin)
+            PinnedDivider()
+            PinnedChip("DEBUG", showDebug, onToggleDebug, small = true)
+        }
+
+        // ② 书名行（无书名不显示）
+        if (book.isNotBlank()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 14.dp, end = 10.dp, bottom = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "《$book》",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontSize = 12.5.sp,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                if (bookCount > 0) {
+                    Text(
+                        text = "$bookCount 条",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontSize = 10.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(end = 8.dp),
+                    )
+                }
+                PinnedSwitchKey("切换书") { onSwitchBook(book) }
+            }
+        }
+
+        // ③ 章名行（无章名不显示）
+        if (chapter.isNotBlank()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 14.dp, end = 10.dp, bottom = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                // 章号小牌：只取「第N章」那段；取不到就把整串当章名（不解析数字，避免不规则章号出错）
+                val idx = Regex("^第\\s*[0-9一二三四五六七八九十百千零两]+\\s*章").find(chapter)?.value
+                if (idx != null) {
+                    Text(
+                        text = idx,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontSize = 10.sp,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier
+                            .clip(AppShapes.xs)
+                            .background(MaterialTheme.colorScheme.primaryContainer)
+                            .padding(horizontal = 5.dp, vertical = 0.5.dp),
+                    )
+                    Spacer(Modifier.width(6.dp))
+                }
+                Text(
+                    text = idx?.let { chapter.removePrefix(it).trim() }?.ifEmpty { chapter } ?: chapter,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontSize = 11.5.sp,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                if (chapterCount > 0) {
+                    Text(
+                        text = "$chapterCount 条",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontSize = 10.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(end = 8.dp),
+                    )
+                }
+                PinnedSwitchKey("切换章") { onSwitchChapter(book, chapter) }
+            }
+        }
+    }
+}
+
+/** 吸顶筛选开关：选中=浅绿底+描边+半粗；错误档选中时用红底保留排障语义 */
+@Composable
+private fun PinnedChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    error: Boolean = false,
+    small: Boolean = false,
+) {
+    val cs = MaterialTheme.colorScheme
+    val bg = when {
+        selected && error -> cs.errorContainer
+        selected -> cs.secondaryContainer
+        else -> cs.surfaceContainerLow
+    }
+    val fg = when {
+        selected && error -> cs.onErrorContainer
+        selected -> cs.primary
+        else -> cs.onSurfaceVariant
+    }
+    Text(
+        text = label,
+        style = MaterialTheme.typography.labelSmall,
+        fontSize = if (small) 10.5.sp else 11.sp,
+        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+        color = fg,
+        maxLines = 1,
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(bg)
+            .then(
+                if (selected && !error)
+                    Modifier.border(1.dp, cs.outlineVariant, RoundedCornerShape(50))
+                else Modifier
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 9.dp, vertical = 3.5.dp),
+    )
+}
+
+/** 三档之间的细分隔线（视觉上把「视线类/来源类/开发类」分开） */
+@Composable
+private fun PinnedDivider() {
+    Box(
+        Modifier
+            .padding(horizontal = 2.dp)
+            .width(1.dp)
+            .height(14.dp)
+            .background(MaterialTheme.colorScheme.outlineVariant)
+    )
+}
+
+/** 吸顶区右端的小键（切换书 / 切换章），与书条章的旧样式同口径 */
+@Composable
+private fun PinnedSwitchKey(label: String, onClick: () -> Unit) {
+    Text(
+        text = label,
+        style = MaterialTheme.typography.labelSmall,
+        fontSize = 10.5.sp,
+        color = MaterialTheme.colorScheme.primary,
+        maxLines = 1,
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .border(
+                1.dp,
+                MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
+                RoundedCornerShape(50)
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 1.dp),
+    )
 }

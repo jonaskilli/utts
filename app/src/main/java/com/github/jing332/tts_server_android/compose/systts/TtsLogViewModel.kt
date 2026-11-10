@@ -70,6 +70,9 @@ class TtsLogViewModel : ViewModel() {
 
     // 日志级别筛选（存储选中的日志级别 Int 值）
     val selectedLevels = mutableStateListOf<Int>()
+    // @Deprecated 11-11：筛选弹窗整体删除，弹窗状态已无消费者。保留字段是为了避免
+    // 其它分支/并行改动引用它时编译报错，下批确认无引用后连同 LogFilterDialog.kt 一起清。
+    @Deprecated("筛选已挪进日志页吸顶区（11-11），此状态不再使用")
     val showFilterDialog = mutableStateOf(false)
 
     // 调试模式开关 - 在主时间流中追加/隐藏插件日志（默认隐藏，用户手动开启）

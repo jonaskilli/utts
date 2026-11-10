@@ -98,6 +98,17 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.abs
 
 // SystemTtsService 拼接次级信息所用哨兵色，此处按主题重映射
+// ===================== 日志字号阶梯（11-11 用户令「缩一下字号，但要有主次」）=====================
+// 吸顶区占掉约 90dp 固定高度后，正文一屏只剩 6~7 条；整体收一档，但**不能一刀切**——
+// 那样主次就没了。按信息价值分层：
+//   正文 13sp（最大，仍是主角）> 辅助 11sp（时间/状态/耗时/发音人）> 插件名 10.5sp（最小）
+// 判据：正文降 1sp 仍稳居第一；辅助一次降 1sp 是因为它们靠颜色/位置识别，不靠字号。
+// 插件日志/朗读规则日志保持 12sp —— 那是纯文本，再小就读不动了。
+private val LOG_BODY_SIZE = 13.sp
+private val LOG_AUX_SIZE = 11.sp
+private val LOG_PLUGIN_NAME_SIZE = 10.5.sp
+private val LOG_RAW_TEXT_SIZE = 12.sp
+
 private val MetaColorSentinel = Color(0xFFFF00FF)       // 获取成功前缀 → 石板灰
 private val VoiceMetaSentinel = Color(0xFF00FFFF)       // 发音人信息 → 雾紫
 private val RoleChipSentinel = Color(0xFF0F0F0F)        // 角色名小牌 → 靛蓝牌字色（10-14 用户令）
@@ -169,6 +180,13 @@ internal class LogGroups(
     // 以失败收场的组头行下标（10-10 行级丸配套）：请求行本身是 INFO，失败丸「失败」的
     // 依据是「该组以失败收场」——ERROR 子行/主行收卡时由 build 记入
     val failedHeads: Set<Int> = emptySet(),
+    // 11-11 吸顶区用：本批日志里「最早出现的书」及其章（书条/章条不再进列表流，
+    // 改由 TtsLogScreen 吸顶渲染——用户令「书名和章节名一直置顶」）。
+    // 空串=该批日志没有书章（老规则/单语音），吸顶整块不显示。
+    val pinnedBook: String = "",
+    val pinnedChapter: String = "",
+    val pinnedChapterCount: Int = 0,
+    val pinnedBookCount: Int = 0,
 ) {
     sealed class Item {
         class Header(val date: String) : Item()
@@ -371,8 +389,7 @@ internal class LogGroups(
             val finalItems = ArrayList<Item>(raw.size + 8)
             val map = IntArray(list.size) { -1 }
             var lastDate: String? = null
-            var lastBook: String? = null
-            var lastChapter: String? = null
+            // 11-11：书条/章条改吸顶后不再需要这两个游标（原用于判断「换书/跨章处插签」）
 
             // 先统计每本书/每章各有多少条（书条/章节签要显示「N 条」键 + 首条下标）
             fun anchorOf(item: Item): Int = when (item) {
@@ -402,30 +419,8 @@ internal class LogGroups(
                 val anchorIdx = anchorOf(item)
                 if (anchorIdx >= 0) {
                     val e = list[anchorIdx]
-                    // ① 书条：换书处（无书名的老日志不画，避免出现空条）
-                    if (e.bookName.isNotBlank() && e.bookName != lastBook) {
-                        finalItems.add(Item.BookBar(e.bookName, bookCount[e.bookName] ?: 0))
-                        lastBook = e.bookName
-                        // 换书必然换章：清掉章的游标，让新书第一章也出章节签
-                        lastChapter = null
-                    }
-                    // ② 章节签：跨章处（同书内才画；章节名为空则退化成只有书条）
-                    if (e.bookName.isNotBlank() && e.chapterTitle.isNotBlank()
-                        && e.chapterTitle != lastChapter
-                    ) {
-                        val k = e.bookName to e.chapterTitle
-                        finalItems.add(
-                            Item.ChapterBar(
-                                book = e.bookName,
-                                chapter = e.chapterTitle,
-                                // 首条下标优先用统计值；缺失时退回当前锚点（不会跳到 0）
-                                anchorEntry = chapterStart[k] ?: anchorIdx,
-                                count = chapterCount[k] ?: 1,
-                            )
-                        )
-                        lastChapter = e.chapterTitle
-                    }
-                    // ③ 日期签
+                    // 11-11：书条/章条不再插入列表流——改由上层吸顶渲染（用户令置顶）。
+                    // 这里只负责日期签；书章信息在循环外统计成 pinnedBook/pinnedChapter。
                     val t = e.time
                     if (t.length >= 10) {
                         val d = t.substring(0, 10)
@@ -444,7 +439,21 @@ internal class LogGroups(
                 }
                 finalItems.add(item)
             }
-            return LogGroups(finalItems, map, failedHeads)
+            // 吸顶信息：取本批日志里**第一条**带书章的条目（列表顺序 = 时间顺序，
+            // 也就是"当前正在看的这一段"所属的书/章）
+            val firstWithBook = list.firstOrNull { it.bookName.isNotBlank() }
+            val pBook = firstWithBook?.bookName.orEmpty()
+            val pChapter = firstWithBook?.chapterTitle.orEmpty()
+            val pKey = pBook to pChapter
+            return LogGroups(
+                items = finalItems,
+                entryToList = map,
+                failedHeads = failedHeads,
+                pinnedBook = pBook,
+                pinnedChapter = pChapter,
+                pinnedChapterCount = if (pChapter.isBlank()) 0 else (chapterCount[pKey] ?: 0),
+                pinnedBookCount = if (pBook.isBlank()) 0 else (bookCount[pBook] ?: 0),
+            )
         }
     }
 }
@@ -746,32 +755,11 @@ internal fun LogScreen(
         ) {
                 itemsIndexed(currentGroups.items, key = { index, _ -> index }) { _, item ->
                     when (item) {
-                        // 书籍条（方案 A，11-10 用户拍板）：换书处出现，列出书名 + 本书条数，
-                        // 右侧「切换书」入口。只切日志查看范围，不动角色管理里的当前书
-                        is LogGroups.Item.BookBar -> {
-                            BookBarRow(
-                                book = item.book,
-                                count = item.count,
-                                onSwitch = onSwitchBook?.let { { it(item.book) } },
-                            )
-                        }
-                        // 章节签：跨章处出现，列出章名 + 本章条数，点击跳到本章首条
-                        is LogGroups.Item.ChapterBar -> {
-                            ChapterBarRow(
-                                book = item.book,
-                                chapter = item.chapter,
-                                count = item.count,
-                                // 右侧「切换章」：与书条「切换书」同款同位置（用户 11-11 令）
-                                onSwitch = onSwitchChapter?.let { { it(item.book, item.chapter) } },
-                                onClick = {
-                                    val target = currentGroups.listItemFor(item.anchorEntry)
-                                    onJumpToChapter?.invoke(item.book, item.chapter)
-                                    scope.launch {
-                                        runCatching { listState.animateScrollToItem(target) }
-                                    }
-                                },
-                            )
-                        }
+                        // 11-11 用户令：书条/章条不再出现在日志流里，改为**吸顶**
+                        //（在 TtsLogScreen 的 topBar 下方固定渲染）。此处保留分支只因
+                        // Item 是 sealed class 需要穷举，实际不会再产出这两个 Item。
+                        is LogGroups.Item.BookBar -> Unit
+                        is LogGroups.Item.ChapterBar -> Unit
                         is LogGroups.Item.Header -> {
                             // 日期签：每天第一条上方出现一次（10-06：日期不再逐行重复）。
                             // 签盒 start 7 + 签内衬 9 = 签文字 16，与裸行/卡内正文同线
@@ -862,7 +850,7 @@ internal fun LogScreen(
                                         Text(
                                             text = headTimeText(log),
                                             style = MaterialTheme.typography.bodySmall,
-                                            fontSize = 12.sp,
+                                            fontSize = LOG_AUX_SIZE,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                         // 行级丸（10-10 终案）：重试 W 主行=重试N、兜底/备用主行=
@@ -914,10 +902,9 @@ internal fun LogScreen(
                                     voiceColor = voiceColor,
                                     roleChipColor = roleChipColor,
                                     pluginChipColor = pluginChipColor,
-                                    // 裸行字号终版二轮（10-11 用户令）：12 还是小，提到 13——
-                                    // 与成员行/主行前缀同档，四档收敛为三档（13/14/前缀13）
-                                    fontSize = 13.sp,
-                                    lineHeight = if (bareFailStyle) 18.2.sp else 16.9.sp, // 13×1.3（失败条=14×1.3）
+                                    // 裸行=正文档（11-11 统一走 LOG_BODY_SIZE，与请求主行同大）
+                                    fontSize = LOG_BODY_SIZE,
+                                    lineHeight = if (bareFailStyle) 18.2.sp else 17.sp, // 13×1.3
                                     oldStyleFail = bareFailStyle,
                                     // 命中高亮已在整行背景，正文不再叠一层
                                     isMatch = false,
@@ -1041,7 +1028,7 @@ internal fun LogScreen(
                                             // 与正文 14sp 拉开两档，进一步让行内重心落在丸上
                                             text = groupHeadTime,
                                             style = MaterialTheme.typography.bodySmall,
-                                            fontSize = 12.sp,
+                                            fontSize = LOG_AUX_SIZE,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                         // 状态链（10-12 三改，用户令「这个乘几是不是错误的改法…干脆去掉吧；
@@ -1075,7 +1062,7 @@ internal fun LogScreen(
                                             Text(
                                                 text = tailText,
                                                 style = MaterialTheme.typography.bodySmall,
-                                                fontSize = 12.sp,
+                                                fontSize = LOG_AUX_SIZE,
                                                 color = if (pillShown?.kind == LogPillKind.FAIL)
                                                     Color(if (darkTheme) 0xFFE57373 else 0xFFF44336)
                                                 else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1111,8 +1098,8 @@ internal fun LogScreen(
                                         voiceColor = voiceColor,
                                         roleChipColor = roleChipColor,
                                         pluginChipColor = pluginChipColor,
-                                        fontSize = 14.sp,
-                                        lineHeight = 18.2.sp, // 14×1.3
+                                        fontSize = LOG_BODY_SIZE,
+                                        lineHeight = 17.sp, // 13×1.3
                                         isMatch = isMatchEntry(absorbed, searchQuery),
                                         emphasizeError = true,
                                         oldStyleFail = true,
@@ -1129,8 +1116,8 @@ internal fun LogScreen(
                                     // 请求主行回 14sp（10-10 字号令纠偏：「缩到与声音信息一样」
                                     // 只指插件/规则裸行；主行恢复排版实验 1008 定版 14sp，
                                     // 内三段分层回前缀13/正文14/声音12——见 LogEntryBody isRequestHead）
-                                    fontSize = 14.sp,
-                                    lineHeight = 18.2.sp, // 14×1.3
+                                    fontSize = LOG_BODY_SIZE,
+                                    lineHeight = 17.sp, // 13×1.3
                                     isMatch = isMatchEntry(head, searchQuery),
                                     // 排版实验 1008（C）：只染"请求音频："前缀，正文回默认色
                                     isRequestHead = true,
@@ -1154,8 +1141,8 @@ internal fun LogScreen(
                                                 voiceColor = voiceColor,
                                                 roleChipColor = roleChipColor,
                                                 pluginChipColor = pluginChipColor,
-                                                fontSize = 13.sp,
-                                                lineHeight = 17.sp, // 13×1.3≈16.9
+                                                fontSize = LOG_BODY_SIZE,
+                                                lineHeight = 17.sp, // 13×1.3
                                                 isMatch = isMatchEntry(m, searchQuery),
                                                 emphasizeError = true,
                                                 highlight = m == locateHighlight,
@@ -1465,28 +1452,28 @@ private fun LogEntryBody(
                         // 前缀：染深绿 + 13sp
                         item = item.copy(
                             color = if (darkTheme) RequestPrefixColorDark else RequestPrefixColorLight,
-                            fontSize = 13.sp,
+                            fontSize = LOG_AUX_SIZE,
                         )
                     } else if (r.start >= metaStart && metaStart < base.text.length) {
                         // 声音信息：哨兵色已换好目标色。字号 12→13sp（10-11 用户令
                         // 「时间和下方声音条的字号太小」）——与裸行/成员行同档，
                         // 与正文 14sp 仍保一档差
-                        item = item.copy(fontSize = 13.sp)
+                        item = item.copy(fontSize = LOG_AUX_SIZE)
                     } else if (r.item.color == roleChipColor) {
                         // 角色名（10-13 拆段后的新分支）：它现在**不再**被声音信息那段 font 罩住
                         //（服务端已把外层 font 拆成三段，见 SystemTtsService.configInfo），
                         // 所以拿不到上面那支的 13sp。此处显式补回 13sp，保住与改前同一字号；
                         // 颜色由 remapMetaColor 的 RoleChipSentinel 分支给
-                        item = item.copy(fontSize = 13.sp)
+                        item = item.copy(fontSize = LOG_AUX_SIZE)
                     }
                     addStyle(item, r.start, r.end)
                 }
                 // 前缀段可能无 span 覆盖（级别色是 Text 整体 color，不是 span）：
                 // 显式补一个 13sp span
-                if (prefixEnd > 0) addStyle(SpanStyle(fontSize = 13.sp), 0, prefixEnd)
+                if (prefixEnd > 0) addStyle(SpanStyle(fontSize = LOG_AUX_SIZE), 0, prefixEnd)
                 // 声音信息段若无 span 覆盖（整段哨兵色必有 span，此处兜底）：补 13sp
                 if (metaStart < base.text.length) {
-                    addStyle(SpanStyle(fontSize = 13.sp), metaStart, base.text.length)
+                    addStyle(SpanStyle(fontSize = LOG_AUX_SIZE), metaStart, base.text.length)
                 }
             }
         }
@@ -1509,11 +1496,11 @@ private fun LogEntryBody(
                     // 该段原先吃调用方基础字号——组头吸收路径基础 14sp、裸行基础 13sp，
                     // 同一份源错误同屏两种正文字号。三段规格自此全局唯一：
                     // 错误串 13 / 正文 14 粗 / 发音人 13，与调用方基础字号无关。
-                    addStyle(SpanStyle(color = failRed, fontWeight = FontWeight.Bold, fontSize = 14.sp), nl1 + 1, nl2)
+                    addStyle(SpanStyle(color = failRed, fontWeight = FontWeight.Bold, fontSize = LOG_BODY_SIZE), nl1 + 1, nl2)
                     // 字号分层（10-13 用户令「源错误这一句字号忽大忽小」根修）：
                     // 错误串段 0..nl1 与发音人段 nl2.. 全 13sp（与成员行/成功行同档）
-                    addStyle(SpanStyle(fontSize = 13.sp), 0, nl1)
-                    addStyle(SpanStyle(fontSize = 13.sp), nl2, s.text.length)
+                    addStyle(SpanStyle(fontSize = LOG_BODY_SIZE), 0, nl1)
+                    addStyle(SpanStyle(fontSize = LOG_BODY_SIZE), nl2, s.text.length)
                 }
             }
         }
