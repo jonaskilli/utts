@@ -76,6 +76,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.lerp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.drake.net.utils.withIO
+import com.github.jing332.common.utils.limitByDisplayWidth
 import com.github.jing332.common.ACCENT_GREEN
 import com.github.jing332.tts_server_android.compose.theme.AppShapes
 import com.github.jing332.compose.widgets.ControlBottomBarVisibility
@@ -575,14 +576,13 @@ fun RoleListScreen(
                             (item.config as? TtsConfigurationDTO)?.speechRule?.tag == rec.voice
                         }
                     }
-                    // 插件名（注释行缀尾，前 4 字——与日志插件牌 PLUGIN_NAME_MAX_CHARS 同口径）
+                    // 插件名（注释行缀尾；11-10 改按显示宽度 8 = 中文4字/英文8字母，与日志插件牌同口径）
                     // 注意：config 静态类型是 IConfiguration（无 source 字段），
                     // 必须先 as? TtsConfigurationDTO 才能取 source（CI 实锤 :538 Unresolved 'source'）
                     val pluginNameShort = remember(anchorEntity?.id) {
                         val src = (anchorEntity?.config as? TtsConfigurationDTO)?.source as? PluginTtsSource
                         src?.let { dbm.pluginDao.getMetaByPluginId(it.pluginId)?.name }
-                            ?.replace('|', '｜')
-                            ?.take(4)
+                            ?.limitByDisplayWidth()
                             ?.takeUnless { it.isBlank() }
                     }
                     RoleRow(

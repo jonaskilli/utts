@@ -69,6 +69,7 @@ import androidx.compose.ui.window.DialogProperties
 import com.drake.net.utils.withIO
 import com.drake.net.utils.withMain
 import com.github.jing332.tts_server_android.compose.theme.AppShapes
+import com.github.jing332.common.utils.limitByDisplayWidth
 import com.github.jing332.common.utils.limitDisplayLength
 import com.github.jing332.common.utils.toParamText
 import com.github.jing332.compose.widgets.AppSelectionDialog
@@ -1072,8 +1073,7 @@ fun VoicePickerDialog(
                 //（CI 实锤 RoleListScreen :538 同款错误，同类同修）
                 val src = (paramsTarget.config as? TtsConfigurationDTO)?.source as? PluginTtsSource
                 src?.let { dbm.pluginDao.getMetaByPluginId(it.pluginId)?.name }
-                    ?.replace('|', '｜')
-                    ?.take(4)
+                    ?.limitByDisplayWidth()
                     ?.takeUnless { it.isBlank() }
             }
             val topMarks = remember(topMarkKey, marksMap) {
@@ -1460,8 +1460,7 @@ fun VoicePickerDialog(
                             val rowPluginName = remember(tag, dataVersion, rowVersion) {
                                 val src = (enabledConfigEntityByTag(tag)?.config as? TtsConfigurationDTO)?.source as? PluginTtsSource
                                 src?.let { dbm.pluginDao.getMetaByPluginId(it.pluginId)?.name }
-                                    ?.replace('|', '｜')
-                                    ?.take(4)
+                                    ?.limitByDisplayWidth()
                                     ?.takeUnless { it.isBlank() }
                             }
                             CandidateRow(
@@ -1653,8 +1652,7 @@ fun VoicePickerDialog(
                             val rowPluginName = remember(v, cfgEntity.id, dataVersion) {
                                 val src = (cfgEntity.config as? TtsConfigurationDTO)?.source as? PluginTtsSource
                                 src?.let { dbm.pluginDao.getMetaByPluginId(it.pluginId)?.name }
-                                    ?.replace('|', '｜')
-                                    ?.take(4)
+                                    ?.limitByDisplayWidth()
                                     ?.takeUnless { it.isBlank() }
                             }
                             CandidateRow(

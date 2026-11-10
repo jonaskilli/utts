@@ -175,6 +175,56 @@ fun String.limitDisplayLength(max: Int, suffix: String = ""): String {
     return head + suffix
 }
 
+/**
+ * 按**显示宽度**截断插件名（11-10 立）。
+ *
+ * ## 为什么不用 take(4) / limitDisplayLength
+ *
+ * 那两个都按**字符数**截：`take(4)` 对「剪映最新官方…」取「剪映最新」（4 汉字，约 52dp），
+ * 对「Breeze TTS…」只取「Bree」（4 字母，约 28dp）——同为 4 个字符，视觉宽度差一倍。
+ *
+ * ## 规则（用户 11-10 定稿）
+ *
+ * 预算 = 8 个半角单位（全角/中日韩记 2，其余记 1）：中文 4 字、英文 8 字母、混排按实宽累加。
+ *
+ * **能多放一个字就多放一个字**——不做括号配对回退。
+ * 只处理结果**末尾孤立**的符号：
+ *   · 「剪映（需」→ 保留（括号后有汉字，不孤立，用户明确认可）
+ *   · 「剪映（」  → 去掉末尾孤立开括号 →「剪映」
+ *   · 「本悦读_」→ 去掉末尾孤立连接符 →「本悦读」
+ *
+ * 不补省略号（插件牌是标签不是句子，10-06 口径）。
+ */
+fun String.limitByDisplayWidth(budget: Int = 8): String {
+    if (isEmpty()) return this
+    fun widthOf(c: Char): Int {
+        val b = Character.UnicodeBlock.of(c)
+        val wide = b == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS ||
+                b == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_A ||
+                b == Character.UnicodeBlock.CJK_SYMBOLS_AND_PUNCTUATION ||
+                b == Character.UnicodeBlock.HALFWIDTH_AND_FULLWIDTH_FORMS ||
+                b == Character.UnicodeBlock.HIRAGANA ||
+                b == Character.UnicodeBlock.KATAKANA ||
+                b == Character.UnicodeBlock.HANGUL_SYLLABLES
+        return if (wide) 2 else 1
+    }
+    val openers = "（(【[《<「{"
+    val tailJunk = "_-·|｜.。,,、~～ 　:：;；"
+    var acc = 0
+    val sb = StringBuilder()
+    for (c in this) {
+        val w = widthOf(c)
+        if (acc + w > budget) break
+        sb.append(c); acc += w
+    }
+    // 只剔除末尾孤立符号：开括号（后面无内容）、连接符、标点
+    var out = sb.toString()
+    while (out.isNotEmpty() && (out.last() in openers || out.last() in tailJunk)) {
+        out = out.dropLast(1)
+    }
+    return out
+}
+
 fun String.fromCookie(): Map<String, String> {
     val map = mutableMapOf<String, String>()
     val cookies = this.split(";")

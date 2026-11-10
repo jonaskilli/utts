@@ -26,6 +26,7 @@ import androidx.annotation.StringRes
 import androidx.core.app.ServiceCompat.stopForeground
 import androidx.core.content.ContextCompat
 import com.github.jing332.common.utils.StringUtils
+import com.github.jing332.common.utils.limitByDisplayWidth
 import com.github.jing332.common.utils.limitDisplayLength
 import com.github.jing332.common.utils.limitLength
 import com.github.jing332.common.utils.longToast
@@ -115,11 +116,9 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
         private const val ROLE_CHIP_COLOR = "#0F0F0F"
         // 插件名小牌哨兵色；LogScreen 按主题重映射为灰青牌色
         private const val PLUGIN_CHIP_COLOR = "#0E0E0E"
-        // 日志行尾插件名小牌的字数上限（10-14 两令：先「限 5 个」后「留四个字，不要五个字」）。
-        // 按码点切（limitDisplayLength：码点安全 + 竖线段回退 + 清尾，不补省略号——10-06 口径）。
-        // 与显示名滑杆（maxChars）解耦：滑杆管角色行显示名，本常量只管插件牌（16:49 实锤：
-        // 滑杆=0 时旧写法整条跳过限长，插件名全须全尾）。
-        private const val PLUGIN_NAME_MAX_CHARS = 4
+        // 日志行尾插件名小牌：11-10 二十五改起改走 String.limitByDisplayWidth()（按显示宽度 8 =
+        // 中文 4 字 / 英文 8 字母），不再用"码点 4"常量——中英一视同仁会浪费一半宽度，
+        // 且会把「剪映（需填变量）」切成怪形状。
         // pluginId→插件名缓存（声音行尾牌用）：运行期不变，负结果也缓存（空串）
         private val pluginNameCache = java.util.concurrent.ConcurrentHashMap<String, String>()
         private val logger = KotlinLogging.logger(TAG)
@@ -855,16 +854,15 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                         // 10-11 用户令：撤插件名前的全角空格（原为 "　<font…>（"）——
                         // 括号本身就是分隔符，插件名又自带灰青色，三重分隔里那个空格多余；
                         // 且它占一个全角宽，窄屏上白白挤掉正文的换行空间
-                        // 10-14 用户令两改：先「限 5 个」后「留四个字，不要五个字」——曾试过
-                        // 「无括号+全角空格分隔」「「短名」直角引号」两版，装机观感回摆
-                        // 「还是原来的括号形式更好，只把字数限一下」。截取=码点 4
-                        // （讯飞配音pro+官网…→讯飞配音），不补省略号（10-06 口径）。
-                        // ⚠️ 16:49 装机实锤 bug：原写法 `if (maxChars > 0) 限长 else 全名`——
-                        // 显示名滑杆=0（不限）时整条跳过，插件名全须全尾（用户实拍）。
-                        // 修正=无条件限长：插件牌只认 PLUGIN_NAME_MAX_CHARS，与滑杆彻底解耦。
-                        // ⚠️ 括号留在**这个 font 内部**：只包名字会让括号落到默认色，
-                        // 视觉上把「（豆包-猫箱）」切成两截色。括号前不加逗号（原口径，括号自身即分隔）
-                        val pnameLimited = pnameFull.limitDisplayLength(PLUGIN_NAME_MAX_CHARS)
+                        // 11-10 二十五改（用户令「英文应该能显示 8 个字母，后面是特殊符号的也不要显示；
+                        // 其他地方的插件名也这样处理，比如日志等」）：
+                        // 截取口径从「码点 4」改为**按显示宽度 8**（中文 4 字 / 英文 8 字母 / 混排按实宽）。
+                        // 原 limitDisplayLength(4) 对中英一视同仁，英文只显示 4 个字母、宽度浪费一半；
+                        // 且「剪映（需填变量）」会被切成「剪映（需」以外的怪形状。
+                        // 新函数 limitByDisplayWidth 只剔除**末尾孤立**的开括号/连接符，
+                        // 「剪映（需」这种括号后有汉字的保留（用户明确认可）。
+                        // 不补省略号，与 10-06 口径一致；括号仍留在 font 内部（避免两截色）。
+                        val pnameLimited = pnameFull.limitByDisplayWidth()
                         append("<font color=\"" + PLUGIN_CHIP_COLOR + "\">（")
                         append(pnameLimited)
                         append("）</font>")
