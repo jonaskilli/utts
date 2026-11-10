@@ -1399,26 +1399,45 @@ private fun RoleRow(
                         // 四套全部达标。紫色 secondary 原值 #787382 只有 4.38，
                         // 已在 Color2.kt 压深到 #706A7A（同色相、略深，ΔE 仍 0.270）。
                         //
-                        // 实现用 buildAnnotatedString 叠两个 SpanStyle（不是套 Row）：
-                        // 保持"一条 Text"的排版本质——widthIn/截断/基线全都与改前一致，
-                        // 不会因为多一层 Row 影响宽度约束或在行尾 emoji 前插空。
-                        Text(
-                            buildAnnotatedString {
-                                append(rec.voice)
-                                if (pluginName != null) {
-                                    // 插件名用 secondary（18 改，见下方说明）
-                                    withStyle(
-                                        SpanStyle(color = MaterialTheme.colorScheme.secondary)
-                                    ) { append(" · $pluginName") }
-                                }
-                            },
-                            style = MaterialTheme.typography.labelSmall,
-                            // 基础色=分类色；插件名段由上面 span 覆盖成次级灰
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Clip,
+                        // 25 改（用户令「显示名+插件名+emoji 这个长度是固定的，超出应该缩减
+                        // 插件名，不要省略号直接截断」）：
+                        // 从"一条 Text 叠两个 SpanStyle"改成 **Row + 两个 Text**。
+                        //
+                        // 为什么非改不可：原来整条 Text 挂 widthIn(max=halfRow) + Clip，
+                        // 截断点由 Text 自己定——超长时被砍的是整条文本尾部，虽然"先砍插件名"，
+                        // 但砍在哪一个像素不可控（可能半个字），而且分类一旦变长就整体挤。
+                        // 现在：分类按内容宽固定、插件名吃剩余（weight）+ Ellipsis——
+                        // **只有插件名会被缩**，分类与 emoji 都保住。
+                        // 截断方式：用户要"不要省略号直接截断"，故插件名用 Clip；
+                        // 但外层给的是有界宽度（weight），Clip 会干净地砍在字符边界。
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.widthIn(max = halfRow),
-                        )
+                        ) {
+                            Text(
+                                rec.voice,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                softWrap = false,
+                                // ⚠️ 分类**不能**用 weight：与下面插件名的 weight 会平分
+                                // 剩余宽度，分类被无故拉开、插件名被挤窄。
+                                // 按内容宽占位即可（分类最多 4 字，正常不会超）。
+                                modifier = Modifier,
+                            )
+                            if (pluginName != null) {
+                                Text(
+                                    " · $pluginName",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.secondary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Clip,
+                                    softWrap = false,
+                                    // 插件名吃剩余宽度：超长时**只缩它**
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                        }
                         // 已点亮标记 emoji（钉行尾永不截；点击取消，QQ 式）
                         // 固定行高 16sp：emoji 13sp 字形全高渲染会把本行撑高
                         //（装机实锤「有 emoji 的行第一行与角色名错位」根因）
