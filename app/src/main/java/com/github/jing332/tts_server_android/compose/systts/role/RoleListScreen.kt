@@ -76,6 +76,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.drake.net.utils.withIO
 import com.github.jing332.common.utils.limitByDisplayWidth
@@ -168,32 +169,43 @@ private val BOOK_NAME_COLOR = Color(0xFF333333)
  * 10-12 晚本页「发音人标签」曾另立一档硬编码浅色（底 #F0FAF3 / 字 #006D3A），
  * 10-13 用户实拍发现「它不跟随主题而变化」⇒ 该档退役，退回下面这个单源。
  * ⚠️ 别再给本页标签引浅色专用色值：十套主题 × 深浅色共 20 组，硬编码只能覆盖一组。
+ *
+ * 11-11：与 softFillBarColor() **同公式同步改**（lerp(secondaryContainer, White, 0.42)）。
+ * 这两个函数在 C 档时期色值完全相同，用户认知里就是"同一个颜色"；只改一支会让
+ * 分类胶囊/日志标签还是旧暗绿，而同屏的书籍框/显示名标签已经提亮——正是历史上
+ * 被用户批评过的"一大一小两档绿"。以后调档位请两处一起动。
  */
 @Composable
-internal fun softContainerColor(): Color = lerp(
-    MaterialTheme.colorScheme.secondaryContainer,
-    MaterialTheme.colorScheme.surfaceContainerLow,
-    0.10f
-)
+internal fun softContainerColor(): Color = softFillBarColor()
 
 /**
- * 全站「小填充」统一色（书籍框 / 显示名标签框 / 更换发音人选中态 / 分类胶囊共用）。
+ * 全站「小填充」统一色（书籍框 / 显示名标签框 / 更换发音人选中态 / 分类胶囊共用，共 33 处）。
  *
- * ## 11-10 C 档定稿（用户拍板，改动前先读这段）
+ * ## 11-11 A 档定稿（用户拍板，改动前先读这段）
  *
- * 用户反馈原来的 `卡底混主色10%`（#E2F0E9）**"灰灰的、太暗"**。
- * 量过数据后确认原因不是亮度而是**饱和度**：
- *   · 旧 #E2F0E9  S=0.318  ← 深绿 primary 混进中性灰卡底，被稀释成灰绿
- *   · C  #DAF2E2  S=0.480  ← 明显更绿、更清亮，亮度只降 0.012
- * 用户从 A/B/C/D 四档预览里选定 **C**。
+ * 用户第三轮反馈：「绿色主题这个书籍框的填充色，我这次还是不满意…我感觉暗暗的」。
  *
- * ## 公式
+ * 真因不是"不够绿"，而是**往灰里混**：
+ * 旧公式 `lerp(secondaryContainer, surfaceContainerLow, 0.10)` 把颜色往**中性灰卡底**
+ * 稀释，混出来必然发闷（绿主题 #DAF2E2，L=90%）。同一枚 secondaryContainer
+ * **往白里混**出来是清亮的——同样的色相和饱和度，只是不再被灰压暗。
  *
- * 从 **secondaryContainer**（主题自带浅容器档，浅而有彩）往卡底混 10%。
+ * 现公式：`lerp(secondaryContainer, White, 0.42)`，绿主题 ≈ **#E7F7EC**（L=94%）。
+ * 四套主题：绿 #E7F7EC / 紫 #F5F0FF / 雾 #ECF3FF / 墨 #F2F3F5（浅色）。
+ * 卡上文字（onSurface 深色）对比 13~15，标签字完全不受影响。
  *
- * ⚠️ 起点必须是 secondaryContainer，**不能**用中性卡底混 primary——
- * 这是这条色改过十几轮的根因：primary 是深色，混进浅底只会被稀释成灰绿，越调越灰。
- * 各主题自动成立（绿 #DAF2E2 / 紫 / 蓝 / 深灰，各自带自己色相）。
+ * ## 用户明确不借鉴的东西（别再往这个方向改）
+ *
+ * 用户发过两张"很清爽"的系统截图（运营商流量页），那种绿是**底极淡 + 字用饱和青绿**
+ * 的结构、色相偏 170° 薄荷。用户 11-11 明确：**"暂时不参考它这个结构和颜色"**，
+ * 只取"底提亮"这一点。所以：
+ *   · 不要改文字的染色（标签字仍是 onSurface 深色，不染主题绿）
+ *   · 不要动色相（跟随各主题 secondaryContainer）
+ *
+ * ## 公式起点为什么必须是 secondaryContainer
+ *
+ * **不能**用中性卡底混 primary——primary 是深色，混进浅底只会被稀释成灰绿，越调越灰。
+ * 这是这条色改过十几轮的根因。
  *
  * ## 为什么抽成单源
  *
@@ -201,11 +213,15 @@ internal fun softContainerColor(): Color = lerp(
  * 写成多处 `lerp(...)` 也能跑，但调浓度时极易只改一处，又变成"一大一小两档绿"。
  */
 @Composable
-internal fun softFillBarColor(): Color = lerp(
-    MaterialTheme.colorScheme.secondaryContainer,
-    MaterialTheme.colorScheme.surfaceContainerLow,
-    0.10f
-)
+internal fun softFillBarColor(): Color {
+    val cs = MaterialTheme.colorScheme
+    // 深色必须单独一档：往白里混 42% 会得到 #868C88 这种中灰块（对深页底 5.36），
+    // 底上的浅色文字对比只剩 2.47——直接糊掉。深色改为往上一级浅槽混，
+    // 保持"底色比页底亮一档"的原关系（对页底 1.55、文字对比 8.4）。
+    return if (cs.background.luminance() > 0.5f)
+        lerp(cs.secondaryContainer, Color.White, 0.42f)
+    else lerp(cs.secondaryContainer, cs.surfaceContainerHighest, 0.42f)
+}
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
