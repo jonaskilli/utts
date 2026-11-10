@@ -72,6 +72,55 @@ fun neutralSwitchUncheckedTrackColor(): Color =
     else MaterialTheme.colorScheme.surfaceContainerHighest
 
 /**
+ * 配置项 / 密钥条目卡片的「中性灰卡面」（11-11 用户令）。
+ *
+ * ## 为什么不是 #F7F2FA、也不是以前的 #F9F9F9
+ *
+ * 用户两轮反馈合起来的约束：
+ * ① 现在的 #F7F2FA 是**微紫白**（H=277°S=44%），在绿底/雾蓝底上串色——「某些主题下太突兀」；
+ * ② 但退回以前的纯灰 #F9F9F9 又「不够突出」：它对紫页底只有 **1.004**（几乎就是同一块），
+ *    因为紫/雾的页底比绿底更亮，同一枚灰在它们身上最糊。
+ *
+ * 定档 #EEEEEE：彩度 0（永不再串色），对四套主题页底 1.107~1.133（旧灰只有 1.004~1.028），
+ * 卡上正文 14.8 / 副文 8.0 / 插件名 5.6，全部达标，不需要动任何文字色。
+ *
+ * 深色档 #262626 同理：旧实现深色下**也是这枚亮白**（对深页底 16.7，夜里刺眼），
+ * 换成 #262626 后对页底 1.22、对卡上文字仍 ≥7。
+ *
+ * ⚠️ 硬编码、不跟主题走——用户要的就是「四套主题一个卡色」。
+ */
+@Composable
+fun neutralCardColor(): Color =
+    if (MaterialTheme.colorScheme.background.luminance() > 0.5f) Color(0xFFEEEEEE)
+    else Color(0xFF262626)
+
+/**
+ * 密钥页「组头色」（卡片上方那条接口名 + 网址的色带，11-11 用户令）。
+ *
+ * ## 为什么是这条公式（改动前先读）
+ *
+ * 用户先要「恢复以前那个绿」，随即补充「但你也得根据主题色来变化，不能都只是绿」。
+ * 历史核对（git 与旧 SurfaceTones 表）：
+ * · 11-07 → 11-10 01:34 绿主题组头 = surfaceContainer 槽 = **#EAF7EF**，这是用户记的那个绿
+ * · 11-11 曾写死 #E4F7E8 —— 那是 11-10 03:30「中性槽彩度修正」的中间产物，
+ *   只存在 1 小时 9 分就被 04:39 的「底色中性化」覆盖，**不是用户印象里的绿**
+ *   （差在色相：老绿 143° 偏青，那个 133° 偏黄绿，在一套 150° 主色的界面里发荧光）。
+ * · 旧表的 PURPLE/MIST/GRAPHITE 各有一套自己的组头色，本来就**不是全绿**。
+ *
+ * 现公式：浅色 `lerp(secondaryContainer, background, 0.55)`，
+ * 深色 `lerp(secondaryContainer, neutralCardColor(), 0.30)`。
+ * 绿主题算出 #EAF7EF（与 11-07 老值逐通道仅差 3/255），紫/雾/墨自动落成各自的浅色；
+ * 各主题对页底对比 1.07~1.09，四套之间几乎一致（不会换主题就冒出一块绿）。
+ */
+@Composable
+fun keyGroupHeaderColor(): Color {
+    val cs = MaterialTheme.colorScheme
+    return if (cs.background.luminance() > 0.5f)
+        lerp(cs.secondaryContainer, cs.background, 0.55f)
+    else lerp(cs.secondaryContainer, neutralCardColor(), 0.30f)
+}
+
+/**
  * surfaceContainer 七槽——M3 官方 baseline tone 阶梯（2026-10-10 起 replacing 自创偏移表）。
  *
  * 旧法：surface 各通道 ±固定值再掺 4% primary——相邻槽只差 2~4 个 RGB 灰阶，

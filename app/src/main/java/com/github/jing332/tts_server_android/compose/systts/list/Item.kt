@@ -37,7 +37,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 
@@ -66,6 +65,7 @@ import com.github.jing332.compose.widgets.LongClickIconButton
 import com.github.jing332.compose.widgets.htmlcompose.HtmlText
 import com.github.jing332.tts_server_android.R
 import com.github.jing332.tts_server_android.compose.theme.AppShapes
+import com.github.jing332.tts_server_android.compose.theme.neutralCardColor
 import com.github.jing332.tts_server_android.conf.AppConfig
 import com.github.jing332.tts_server_android.service.systts.help.VoiceMarksFile
 import org.burnoutcrew.reorderable.ReorderableLazyListState
@@ -121,18 +121,18 @@ internal fun Item(
     val markEmoji = VoiceMarksFile.emojiOf(marks)
     val nameWithMarks = if (markEmoji.isEmpty()) limitedName else "$limitedName $markEmoji"
 
-    // 11-11 用户令：恢复到「以前那个统一的白」= #F7F2FA。
+    // 11-11 三次修订（用户两轮反馈合并口径）：中性灰 #EEEEEE / 深色 #262626。
     // 沿革：①hunyuan 时代吃 M3 默认色（surfaceContainerLow = #F7F2FA，微紫，C*=4.49）
     // → ②10-10「底色中性化」批把中性槽压成纯灰 #F9F9F9（C*=0.01），卡片与页底对比只剩 1.028
     // → ③11-08 试过纯白+6dp 阴影，装机实测「不如以前」回滚
-    // → ④本次（11-11）：按用户截图核对后回 #F7F2FA，四套主题统一用这一个值。
-    // 判据：C*=4.49 的微紫在绿页底上形成色相差（对比 1.077），比纯灰的 1.028 明显得多；
-    // 纯灰反而因为"无彩"和带绿调的页底糊在一起。
+    // → ④11-11 早先按用户令回 #F7F2FA，但用户随即反馈「某些主题下太突兀」（微紫在绿/雾底上串色），
+    //    而退回旧灰 #F9F9F9 又「不够突出」（对紫页底只有 1.004）→ ⑤本档。
+    // 判据见 theme/Theme.kt 的 neutralCardColor()（彩度 0 + 四主题对比 1.107~1.133）。
     // ⚠️ 只改颜色、不加阴影——11-08 翻车的是 6dp 重阴影，不是颜色。
     ElevatedCard(
         modifier = modifier,
         colors = CardDefaults.elevatedCardColors(
-            containerColor = Color(0xFFF7F2FA)
+            containerColor = neutralCardColor()
         )
     ) {
         // 卡片中间区域单击：与右侧显式按钮互补
