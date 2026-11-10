@@ -276,6 +276,7 @@ fun RoleManagementScreen(sharedVM: SharedViewModel, pagerState: PagerState) {
     // 密钥管理已改独立页面（KeyManagerActivity），不在此渲染；恢复备份后角色列表重读
     if (showBackupCenter) {
         BackupCenterDialog(
+            tagRuleId = ROLE_RULE_ID,
             version = backupVersion,
             onDismiss = { showBackupCenter = false },
             onRestored = { backupVersion++; reloadKey++ },
