@@ -1040,10 +1040,6 @@ private fun MenuActionRow(
 private fun voiceTagText(tag: String, nameMap: Map<String, String>): String? =
     nameMap[tag]
 
-/** 标记 emoji → mark id 反查（chip 点击取消用；MARK_ITEMS 顺序即显示顺序） */
-private fun emojiMarkOf(emoji: String): String =
-    VoiceMarksFile.MARK_ITEMS.firstOrNull { it.second == emoji }?.first ?: ""
-
 /**
  * 角色行（11-08 重构定稿）：
  * 左名字列竖排（主名第一行，别名从第二行起各占一行，每行=性别圆点+名称+收藏【】+主角👑）；
@@ -1318,30 +1314,31 @@ private fun RoleRow(
                         //（IconButton 补 padding(end=8dp)），两处口径一致。
                         // ⚠️ 别再叠 offset 压右缘：padding 已经给足，再加 offset 会把右留白挤没。
                         // 已点亮标记 emoji（11-10 用户令：从第二行挪到**标签后、试听前**）：
-                        // 选中态补淡主题色圆角底（用户问「选中之后的底色我怎么没看见」——
-                        // 原实现只有 clip(AppShapes.md) 而没设底色，clip 等于空转，故无底衬）。
-                        // 触控：横向 6dp 内衬 + 加大纵向内衬到 6dp，点击区约 32dp；
-                        // 与 ▶ 之间留 4dp（Spacer），减少「点 emoji 误触试听」的概率。
+                        // ① 选中态补淡主题色圆角底（用户问「选中之后的底色我怎么没看见」——
+                        //    原实现只有 clip(AppShapes.md) 而没设底色，clip 等于空转，故无底衬）；
+                        // ② **只显示、不可点**（用户令「emoji 容易误触，就把点击取消的功能去掉」）：
+                        //    它左边是标签框（点=换声）、右边是 ▶（点=试听），13sp 小字夹在
+                        //    两个热区中间，误触代价是「想取消标记却开唱」或「想试听却取消标记」。
+                        //    取消标记改从 ⋮ 菜单（第二行末尾）操作——菜单里同一组三项 toggle，
+                        //    点一次切一次，语义完整，这里不再重复提供点击入口。
                         // 固定行高 16sp：emoji 13sp 字形全高渲染会把本行撑高，
                         // 导致第一行与左侧角色名错位（装机实锤过）。
                         if (litMarks.isNotEmpty()) {
                             litMarks.forEach { (_, emojiText) ->
-                                Text(
-                                    emojiText,
-                                    fontSize = 13.sp,
-                                    lineHeight = 16.sp,
-                                    maxLines = 1,
+                                Box(
                                     modifier = Modifier
-                                        // 选中底色：淡主题色（与标签框同族，明度更高一档，
-                                        // 避免和标签框抢视觉）。
                                         // ⚠️ 顺序：先 clip 成圆角再画底，否则底是直角的
-                                        // （原实现只写了 clip 没背景，等于空转——用户问
-                                        // 「选中之后的底色我怎么没看见」的根因）。
                                         .clip(AppShapes.md)
                                         .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
-                                        .clickable { onToggleMark(emojiMarkOf(emojiText)) }
                                         .padding(horizontal = 6.dp, vertical = 4.dp),
-                                )
+                                ) {
+                                    Text(
+                                        emojiText,
+                                        fontSize = 13.sp,
+                                        lineHeight = 16.sp,
+                                        maxLines = 1,
+                                    )
+                                }
                             }
                             Spacer(Modifier.width(4.dp))
                         }
