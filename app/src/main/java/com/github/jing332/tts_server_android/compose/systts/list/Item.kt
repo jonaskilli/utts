@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Output
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -36,6 +37,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 
@@ -119,11 +121,19 @@ internal fun Item(
     val markEmoji = VoiceMarksFile.emojiOf(marks)
     val nameWithMarks = if (markEmoji.isEmpty()) limitedName else "$limitedName $markEmoji"
 
-    // 10-10 晚回退纯白批（ce2e3ce）：配置卡回 ElevatedCard 默认色阶（surfaceContainerLow，
-    // 淡灰随主题走），页底恢复带主题色相淡底后靠色阶自然分层
-    // 11-08 白卡+6dp 阴影实验（e83410e）经装机实测「不如以前」整批回滚，恢复本档
+    // 11-11 用户令：恢复到「以前那个统一的白」= #F7F2FA。
+    // 沿革：①hunyuan 时代吃 M3 默认色（surfaceContainerLow = #F7F2FA，微紫，C*=4.49）
+    // → ②10-10「底色中性化」批把中性槽压成纯灰 #F9F9F9（C*=0.01），卡片与页底对比只剩 1.028
+    // → ③11-08 试过纯白+6dp 阴影，装机实测「不如以前」回滚
+    // → ④本次（11-11）：按用户截图核对后回 #F7F2FA，四套主题统一用这一个值。
+    // 判据：C*=4.49 的微紫在绿页底上形成色相差（对比 1.077），比纯灰的 1.028 明显得多；
+    // 纯灰反而因为"无彩"和带绿调的页底糊在一起。
+    // ⚠️ 只改颜色、不加阴影——11-08 翻车的是 6dp 重阴影，不是颜色。
     ElevatedCard(
-        modifier = modifier
+        modifier = modifier,
+        colors = CardDefaults.elevatedCardColors(
+            containerColor = Color(0xFFF7F2FA)
+        )
     ) {
         // 卡片中间区域单击：与右侧显式按钮互补
         // 默认(swapButton=false,右侧是编辑)：单击=试听；交换后(swapButton=true,右侧是试听)：单击=编辑
