@@ -821,7 +821,14 @@ object KeyListFile {
     fun normalizePoolValue(value: String): String {
         val p = parseKeyValue(value) ?: return ""
         return if (p.isDirect) "$ZHIPU_ENDPOINT@@$DIRECT_MODEL@@${p.key}"
-        else "${p.url}@@${p.model}@@${p.key}"
+        // v1.6：地址走 openAiBaseUrl 归一——把 /chat/completions、/completions、
+        // /models、/responses 这些端点尾巴剥掉再拼。起因：外部 App（z阅读 混元太极）
+        // 点「使用」时写进 miyue.txt 的是完整对话端点（.../v1/chat/completions），
+        // 而本 App 密钥列表存的是 base url（.../v1），逐字比对必然对不上，
+        // 池页就把它显示成「密钥管理中已无对应条目」的残留值（只剩模型名、不能编辑）。
+        // 两者本就是同一个 endpoint（openAiChatUrl 发请求时能互相识别），
+        // 归一后再比才符合语义；写入侧同步收益：池里不再出现两种写法。
+        else "${openAiBaseUrl(p.url)}@@${p.model}@@${p.key}"
     }
 
 /**
