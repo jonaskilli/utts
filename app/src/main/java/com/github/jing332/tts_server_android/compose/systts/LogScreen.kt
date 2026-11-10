@@ -101,12 +101,16 @@ import kotlin.math.abs
 // ===================== 日志字号阶梯（11-11 用户令「缩一下字号，但要有主次」）=====================
 // 吸顶区占掉约 90dp 固定高度后，正文一屏只剩 6~7 条；整体收一档，但**不能一刀切**——
 // 那样主次就没了。按信息价值分层：
-//   正文 13sp（最大，仍是主角）> 辅助 11sp（时间/状态/耗时/发音人）> 插件名 10.5sp（最小）
+//   正文 13sp（最大，仍是主角）> 辅助 11sp（时间/状态/耗时/发音人）
 // 判据：正文降 1sp 仍稳居第一；辅助一次降 1sp 是因为它们靠颜色/位置识别，不靠字号。
 // 插件日志/朗读规则日志保持 12sp —— 那是纯文本，再小就读不动了。
+//
+// ⚠️ 原还有一档 LOG_PLUGIN_NAME_SIZE = 10.5.sp（"插件名最小"），11-11 删除：
+// 它**全仓零引用**，是死常量。日志里的插件名实际并不单独设字号——它是正文
+// `<Text>` 里的一段颜色 span（SystemTtsService 拼的 `<font color=...>（插件名）</font>`），
+// 和正文同 13sp、同基线。留着这个常量会让后来者（包括我自己）误以为插件名是 10.5sp。
 private val LOG_BODY_SIZE = 13.sp
 private val LOG_AUX_SIZE = 11.sp
-private val LOG_PLUGIN_NAME_SIZE = 10.5.sp
 private val LOG_RAW_TEXT_SIZE = 12.sp
 
 private val MetaColorSentinel = Color(0xFFFF00FF)       // 获取成功前缀 → 石板灰
