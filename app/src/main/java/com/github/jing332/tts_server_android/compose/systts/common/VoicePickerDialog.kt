@@ -1131,7 +1131,10 @@ fun VoicePickerDialog(
                             // 同字号占宽）。超宽只缩显示名
                             "· $topPluginName",
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            // 插件名换 secondary（11-10 十八改，与角色列表第二行同口径）：
+                            // 带主题色相、与显示名形成明度+色相双重区分；
+                            // 四套主题对比度 4.51~6.36 全达标（见 RoleListScreen 同段注释）
+                            color = MaterialTheme.colorScheme.secondary,
                             maxLines = 1,
                             overflow = TextOverflow.Clip,
                         )
@@ -1928,7 +1931,8 @@ private fun CandidateRow(
                     Text(
                         "· $pluginName",
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        // 同顶部：secondary（11-10 十八改）
+                        color = MaterialTheme.colorScheme.secondary,
                         maxLines = 1,
                         overflow = TextOverflow.Clip,
                         modifier = Modifier.padding(start = 4.dp),

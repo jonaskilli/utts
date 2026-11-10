@@ -1358,12 +1358,25 @@ private fun RoleRow(
                         // ③ 分类与插件名是**同一类信息**（这角色用谁的声音、哪套服务合成），
                         //    分开染色等于谎称两者不同类。
                         //
-                        // ## D1 具体做法
+                        // ## 18 改（用户令「它跟插件区分不开」后定稿）
                         //
                         // 分类 onSurface（#191C19，16.89:1）最深、**不加粗**；
-                        // 插件名留 onSurfaceVariant（#414941，9.15:1）不动。
-                        // 单靠明度差（16.89 vs 9.15）分主次，整行仍是灰阶，
-                        // 一屏六行不会花，也不与第一行标签框争颜色。
+                        // 插件名改用 **secondary**（主题自分容器，带主题色相）。
+                        //
+                        // ⚠️ 为什么不是"分类浅一点、插件名也灰"：
+                        // 17 改曾让分类 onSurfaceVariant + 插件名也 onSurfaceVariant，
+                        // 两者 ΔE=0.000（**完全同色**，压根分不开）——这正是用户最初
+                        // 提"得有点区别"的由来。后来 D1 只拉明度（ΔL=0.174、ΔE=0.174），
+                        // 视觉上仍是"一个深灰一个浅灰"，用户实拍「它跟插件区分不开呀」。
+                        //
+                        // 18 改加**色相**维度：secondary 各主题自带色相
+                        // （绿 #4F6353 绿灰 / 紫 #706A7A 紫灰 / 蓝 #6C758D 蓝灰 /
+                        // 深灰 #616367），ΔE 提到 0.235~0.299，明度+色相双重区分。
+                        // 语义也正：secondary 是 M3 的「次要信息色」，插件名正属次要。
+                        //
+                        // 对比度（11sp 小字需 ≥4.5）：绿 6.36 / 紫 4.97 / 蓝 4.51 / 深灰 5.92，
+                        // 四套全部达标。紫色 secondary 原值 #787382 只有 4.38，
+                        // 已在 Color2.kt 压深到 #706A7A（同色相、略深，ΔE 仍 0.270）。
                         //
                         // 实现用 buildAnnotatedString 叠两个 SpanStyle（不是套 Row）：
                         // 保持"一条 Text"的排版本质——widthIn/截断/基线全都与改前一致，
@@ -1372,8 +1385,9 @@ private fun RoleRow(
                             buildAnnotatedString {
                                 append(rec.voice)
                                 if (pluginName != null) {
+                                    // 插件名用 secondary（18 改，见下方说明）
                                     withStyle(
-                                        SpanStyle(color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        SpanStyle(color = MaterialTheme.colorScheme.secondary)
                                     ) { append(" · $pluginName") }
                                 }
                             },

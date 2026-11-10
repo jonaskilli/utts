@@ -94,7 +94,12 @@ val green_md_theme_dark_inversePrimary = Color(0xFF2D7144)
 val purple_seed = Color(0xFF6D5B8C)
 val purple_md_theme_light_primaryContainer = Color(0xFFECE0FF)
 val purple_md_theme_light_onPrimaryContainer = Color(0xFF3E2660)
-val purple_md_theme_light_secondary = Color(0xFF787382)
+// 11-10 十八改：secondary 压深一档 #787382 → #706A7A。
+// 原因：secondary 现在被用作**文字色**（角色列表第二行插件名、换声面板插件名），
+// 原值对这枚 11sp 小字只有 4.38:1，低于 4.5 小字门槛；压深后 4.97 达标。
+// 同色相、只降明度，ΔE 与分类 (onSurface) 仍 0.270，区分度不受影响。
+// 另一消费点（TTS 列表分类标签文字）跟着变清楚，方向一致。
+val purple_md_theme_light_secondary = Color(0xFF706A7A)
 val purple_md_theme_light_onSecondary = Color(0xFFFFFFFF)
 val purple_md_theme_light_secondaryContainer = Color(0xFFEEE5FF)
 val purple_md_theme_light_onSecondaryContainer = Color(0xFF3B2B55)
