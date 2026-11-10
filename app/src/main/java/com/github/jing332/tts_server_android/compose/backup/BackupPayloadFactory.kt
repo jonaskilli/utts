@@ -4,7 +4,6 @@ import android.content.Context
 import android.content.SharedPreferences
 import com.github.jing332.database.dbm
 import com.github.jing332.database.entities.systts.TtsConfigurationDTO
-import com.github.jing332.database.entities.systts.stripTagRuleId
 import com.github.jing332.database.entities.systts.source.LocalTtsSource
 import com.github.jing332.database.entities.systts.source.PluginTtsSource
 import com.github.jing332.tts_server_android.BuildConfig
@@ -38,11 +37,9 @@ internal class BackupPayloadFactory(
         }
 
         val lists = if (!includeList) null else dbm.systemTtsV2.getAllGroupWithTts().let { groups ->
-            // 导出前一律抹掉 tagRuleId（用户令 11-11「不管是什么样，都不应该有这一项」）：
-            // 序列化时空串=默认值 → 键整行消失；回导由 TagRuleResolver 等价回退到当前启用规则。
-            val cleaned = groups.stripTagRuleId()
-            if (profile == BackupProfile.PERSONAL_FULL) cleaned
-            else sanitizeLists(cleaned, redaction)
+            // 无需再抹 tagRuleId：该字段已从实体删除，序列化时本就不会出现
+            if (profile == BackupProfile.PERSONAL_FULL) groups
+            else sanitizeLists(groups, redaction)
         }
         val plugins = if (!includePlugins) null else dbm.pluginDao.all.map { plugin ->
             if (profile == BackupProfile.PERSONAL_FULL && includeVars) plugin
