@@ -865,9 +865,10 @@ internal fun ListManagerScreen(
             val config = u.item.config as TtsConfigurationDTO
             allUpdates.add(u.item.copy(config = config.copy(speechRule = u.newRule)))
         }
-        // 有规则项：按 ruleId 分组，组间并行（各自独立 engine），组内串行（复用 engine）
+        // 有规则项：规则归属已是常量（tagRuleId 字段已删），全部走同一个规则，
+        // 但仍按批并行——各协程独享 engine，避免 Rhino 非线程安全
         coroutineScope {
-            withRule.groupBy { it.newRule.tagRuleId }.values.map { group ->
+            withRule.groupBy { SpeechRuleIds.RULE_ID }.values.map { group ->
                 async(Dispatchers.IO) {
                     // 每个协程独享一个 engineCache，避免跨协程共享 Rhino engine
                     val localEngineCache = mutableMapOf<String, SpeechRuleEngine>()

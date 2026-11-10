@@ -402,12 +402,13 @@ class ListManagerViewModel : ViewModel() {
 
     /**
      * 配置项的「同标签身份」键（与 [updateTtsEnabled] 单条路径同判据）：
-     * target + tagRuleId + tag + tagName + isStandby。空配置返回 null（不参与互斥）。
+     * target + tag + tagName + isStandby。空配置返回 null（不参与互斥）。
+     * 11-11 起不含 tagRuleId（字段已删，归属是常量）。
      */
     private fun sameTagIdentity(systts: SystemTtsV2): String? {
         val c = systts.config as? TtsConfigurationDTO ?: return null
         val r = c.speechRule
-        return "${r.target}|${r.tagRuleId}|${r.tag}|${r.tagName}|${r.isStandby}"
+        return "${r.target}|${r.tag}|${r.tagName}|${r.isStandby}"
     }
 
     /**
