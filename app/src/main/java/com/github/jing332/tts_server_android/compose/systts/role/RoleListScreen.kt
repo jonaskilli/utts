@@ -1360,13 +1360,20 @@ private fun RoleRow(
                         //（IconButton 补 padding(end=8dp)），两处口径一致。
                         // ⚠️ 别再叠 offset 压右缘：padding 已经给足，再加 offset 会把右留白挤没。
                         if (hasAnchor) {
+                            // 11-11 用户令「下方列表右侧第一行和第二行行间距是不是太大了」：
+                            // 真因不是行距，是这里原先的 vertical = 12.dp——16sp 字形上下各 12，
+                            // 把第一行撑到约 48dp，而第二行只有 11sp（≈16dp），中间空出一大块。
+                            // 现在只留水平内衬：第一行高度改由标签框（13sp + 上下 5dp ≈ 26dp）决定。
+                            //
+                            // ⚠️ 点区没变小：▶ 仍有「字形宽 + 左右各 8dp」≈30×24dp 的点击范围，
+                            // 且整行本就挂行点击（点行=选中、点 ▶=试听），不靠这里撑热区。
                             Text(
                                 previewLabel,
                                 color = previewColor,
                                 style = MaterialTheme.typography.titleMedium,
                                 modifier = Modifier
                                     .clickable(onClick = onPreview)
-                                    .padding(horizontal = 8.dp, vertical = 12.dp),
+                                    .padding(horizontal = 8.dp),
                             )
                         }
                     }
