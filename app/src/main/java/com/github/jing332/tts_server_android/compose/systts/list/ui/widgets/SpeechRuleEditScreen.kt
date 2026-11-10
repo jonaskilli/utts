@@ -306,8 +306,11 @@ fun SpeechRuleEditScreen(
                             text = { Text(stringResource(id = R.string.copy)) },
                             onClick = {
                                 showTagOptions = false
-                                val jStr =
-                                    AppConst.jsonBuilder.encodeToString(config.speechRule)
+                                // 复制出的标签数据同样不带 tagRuleId（用户令 11-11：任何导出都不该有这一项）。
+                                // 空串=默认值，序列化时该键直接消失。
+                                val jStr = AppConst.jsonBuilder.encodeToString(
+                                    config.speechRule.copy(tagRuleId = "")
+                                )
                                 ClipboardUtils.copyText(jStr)
                                 context.toast(R.string.copied)
                             })
@@ -326,7 +329,12 @@ fun SpeechRuleEditScreen(
                                         AppConst.jsonBuilder.decodeFromString<SpeechRuleInfo>(
                                             jStr
                                         )
-                                    onSysttsChange(systts.copy(config = config.copy(speechRule = info)))
+                                    // 粘贴来的数据通常不带 tagRuleId（导出已抹掉）：按标签朗读的项补上
+                                    // 当前生效规则，否则贴完又变回「无归属」。规则全局只启用一条。
+                                    val pasted = if (info.tagRuleId.isBlank() &&
+                                        info.target == SpeechTarget.TAG && effectiveRuleId.isNotBlank()
+                                    ) info.copy(tagRuleId = effectiveRuleId) else info
+                                    onSysttsChange(systts.copy(config = config.copy(speechRule = pasted)))
                                 }.onSuccess {
                                     context.longToast(R.string.save_success)
                                 }.onFailure {

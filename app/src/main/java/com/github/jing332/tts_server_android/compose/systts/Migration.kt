@@ -13,6 +13,7 @@ import androidx.compose.ui.res.stringResource
 import com.github.jing332.compose.widgets.AppDialog
 import com.github.jing332.database.dbm
 import com.github.jing332.database.entities.systts.SystemTtsMigration
+import com.github.jing332.database.entities.systts.stripTagRuleIdV1
 import com.github.jing332.tts_server_android.R
 import com.github.jing332.tts_server_android.constant.AppConst
 import kotlinx.serialization.encodeToString
@@ -54,8 +55,10 @@ fun MigrationTips(modifier: Modifier = Modifier) {
 
                     TextButton(
                         onClick = {
-                            showConfigExport =
-                                AppConst.jsonBuilder.encodeToString(dbm.systemTtsDao.getAllGroupWithTts())
+                            // 导出前抹掉 tagRuleId（用户令 11-11：任何导出都不该有这一项）
+                            showConfigExport = AppConst.jsonBuilder.encodeToString(
+                                dbm.systemTtsDao.getAllGroupWithTts().stripTagRuleIdV1()
+                            )
                             enabled = true
                         },
                     ) { Text(stringResource(R.string.export_config)) }
