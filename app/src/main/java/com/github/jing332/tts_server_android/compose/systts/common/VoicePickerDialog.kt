@@ -1249,7 +1249,7 @@ fun VoicePickerDialog(
                     Row(
                         // 上下各 6dp：这一行的视觉高度原先完全由内部 48dp 按钮盒决定，
                         // 名字与它之间的空隙是"按钮盒顶出来的"而非设计意图。
-                        // 现在按钮盒收紧（见下方 compact）+ 这里显式给 6dp，
+                        // 现在按钮盒固定 32dp（见 VoiceOverflowMenu）+ 这里显式给 6dp，
                         // 间距由布局支配，不再随某个按钮的触控尺寸漂移。
                         Modifier.fillMaxWidth().padding(vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -1334,12 +1334,10 @@ fun VoicePickerDialog(
                     // ⋮ 图标内边距收紧右移（用户令「▶/⋮ 往右移给左边空位置」同款），
                     // VoiceOverflowMenu 是共用组件不能动尺寸，这里用外层 padding 补偿不可行——
                     // 顶部 ⋮ 用 padding(start=0) 收紧即可（字形自带少量留白）
-                    // 11-11 用户令：顶部这行不要被 48dp 盒撑高。改 compact=true（32dp 视觉盒、
-                    // 20dp 字形）。⚠️ 触控不会变小：M3 IconButton 自带 minimumInteractiveComponentSize，
-                    // 视觉盒缩了但触控目标仍是 48dp，无障碍合规。
-                    // 同时这也让顶部 ⋮ 与候选行的 ⋮ 口径一致（候选行一直用标准盒，行高由列表控制）。
+                    // 11-11 用户令：顶部这行不要被 48dp 盒撑高（组件现固定 32dp 视觉盒、
+                    // 20dp 字形）。⚠️ 触控不会变小：M3 IconButton 自带
+                    // minimumInteractiveComponentSize，触摸目标仍是 48dp。
                     VoiceOverflowMenu(
-                        compact = true,
                         marks = topMarks,
                         onToggleMark = { mark ->
                             if (topMarkKey.isNotBlank() &&
@@ -1933,35 +1931,33 @@ internal fun VoiceOverflowMenu(
     onToggleMark: (String) -> Unit,
     deleteEnabled: Boolean,
     onDelete: () -> Unit,
-    // 紧凑模式（11-10 用户令「角色列表的 ⋮ 挪到第二行末尾」）：
-    // 角色列表第二行是纯文字标注行（行高约 20dp），塞标准 48dp IconButton 会把整行
-    // 撑高、连带两行与左侧角色名的顶对齐一起偏。紧凑模式把图标盒压到 maxSize 见方，
-    // 触控区靠外层 RoleRow 的整行点击兜底（⋮ 自身仍可点，只是视觉盒变小）。
-    // 换声弹窗的两处调用不传此参数，行为与之前完全一致。
-    compact: Boolean = false,
 ) {
+    // 尺寸固定 32dp 视觉盒 / 20dp 字形（11-11 定稿）。
+    // 沿革：11-10 为角色列表第二行引入紧凑盒（那行是纯文字标注、行高约 20dp，塞 48dp 盒会
+    // 撑高整行、连带与左侧角色名的顶对齐一起偏）；11-11 用户令「他都是一个界面，肯定要统一」，
+    // 换声面板顶部行与候选行也一并改过来，三处调用方口径一致，原来的 compact 开关
+    // 已无 false 分支，遂删除参数（避免留一个永远为 true 的开关）。
+    //
+    // ⚠️ 视觉盒变小 ≠ 触控变小：M3 IconButton 自带 minimumInteractiveComponentSize，
+    // 触摸目标仍是 48dp。用户对这点有过明确表述：「它触控区不是也不小吗」。
     var menuOpen by remember { mutableStateOf(false) }
     Box {
-        // 右缘留白（11-11 用户令「把换声面板那个三个点菜单右移一点，参照角色管理列表里
-        // 那个，它触控区不是也不小吗」）：
-        // 原实现给非紧凑模式补 padding(end = 8.dp)。那是 11-10 为了"别让 ⋮ 离右缘太近"，
-        // 但角色列表走 compact 分支（内衬 0、32dp 盒），两边其实是**不一致**的：
-        //   角色列表 ⋮ 字形离内容区右缘 ≈22dp；换声面板原值 ≈36dp，硬生生多出 14dp。
-        // 现在非紧凑模式也把内衬收到 0，与角色列表同一条右缘。
+        // 右缘不留额外内衬（11-11 用户令「把换声面板那个三个点菜单右移一点，参照角色管理
+        // 列表里那个」）：48dp 时代这里补过 padding(end = 8.dp)，导致换声面板的 ⋮ 比角色列表
+        // 靠左 14dp，同一套界面两种疏密。现在统一 32dp 盒直接贴内容区右缘，
+        // 字形到边的距离由 IconButton 自身居中留白决定，三处调用同一条右缘。
         //
         // ⚠️ 触控区没有变小：IconButton 自带 M3 minimumInteractiveComponentSize，
         // 视觉盒缩小后触摸目标仍是 48dp（这正是用户说的"它触控区也不小"）。
         IconButton(
             onClick = { menuOpen = true },
-            // 两种模式都不再加右缘内衬：紧凑盒 32dp、标准盒 48dp 都直接贴内容区右缘，
-            // 字形到边的距离由 IconButton 自身的居中留白决定，两边口径一致。
-            modifier = Modifier.then(if (compact) Modifier.size(32.dp) else Modifier),
+            modifier = Modifier.size(32.dp),
         ) {
             Icon(
                 Icons.Filled.MoreVert,
                 contentDescription = "更多操作",
-                // 紧凑模式图标也要缩一档，否则 48dp 字形塞进 32dp 盒会溢出
-                modifier = if (compact) Modifier.size(20.dp) else Modifier,
+                // 图标 20dp 配 32dp 盒：24dp 字形塞进去会溢出
+                modifier = Modifier.size(20.dp),
             )
         }
         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
@@ -2132,6 +2128,9 @@ private fun CandidateRow(
                 .clickable(onClick = onPreview)
                 .padding(horizontal = 8.dp, vertical = 12.dp),
         )
+        // 11-11 用户令「他都是一个界面，肯定要统一」：候选行原用标准 48dp 盒，
+        // ▶ 与 ⋮ 的视觉间距 8+12=20dp，比顶部那行宽 6dp，同一个面板里两种疏密。
+        // 组件现固定紧凑盒，两处统一到 14dp（触控仍是 48dp）。
         VoiceOverflowMenu(
             marks = marks,
             onToggleMark = onToggleMark,
