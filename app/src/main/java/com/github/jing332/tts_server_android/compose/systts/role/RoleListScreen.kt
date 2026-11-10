@@ -1055,11 +1055,19 @@ private fun emojiMarkOf(emoji: String): String =
  * 用户明确要「发音人标签的绿改成和主题这个绿一样」，
  * 那枚加深的深绿偏离了主题主色，看着发闷，不是他要的那个绿。
  *
- * 代价如实记：绿色主题下 #109D58 压浅灰药丸底约 2.8~3.0:1，低于正文线 4.5。
- * 这是**用户明确选择**的结果，不是疏漏，别再擅自加深或换色。
+ * 11-10 二十一改：**不再用 primary，改用 onSecondaryContainer**（用户令「显示名标签的
+ * 颜色不能是主题色」）。primary 当字色只有 3:1 左右，发虚；且一屏里标签字、▶、⋮、
+ * 分类标签全是同一个主色绿，颜色失去区分力。
+ *
+ * onSecondaryContainer 是 M3 给"次要容器底"配的**前景色**，天然适配每套主题：
+ *   绿色 #0D1F13 深墨绿 / 紫色 #3B2B55 深紫 / 蓝色 #24335C 深蓝 / 黑色 #33353A 深灰
+ * 对各自标签底对比度 9.9~14.6（原 primary 只有 2.99~7.44），四套全达标；
+ * 且仍带各自色相，换主题时"标签是彩色字"这层语义成立，不是一律变黑。
+ *
+ * ⚠️ 别再改回 primary。
  */
 @Composable
-private fun tagTextColor(): Color = MaterialTheme.colorScheme.primary
+private fun tagTextColor(): Color = MaterialTheme.colorScheme.onSecondaryContainer
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable

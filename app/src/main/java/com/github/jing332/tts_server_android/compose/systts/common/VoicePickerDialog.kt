@@ -1113,14 +1113,18 @@ fun VoicePickerDialog(
                             fontWeight = FontWeight.SemiBold
                         ),
                         maxLines = 1,
-                        // 省略时直接截断不打「…」（11-09 用户令，与角色列表口径一致）
-                        overflow = TextOverflow.Clip,
-                        // 11-09 用户令「显示名和插件名中间的空格咋回事」：撤 weight 改按内容宽——
-                        // weight 盒子吃满剩余、内容左对齐，插件名被推到盒子外右端
-                        //（显示名…大空白…插件名，用户截图实锤）。空白统一交给后面
-                        // 的 Spacer(weight 1f)（只推骰/▶/⋮ 到最右）；显示名超长溢出
-                        // 由顶部名字限长滑杆兜底（极端场景可接受）
-                        modifier = Modifier,
+                        // 21 改（用户令「文字太长时省略显示名，让后面的插件、已用标签、
+                        // emoji 都显示全」）：Ellipsis + weight(1f, fill = false)。
+                        //
+                        // 原来 modifier 无任何约束 + Clip：名字一长就按**全宽**测量，
+                        // 把插件名/emoji/🎲/▶/⋮ 整排挤出屏幕，而且 Clip 是硬切不打点。
+                        // weight(1f, fill = false) 的关键在 fill=false——
+                        // 短名字按内容宽（不撑开、不留空），长名字才吃剩余宽度并截断，
+                        // 后面所有元素因此全部保住。
+                        overflow = TextOverflow.Ellipsis,
+                        // 11-09 的教训仍在：别再给外层盒子 weight 造成"内容左对齐、
+                        // 插件名飘到右端"的空白；这里 weight 只给名字自身，fill=false。
+                        modifier = Modifier.weight(1f, fill = false),
                     )
                     if (topPluginName != null) {
                         Text(
@@ -1913,15 +1917,17 @@ private fun CandidateRow(
             ) {
                 Text(
                     (if (isCurrent) "✓ " else "") + text,
-                    // 11-09 用户令「显示名和插件名中间的空格咋回事」：撤 weight 改按
-                    // 内容宽紧排（weight 盒子吃满剩余、内容左对齐，插件名飘在空隙右端
-                    // ——用户截图实锤）；显示名超长溢出由 limitName 限长兜底（候选行
-                    // 名字已吃限长滑杆，极端场景可接受）
-                    modifier = Modifier,
-                    // 选择列表行名 14sp（11-09 用户令「字号改小点」）；省略时直接截断不打「…」
+                    // 21 改（同顶部）：名字超长时省略号截断，保住后面的插件名/已用/emoji。
+                    // SAME 陷阱：原来 modifier 无约束 + Clip，长名字按全宽测量会把
+                    // 插件名、「已用」徽章、标记 emoji 全挤出去。
+                    // weight(1f, fill=false)：短名字按内容宽（不撑开、不留空），
+                    // 长名字才吃剩余并截断。外层的 Spacer(weight 1f) 因此只在
+                    // 名字没吃满时生效，两者不会平分空间。
+                    modifier = Modifier.weight(1f, fill = false),
+                    // 选择列表行名 14sp（11-09 用户令「字号改小点」）
                     style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp),
                     maxLines = 1,
-                    overflow = TextOverflow.Clip,
+                    overflow = TextOverflow.Ellipsis,
                     color = nameColor,
                 )
                 // 插件名（11-09 用户令「已用和 emoji 标签应该在插件名之后」）：
