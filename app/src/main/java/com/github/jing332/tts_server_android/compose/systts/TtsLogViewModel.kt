@@ -11,7 +11,9 @@ import com.github.jing332.common.LogLevel
 import com.github.jing332.common.toLogLevel
 import com.github.jing332.common.utils.runOnUI
 import com.github.jing332.script.runtime.console.Console
+import com.github.jing332.database.dbm
 import com.github.jing332.tts_server_android.SysttsLogger
+import com.github.jing332.tts_server_android.service.systts.help.ChapterOrderFile
 import com.github.jing332.tts_server_android.constant.AppConst
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -94,15 +96,42 @@ class TtsLogViewModel : ViewModel() {
             .distinct()
             .toList()
 
-    /** 某本书下出现过的章（按首次出现顺序），带每章条数 */
-    fun chaptersOf(book: String): List<Pair<String, Int>> =
-        logs.asSequence()
+    /**
+     * 某本书下出现过的章，带每章条数。
+     *
+     * ⚠️ 排序口径（11-11 用户问「章节顺序不会错吧」后修正）：
+     * 原来按「首次出现在日志流里的顺序」——顺序朗读时正确，**跳章就乱**
+     * （先听第 15 章再回第 3 章 → 列表变成 15、3、4…）。
+     * 现在改为按 `chajian/<ruleId>/data.json` 的书内真实章序排（与朗读规则判断章节同源），
+     * 日志里没见过但书里有的章不列；书内序里找不到的章（旧日志/改过名）保序追在末尾。
+     * 数据文件读不到时自动退回「首次出现顺序」，不会因此让列表变空。
+     */
+    fun chaptersOf(book: String): List<Pair<String, Int>> {
+        val counts = logs.asSequence()
             .filter { it.bookName == book }
             .mapNotNull { it.chapterTitle.takeIf { c -> c.isNotBlank() } }
             .toList()
             .groupingBy { it }
             .eachCount()
-            .toList()
+        if (counts.isEmpty()) return emptyList()
+        val seenOrder = LinkedHashSet<String>()
+        logs.forEach { if (it.bookName == book && it.chapterTitle.isNotBlank())
+            seenOrder.add(it.chapterTitle) }
+
+        // 真实章序：读 data.json（内部按 mtime/size 缓存，切书前只读一次）
+        val ruleId = runCatching {
+            dbm.speechRuleDao.getAllEnabledWithoutCode().firstOrNull()?.ruleId
+        }.getOrNull().orEmpty()
+        val bookOrder = if (ruleId.isBlank()) emptyList()
+        else runCatching {
+            ChapterOrderFile.readChapterOrder(ruleId)
+        }.getOrDefault(emptyList())
+
+        val ordered = ChapterOrderFile.sortByBookOrder(bookOrder, seenOrder.toList())
+        return ordered.mapNotNull { name ->
+            counts[name]?.let { name to it }
+        }
+    }
 
     /** 清掉书章范围（筛选弹窗「全部书籍」/ 切书后回到不限） */
     fun clearScope() {

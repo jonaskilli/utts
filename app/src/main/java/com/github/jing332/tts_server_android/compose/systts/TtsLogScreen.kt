@@ -108,6 +108,9 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
     // 书籍切换弹窗（11-10 方案 A）：点书籍条右侧「切换书」打开，只改日志查看范围。
     // 非空=弹窗打开，值为点进来的那本书（用于高亮当前书）
     var bookPickerFor by remember { mutableStateOf<String?>(null) }
+    // 章节切换弹窗（11-11）：点章条右侧「切换章」打开。值为 (书, 当前章)，
+    // 用于高亮当前章——用户 11-11 指出「切换书有键、切换章没有」，两边要对称
+    var chapterPickerFor by remember { mutableStateOf<Pair<String, String>?>(null) }
     // 「只看匹配」退役（10-08 log-ui-1008 ②拍板）：搜索即筛选——输入立刻只剩
     // 匹配条目，不再两段式开关绕弯；跳转目标直接在过滤后的列表里
     val listState = rememberLazyListState()
@@ -527,6 +530,8 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
             locateHighlight = locateHighlight,
             // 书籍条右侧「切换书」：开书单弹窗（只切日志查看范围，用户 11-10 明确）
             onSwitchBook = { bookPickerFor = it },
+            // 章条右侧「切换章」：弹章节列表（用户 11-11 令，与「切换书」对称）
+            onSwitchChapter = { book, chapter -> chapterPickerFor = book to chapter },
             // 点章节签只负责滚动到本章首条（滚动已在 LogScreen 内完成，这里不再改筛选——
             // 一改 scopeChapter 列表就重排，刚滚到的位置会立刻错位）
         )
@@ -579,6 +584,105 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
             },
             confirmButton = {
                 TextButton(onClick = { bookPickerFor = null }) { Text(stringResource(R.string.cancel)) }
+            },
+        )
+    }
+
+    // 章节切换弹窗（11-11 用户令）：点章条右侧「切换章」打开，点一条跳到该章第一条日志。
+    // ⚠️ 列表用**完整章名原文**：用户书里的章名有「第 14 章」（带空格）、「第二百六十二章」
+    // （中文数字）、「第1章(5)」「第1章(8)」（同号重复）等不规则写法，任何"解析成数字再排"
+    // 的方案都会出错（两个第1章分不清、第1章排到第10章后面）。这里原样显示、按出现顺序排，
+    // 左边序号只是列表位置（不是章号），用户照着原文挑即可。
+    chapterPickerFor?.let { (pickBook, pickChapter) ->
+        val chapters = vm.chaptersOf(pickBook)   // 按首次出现顺序，带每章条数
+        AlertDialog(
+            containerColor = androidx.compose.material3.MaterialTheme.colorScheme.surfaceContainerLow,
+            onDismissRequest = { chapterPickerFor = null },
+            title = { Text("章节") },
+            text = {
+                Column(
+                    Modifier
+                        .heightIn(max = 400.dp)
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    Text(
+                        text = "《$pickBook》",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 6.dp),
+                    )
+                    if (chapters.isEmpty()) {
+                        Text(
+                            "该书的日志里还没有章节信息（需朗读规则 v1.7 起）",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    chapters.forEachIndexed { i, (name, cnt) ->
+                        val isCur = name == pickChapter
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clip(AppShapes.sm)
+                                .then(
+                                    if (isCur) Modifier.background(
+                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                                    ) else Modifier
+                                )
+                                .clickable {
+                                    chapterPickerFor = null
+                                    // 跳章=滚到该章第一条，**不改筛选范围**。
+                                    // 曾想过「点章=只看本章」（写 scopeChapter），但那会让列表立刻
+                                    // 重排、刚滚到的位置当场错位；而且用户要的是「跳过去看」，
+                                    // 不是「把它从全流里摘出来」。故只滚动。
+                                    val idx = displayLogs.indexOfFirst {
+                                        it.bookName == pickBook && it.chapterTitle == name
+                                    }
+                                    if (idx >= 0) {
+                                        // 归组后条目下标 ≠ 列表项下标，必须经 logGroups 换算
+                                        val item = logGroups.listItemFor(idx)
+                                        scope.launch {
+                                            runCatching {
+                                                listState.animateScrollToItem(item)
+                                            }
+                                        }
+                                    } else {
+                                        context.toast("该章还没有日志")
+                                    }
+                                }
+                                .padding(horizontal = 6.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                // 左边序号=列表位置，不是书里的章号（两个「第1章」也能区分）
+                                text = "${i + 1}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.width(24.dp),
+                            )
+                            Text(
+                                text = name,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = if (isCur) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurface,
+                                fontWeight = if (isCur) FontWeight.SemiBold else FontWeight.Normal,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Text(
+                                text = if (isCur) "$cnt 条 · 当前" else "$cnt 条",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { chapterPickerFor = null }) {
+                    Text(stringResource(R.string.cancel))
+                }
             },
         )
     }

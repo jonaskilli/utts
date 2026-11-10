@@ -486,6 +486,10 @@ internal fun LogScreen(
     onSwitchBook: ((String) -> Unit)? = null,
     // 点章节签跳章：上层可借此同步「当前章」用于筛选联动
     onJumpToChapter: ((book: String, chapter: String) -> Unit)? = null,
+    // 章条右侧「切换章」键（11-11 用户指出「切换书有键、切换章没有」）：
+    // 与「切换书」对称——书条右端弹书单，章条右端弹章节列表。
+    // 始终传非 null（用户令「始终显示」）：只有一章的书也显示，点了能看见确实只有一章。
+    onSwitchChapter: ((book: String, chapter: String) -> Unit)? = null,
 ) {
     ControlBottomBarVisibility(listState, LocalBottomBarBehavior.current)
     val scope = rememberCoroutineScope()
@@ -757,6 +761,8 @@ internal fun LogScreen(
                                 book = item.book,
                                 chapter = item.chapter,
                                 count = item.count,
+                                // 右侧「切换章」：与书条「切换书」同款同位置（用户 11-11 令）
+                                onSwitch = onSwitchChapter?.let { { it(item.book, item.chapter) } },
                                 onClick = {
                                     val target = currentGroups.listItemFor(item.anchorEntry)
                                     onJumpToChapter?.invoke(item.book, item.chapter)
@@ -1614,6 +1620,7 @@ private fun ChapterBarRow(
     book: String,
     chapter: String,
     count: Int,
+    onSwitch: (() -> Unit)? = null,
     onClick: () -> Unit,
 ) {
     Row(
@@ -1659,5 +1666,20 @@ private fun ChapterBarRow(
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        // 右侧「切换章」（11-11 用户令）：与书条「切换书」同款胶囊、同位置、同字号——
+        // 两者左右对齐才读得出「这是同级入口」。始终显示（只有一章也显示）。
+        if (onSwitch != null) {
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = "切换章",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier
+                    .clip(AppShapes.sm)
+                    // 点击独立于整行：点键=换章，点行=跳本章首条，两个动作不互相吃掉
+                    .clickable(onClick = onSwitch)
+                    .padding(horizontal = 8.dp, vertical = 2.dp),
+            )
+        }
     }
 }
