@@ -2064,7 +2064,11 @@ private fun CandidateRow(
                         maxLines = 1,
                     )
                 }
-                // 已点亮标记 emoji（钉最后；点击取消，QQ 式）
+                // 已点亮标记 emoji（钉最后）。
+                // 11-10 五修（用户令「换声面板的 emoji 也是点击不取消，统一走右侧三点菜单」）：
+                // **只显示、不可点**，与角色列表同一口径——取消标记改从行尾 ⋮ 菜单操作
+                // （菜单里本就是同一组三项 toggle，点一次切一次，语义完整）。
+                // 理由同角色列表：emoji 是 13sp 小字，紧邻 ▶ 热区，误触代价是「想取消却开唱」。
                 val litMarks = VoiceMarksFile.MARK_ITEMS.filter { it.first in marks }
                 litMarks.forEach { (_, emojiText) ->
                     Text(
@@ -2073,8 +2077,6 @@ private fun CandidateRow(
                         maxLines = 1,
                         modifier = Modifier
                             .padding(start = 4.dp)
-                            .clip(AppShapes.md)
-                            .clickable { onToggleMark(pickerEmojiMarkOf(emojiText)) }
                             .padding(horizontal = 4.dp, vertical = 1.dp),
                     )
                 }
@@ -2104,10 +2106,6 @@ private fun CandidateRow(
         )
     }
 }
-
-/** 标记 emoji → mark id 反查（chip 点击取消用；与 RoleListScreen.emojiMarkOf 同口径，两处各一份避免跨文件耦合） */
-private fun pickerEmojiMarkOf(emoji: String): String =
-    VoiceMarksFile.MARK_ITEMS.firstOrNull { it.second == emoji }?.first ?: ""
 
 /**
  * 本地音效槽位的两种形态：
