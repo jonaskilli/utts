@@ -1007,11 +1007,50 @@ fun VoicePickerDialog(
             fun candidateMatches(tag: String): Boolean =
                 (effectiveCategory == null || tagCategoryOf(tag) == effectiveCategory) &&
                     tagHitSearch(tag, tagSearch)
-            // 随机取一个（10-06「换分类即随机」/ 顶部「一键换」共用）：在给定分类+搜索范围内、
-            // 排除 exclude（当前绑定或已暂存的那个），无候选返回 null
+            // 随机取一个（10-06「换分类即随机」/ 顶部「一键换」共用）。
+            //
+            // ## 26 改（用户令 11-10）：排除「已被其他角色占用」的发音人
+            //
+            // 用户原话：「比如说它是女青年01，如果女青年列表里面有女青年05和06都是已用，
+            // 那随机绝对不能选05和06，而是除了01、05、06之外的进行随机挑选」。
+            //
+            // 原实现只排除了 exclude（当前这一个），**没排除被别的角色占用的**——
+            // 于是随机经常落到已用的发音人上，等于白随机一次（用户还得手动再点）。
+            //
+            // 占用判定与候选行「已用」徽章**同源**（voiceOwners：characterRecords.json 的
+            // voice→角色名表）：某 tag 的 owner 里存在「不是本角色（bindingKey）」的名字
+            // 即视为被占用。仅绑定模式有意义——非绑定模式（旁白/音效槽）没有"角色占用"概念。
+            //
+            // ## 关于"随机不随机"
+            //
+            // 用户还反馈「之前那个随机选不是很随机，很多都没选过，只在特定几个里来回跳」。
+            // 根因不是 randomOrNull（那是标准 Random，足够均匀），而是**可用池太小**：
+            // 原逻辑把已用的也留在池里，真随机时它们占掉命中率，用户看到"选来选去还是那几个"。
+            // 排除已用后池子变干净，命中分布自然铺开。
+            // 另：poolEnabled 本身已过滤「只保留有启用配置的标签」，这是正确的候选边界。
+
+            // 占用表（方案A）：characterRecords.json 里 voice→角色名列表，
+            // 与角色管理插件「已分配」徽章同源同口径。
+            // 26 改：从 LazyColumn 内提到此处——随机选声要读它（排除已用），
+            // 原位置在候选列表的 item 作用域里，pickRandomIn 够不到。
+            // remember 键不变（entity/dataVersion/rowVersion），缓存语义与之前一致。
+            val voiceOwners = remember(entity.id, dataVersion, rowVersion) {
+                CharacterRecordsFile.readVoiceOwnerMap(config.speechRule.tagRuleId)
+            }
+
+            // 「被其他角色占用」的 tag 集合（不含本角色自己）：
+            //   owner 列表中存在「不是 bindingKey 的名字」即算被占用。
+            // 非绑定模式（旁白/音效槽）没有"角色占用"概念，返回空集。
+            // ⚠️ 这里**不能**引 exclude——那是 pickRandomIn 的入参，在此作用域不存在；
+            //    "排除当前这一个"在 filter 里用 it != exclude 单独判即可。
+            val occupiedTags: Set<String> = if (isBindingMode) {
+                voiceOwners.filterValues { names -> names.any { it != bindingKey } }.keys
+            } else emptySet()
+
             fun pickRandomIn(category: String?, search: String, exclude: String?): String? =
                 poolEnabled.filter {
                     it != exclude &&
+                        it !in occupiedTags &&
                         (category == null || tagCategoryOf(it) == category) &&
                         tagHitSearch(it, search)
                 }.randomOrNull()
@@ -1417,11 +1456,6 @@ fun VoicePickerDialog(
                         }.eachCount()
                     }
                     // 占用表（方案A）：characterRecords.json 里 voice→角色名列表，
-                    // 与角色管理插件「已分配」徽章同源同口径；排除自己（bindingKey）——
-                    // 自己当前绑定的那行已有 ✓ 主色，不重复标
-                    val voiceOwners = remember(entity.id, dataVersion, rowVersion) {
-                        CharacterRecordsFile.readVoiceOwnerMap(config.speechRule.tagRuleId)
-                    }
                     LazyColumn(
                         Modifier
                             .fillMaxWidth()
