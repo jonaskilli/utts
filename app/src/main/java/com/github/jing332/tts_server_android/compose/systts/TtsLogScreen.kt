@@ -969,12 +969,15 @@ private fun PinnedLogHeader(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(5.dp),
         ) {
+            // 11-11 用户令：这排到底是什么，得有个名分。
+            // 左侧「筛选」标签自带图标 + 一道竖线分隔，把「这是筛选器」讲清楚；
+            // 竖线只留这一道——胶囊之间不再插分隔线（用户：「后边就不要有分隔线，
+            // 不然就有点儿区分不开」：一道线是「标签｜选项」的分界，两道以上就成了装饰噪音）。
+            PinnedFilterLabel()
             PinnedChip("实时最新", autoFollow, onToggleAutoFollow)
             PinnedChip("只看错误", errorOnly, onToggleErrorOnly, error = true)
-            PinnedDivider()
             PinnedChip("朗读规则", showRule, onToggleRule)
             PinnedChip("插件", showPlugin, onTogglePlugin)
-            PinnedDivider()
             PinnedChip("DEBUG", showDebug, onToggleDebug, small = true)
         }
 
@@ -1056,7 +1059,15 @@ private fun PinnedLogHeader(
     }
 }
 
-/** 吸顶筛选开关：选中=浅绿底+描边+半粗；错误档选中时用红底保留排障语义 */
+/**
+ * 吸顶筛选开关（11-11 用户令定稿）。
+ *
+ * **未选中 = 纯文字、无填充**：原实现未选中给 surfaceContainerLow 灰白底 + 半透明描边，
+ * 五枚全都有底，装机上像「五个按钮全按下了」，读不出哪几个是开着的
+ * （用户：「它不应该有填充色，我选中哪个…这个里面才便有填充」）。
+ * 现在底色只在选中时才出现：正常档 = secondaryContainer 浅绿 + outlineVariant 描边、
+ * 错误档 = errorContainer 淡红（保留排障语义）；未选中透明，靠文字色与选中态区分。
+ */
 @Composable
 private fun PinnedChip(
     label: String,
@@ -1069,7 +1080,7 @@ private fun PinnedChip(
     val bg = when {
         selected && error -> cs.errorContainer
         selected -> cs.secondaryContainer
-        else -> cs.surfaceContainerLow
+        else -> Color.Transparent
     }
     val fg = when {
         selected && error -> cs.onErrorContainer
@@ -1096,16 +1107,40 @@ private fun PinnedChip(
     )
 }
 
-/** 三档之间的细分隔线（视觉上把「视线类/来源类/开发类」分开） */
+/**
+ * 筛选行左端的「筛选」标签（11-11 用户令：「这一行左侧也应该有个筛选的提示」）。
+ * 图标 + 文字 + 一道右侧竖线：既说明这排是什么，又和右边选项拉开层次。
+ * ⚠️ 全排只有这一道竖线，胶囊之间不许再加（用户：「后边就不要有分隔线，不然区分不开」）。
+ */
 @Composable
-private fun PinnedDivider() {
-    Box(
-        Modifier
-            .padding(horizontal = 2.dp)
-            .width(1.dp)
-            .height(14.dp)
-            .background(MaterialTheme.colorScheme.outlineVariant)
-    )
+private fun PinnedFilterLabel() {
+    val cs = MaterialTheme.colorScheme
+    Row(
+        modifier = Modifier.padding(end = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            Icons.Default.FilterList,
+            contentDescription = null,
+            tint = cs.onSurfaceVariant,
+            modifier = Modifier.size(13.dp),
+        )
+        Spacer(Modifier.width(3.dp))
+        Text(
+            text = "筛选",
+            style = MaterialTheme.typography.labelSmall,
+            fontSize = 11.sp,
+            color = cs.onSurfaceVariant,
+            maxLines = 1,
+        )
+        Spacer(Modifier.width(7.dp))
+        Box(
+            Modifier
+                .width(1.dp)
+                .height(14.dp)
+                .background(cs.outlineVariant)
+        )
+    }
 }
 
 /** 吸顶区右端的小键（切换书 / 切换章），与书条章的旧样式同口径 */
