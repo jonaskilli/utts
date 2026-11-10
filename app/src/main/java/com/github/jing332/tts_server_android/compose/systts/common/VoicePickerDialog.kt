@@ -1176,7 +1176,9 @@ fun VoicePickerDialog(
             // 11-11 用户令「该紧的不紧、该松的不松」：这一块原来四种高度互不相干——
             // 标题贴死名字(0dp)、名字到第二行被 48dp 按钮盒撑出一大块、到终值又只剩 2dp。
             // 定稿按「标题贴值、组与组之间才松」重排：标题底 2、第二行上下各 6、终值 top 8/bottom 4。
-            Column(Modifier.fillMaxWidth().padding(vertical = 7.dp)) {
+            // 11-11 垂直间距统一：本块只留上边距 7dp（与外层分隔），底部归零——
+            // 原本上下各 7dp，底部那 7dp 会与第二行的 6dp、分段的 8dp 叠成 21dp。
+            Column(Modifier.fillMaxWidth().padding(top = 7.dp)) {
                 // 第一行（11-09 用户令装机版终稿）：显示名 + 已点亮标记 emoji + 🎲 + ▶ + ⋮。
                 // 分类/标签框彻底撤掉（用户令「分类也不能要，直接显示显示名」）；🎲 恢复
                 // （长按标签随机换声作废）；无对勾（当前发音人不标 ✓）；标记 emoji 紧跟
@@ -1197,6 +1199,10 @@ fun VoicePickerDialog(
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
+                    // 11-11 用户令「当前发音人跟下方的显示名行间距算窄吗」→ 补 2dp。
+                    // 这里原本 0dp，靠两行行高留白（标签16 + 名字24）撑出约 4~5dp；
+                    // 补 2dp 后视觉约 6~7dp，与下方「名字行 → 插件名行」的 4dp 节奏一致。
+                    modifier = Modifier.padding(bottom = 2.dp),
                 )
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     // 显示名（大字半粗；吃剩余宽度先缩，emoji 钉右不参与省略）
@@ -1343,9 +1349,10 @@ fun VoicePickerDialog(
                     // 沿革：23 改时本行是「插件名（左）+ 🎲▶⋮（右）」；后来先试「插件名+终值+按钮」
                     // 三段，发现终值会夹在插件名和按钮之间、两端分不开，故把按钮移到第一行。
                     Row(
-                        // 上下各 6dp：这一行原本的视觉高度由内部 48dp 按钮盒决定，
-                        // 按钮上移后只由文字行高决定，6dp 是它与上下文的呼吸量。
-                        Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                        // 11-11 用户令「插件名和下方更换发音人那一行行间距有点大」：
+                        // 原本这里 6dp + 顶部块 Column 底 7dp + 分段 top 8dp = 21dp（三层叠加）。
+                        // 现在本行只留上 4dp（与名字行分开），底部归零，间距交给下面统一控制。
+                        Modifier.fillMaxWidth().padding(top = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                     if (topPluginName != null) {
@@ -1382,6 +1389,11 @@ fun VoicePickerDialog(
                             style = MaterialTheme.typography.bodyMedium.copy(fontSize = 12.sp),
                             color = MaterialTheme.colorScheme.primary,
                             maxLines = 1,
+                            // 11-11 用户令「最终的音频参数应该不超过三个点菜单，要跟它对齐」：
+                            // ⋮ 的盒贴内容区右缘，但图标 12dp 在 16dp 盒里居中，
+                            // 字形右缘距内容区右缘还有 (16-12)/2 = 2dp。
+                            // 终值原本贴 0dp、比 ⋮ 字形多伸出去 2dp，故补 2dp 右内衬对齐。
+                            modifier = Modifier.padding(end = 2.dp),
                         )
                     }
                     } // ===== 第二行结束（插件名 + 终值）=====
@@ -1401,7 +1413,8 @@ fun VoicePickerDialog(
                 selectedIndex = panelTab,
                 onSelect = { panelTab = it },
                 modifier = Modifier
-                    .padding(top = 8.dp)
+                    // 11-11 统一：插件名/终值（信息）→ 分段（操作）留 12dp，比同类信息行间距大一档。
+                    .padding(top = 12.dp)
                     .align(Alignment.CenterHorizontally),
                 // 11-10 用户令「更换发音人里面那个填充色统一为 C 方案」：
                 // 选中态底由官方默认 secondaryContainer（B 档 #D6F1DF）换成全站统一填充色
@@ -1452,7 +1465,9 @@ fun VoicePickerDialog(
                             )
                         }
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            // 11-11 用户令「更换发音人那一行跟下方分类那一行行间距有点窄」：
+                            // 原来这里是 0（分类行直接顶在分段下沿），现补 10dp。
+                            modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             // chip 48dp、搜索框 56dp，spacedBy 让两者间距恒 8dp 不随名长漂移
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1958,23 +1973,38 @@ internal fun VoiceOverflowMenu(
         // 靠左 14dp，同一套界面两种疏密。现在统一 32dp 盒直接贴内容区右缘，
         // 字形到边的距离由 IconButton 自身居中留白决定，三处调用同一条右缘。
         //
-        // ⚠️ 触控区没有变小：IconButton 自带 M3 minimumInteractiveComponentSize，
-        // 视觉盒缩小后触摸目标仍是 48dp（这正是用户说的"它触控区也不小"）。
+        // 11-11 用户令（换声面板「三个点菜单跟播放键不在同一条水平线上」）：
+        // IconButton 会按 LocalMinimumInteractiveComponentSize 给自身叠 48dp 最小触控尺寸，
+        // 所以 Modifier.size(16.dp) 当时只缩小了"视觉盒"，**布局高度仍然是 48dp**。
+        // 和 16dp 的 ▶ 放在同一个 Row(CenterVertically) 里时，⋮ 先把行高顶到 48dp、
+        // 再垂直居中自己的字形，于是 ⋮ 明显比 ▶ 偏下。
+        //
+        // 解法：把 LocalMinimumInteractiveComponentSize 覆盖成 Dp.Unspecified，
+        // 布局高度才真正等于 16dp，字形与 ▶ 同一条基线。
+        // ⚠️ 代价：⋮ 的触控目标从 48dp 降为 16dp 见方。此处可接受——它右边紧邻整行
+        //    可点区域（点行=选中），且视觉盒本来就只有 16dp，用户点的是看得见的那一小块。
+        //    若日后要恢复无障碍 48dp 触控，撤掉这个 CompositionLocalProvider 即可
+        //    （代价是行高回到 48dp、与 ▶ 再次错位）。
+        androidx.compose.runtime.CompositionLocalProvider(
+            androidx.compose.material3.LocalMinimumInteractiveComponentSize provides
+                androidx.compose.ui.unit.Dp.Unspecified
+        ) {
         IconButton(
             onClick = { menuOpen = true },
-            // 11-11 用户令（角色列表「右列第一行和第二行间距太大」）：32dp → 20dp。
-            // 真因不是行距——两行之间本来就只有 padding(top = 1dp)；是 32dp 的视觉盒
-            // 把第二行（文字仅 16dp）撑高到 32dp，文字下方多出约 12dp 空白，看着像行距大。
-            // 收到 20dp 后第二行回到文字高度，两行间距就是真实的 1dp。
-            // 三处调用（角色列表 / 换声面板顶部 / 候选行）共用，用户已确认一起改。
-            modifier = Modifier.size(20.dp),
+            // 11-11 用户令（角色列表「右列第一行和第二行间距太大」→ 后又令「压到极限」）：
+            // 32dp → 20dp → **16dp**。
+            // 真因不是行距——两行之间本来就只有 padding(top = 1dp)；是 ⋮ 的视觉盒把第二行
+            // （文字仅 16dp）撑高，文字下方多出空白，看着才像行距大。
+            // 收到 16dp 后与文字等高，第二行回到 16dp。三处调用共用（用户已确认一起改）。
+            modifier = Modifier.size(16.dp),
         ) {
             Icon(
                 Icons.Filled.MoreVert,
                 contentDescription = "更多操作",
-                // 图标 16dp 配 20dp 盒（原 20dp 配 32dp，比例一致：盒内留白各 2dp）
-                modifier = Modifier.size(16.dp),
+                // 图标 12dp 配 16dp 盒（盒内留白各 2dp，与原 20/32 的比例一致）
+                modifier = Modifier.size(12.dp),
             )
+        }
         }
         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
             VoiceMarksFile.MARK_ITEMS.forEach { (mark, emojiText, label) ->
@@ -2141,7 +2171,7 @@ private fun CandidateRow(
         // 给左边空位置」：horizontal 12→8）
         // 11-11 用户令「换声面板下方的候选列表行间距也有点宽」：去掉 vertical = 12dp。
         // 与角色列表同一根因——16sp 字形 + 上下各 12 把每行撑到约 52dp，而名字只有 11~13sp。
-        // 去掉后行高由名字 + Row 的 padding(vertical = 2dp) 决定，约 30dp。
+        // 去掉后行高由名字 + 外层 Row 的内衬决定（该内衬已由 2dp 调到 10dp，每行约 30dp）。
         // ⚠️ 点区没变小：▶ 仍有「字形宽 + 左右各 8dp」≈30×24dp；整行本就挂行点击（点行=选中）。
         Text(
             previewText,
