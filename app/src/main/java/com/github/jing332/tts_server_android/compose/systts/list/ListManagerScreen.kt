@@ -621,7 +621,10 @@ internal fun ListManagerScreen(
         ruleCache: MutableMap<String, SpeechRule?>? = null,
         engineCache: MutableMap<String, SpeechRuleEngine>? = null,
     ) {
-        val ruleId = ruleData.tagRuleId
+        // tagRuleId 空值兜底（用户令 11-11）：配置列表与 z阅读 通用后不再带该字段，
+        // 空值按「当前启用规则」处理（规则全局只启用一条），而不是直接回退成无规则显示名。
+        // 该解析会查库，放 IO 线程
+        val ruleId = withContext(Dispatchers.IO) { resolveTagRuleId(ruleData.tagRuleId) }
         if (ruleId.isBlank()) {
             ruleData.tagName = computeTagName(context, null, ruleData, fallback, engineCache)
             return
@@ -2400,9 +2403,16 @@ internal fun ListManagerScreen(
         val config = systts.config as TtsConfigurationDTO
         if (config.speechRule.target == SpeechTarget.BGM) return
         val ruleData = config.speechRule.copy()
+        // tagRuleId 空值兜底（用户令 11-11）：与 z阅读 通用后配置不再带该字段，
+        // 空值走「当前启用规则」，规则全局只启用一条故无歧义
+        val effectiveRuleId = resolveTagRuleId(config.speechRule.tagRuleId)
+        // 落库时把解析出的规则 id 一并写回，避免下次仍为空（也保证换声面板能找对角色目录）
+        if (ruleData.tagRuleId.isBlank() && effectiveRuleId.isNotBlank()) {
+            ruleData.tagRuleId = effectiveRuleId
+        }
 
         if (config.speechRule.target == SpeechTarget.TAG) dbm.speechRuleDao.getByRuleId(
-            config.speechRule.tagRuleId
+            effectiveRuleId
         )?.let { speechRule ->
             val keys = speechRule.tags.keys.toList()
             val idx = keys.indexOf(config.speechRule.tag)
@@ -2430,7 +2440,7 @@ internal fun ListManagerScreen(
             }
         }
         else {
-            dbm.speechRuleDao.getByRuleId(ruleData.tagRuleId)?.let {
+            dbm.speechRuleDao.getByRuleId(effectiveRuleId)?.let {
                 ruleData.target = SpeechTarget.TAG
                 ruleData.tag = it.tags.keys.first()
             }

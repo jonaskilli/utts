@@ -81,7 +81,13 @@ fun SpeechRuleEditScreen(
     @Suppress("NAME_SHADOWING")
     val systts by rememberUpdatedState(newValue = systts)
     val config by rememberUpdatedState(newValue = systts.config as TtsConfigurationDTO)
-    val speechRule by rememberUpdatedState(newValue = speechRules.find { it.ruleId == config.speechRule.tagRuleId })
+    // tagRuleId 空值兜底（用户令 11-11：配置列表与 z阅读 通用，JSON 里不写这一项）。
+    // 规则全局只启用一条，故空值显示/使用启用中的那条；这里不主动改库，
+    // 用户任何一次编辑落库时都把实际 id 写回（下拉 onSelectedChange 也会），自然收敛。
+    val effectiveRuleId = config.speechRule.tagRuleId.ifBlank {
+        speechRules.firstOrNull()?.ruleId.orEmpty()
+    }
+    val speechRule by rememberUpdatedState(newValue = speechRules.find { it.ruleId == effectiveRuleId })
 
     // 第4项: 标签实时刷新 - 修改tag或tagData后立即重算tagName
     LaunchedEffect(config.speechRule.tag, config.speechRule.tagData, config.speechRule.tagRuleId) {
@@ -122,7 +128,14 @@ fun SpeechRuleEditScreen(
 
         onSysttsChange(
             systts.copy(
-                config = config.copy(config.speechRule.copy(tagName = tagName))
+                config = config.copy(
+                    speechRule = config.speechRule.copy(
+                        tagName = tagName,
+                        // 保存时把兜底出来的规则 id 写回：之后该配置就自带归属，
+                        // 不再依赖「空值 = 当前启用规则」的推断（换规则后也不会漂移）
+                        tagRuleId = config.speechRule.tagRuleId.ifBlank { effectiveRuleId },
+                    )
+                )
             )
         )
         true
@@ -332,7 +345,7 @@ fun SpeechRuleEditScreen(
                             .weight(1f)
                             .padding(end = 4.dp),
                         labelText = "📜 " + stringResource(R.string.speech_rule_script),
-                        value = config.speechRule.tagRuleId,
+                        value = effectiveRuleId,
                         values = speechRules.map { it.ruleId },
                         entries = speechRules.map { it.name },
                         onSelectedChange = { k, v ->
