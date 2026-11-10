@@ -128,50 +128,117 @@ abstract class DatabaseManager : RoomDatabase() {
 
 
         /**
-         * 34 → 35：`tagRuleId` 整体下线（用户令 11-11「数据库里真的不存，字段整个删掉」）。
+         * 34 → 35：把 `tagRuleId` 从数据里彻底清掉（用户令 11-11）。
          *
-         * 两处要处理：
-         * 1) **v1 旧表 `sysTts`**：`SpeechRuleInfo` 是 `@Embedded("speechRule_")`，对应三个真实列
-         *    （speechRule_tagRuleId 等）。字段从实体删掉后必须同步删列，否则 Room 校验 schema 会崩。
-         *    ⚠️ 故意**只手写这一个迁移**、不加 `AutoMigration(34,35)`：AutoMigration 的删列需要
-         *    仓库里有 34.json 作对比基线，而 schemas 只到 31，加了必然运行期崩。
-         * 2) **v2 现役表 `system_tts_v2`**：`config` 是整段 JSON 文本，`speechRule.tagRuleId` 藏在里面。
-         *    逐行读出、去掉该键、写回——这样「实际数据」里就没有这一项，导出自然也没有。
-         *    只做一次，之后新写入的 JSON 由实体（无该字段）保证干净。
+         * 字段已从 `SpeechRuleInfo` 实体删除。这个迁移负责两件事：
+         *
+         * **1) v1 表 `sysTts` 的 `speechRule_tagRuleId` 列必须删掉。**
+         * `SystemTts` 用 `@Embedded("speechRule_")` 把这个字段映射成真实列，字段删了列还在，
+         * Room 启动校验（expected vs found）会直接崩。仓内有同样先例：12→13 为了删
+         * `sysTts.isBgm` 专门写了 `DeleteSystemTtsColumn`。
+         * ⚠️ `ALTER TABLE ... DROP COLUMN` 要 SQLite 3.35+（Android 12），本项目 minSdk=21，
+         * 老设备不支持 → 按版本分支：支持就直接删列，不支持就重建表。
+         *
+         * **2) v2 表 `system_tts_v2` 的 config JSON 里删掉这个键。**
+         * 该列是整段 JSON 文本，旧数据里仍带着 `"tagRuleId": "mingwuyan"`。不清掉的话
+         * 实际数据里还有它，导出自然也还有——与用户要求不符。
+         * 解析失败一律跳过（宁可留旧值，也不写坏配置）。
          */
         val MIGRATION_34_35 = object : Migration(34, 35) {
             override fun migrate(db: SupportSQLiteDatabase) {
-                // —— v1 旧表：删掉嵌入列（表可能不存在，旧装机已弃用该表）——
-                runCatching {
-                    db.execSQL("ALTER TABLE sysTts DROP COLUMN speechRule_tagRuleId")
-                }
+                dropSysTtsTagRuleIdColumn(db)
+                stripTagRuleIdFromConfigs(db)
+            }
 
-                // —— v2 现役表：把 config JSON 里的 tagRuleId 键抹掉 ——
-                db.query("SELECT id, config FROM system_tts_v2").use { cursor ->
-                    val idIndex = cursor.getColumnIndexOrThrow("id")
-                    val cfgIndex = cursor.getColumnIndexOrThrow("config")
-                    val updates = ArrayList<Pair<Long, String>>()
-                    while (cursor.moveToNext()) {
-                        val raw = cursor.getString(cfgIndex).orEmpty()
-                        if (!raw.contains("tagRuleId")) continue
-                        val cleaned = stripTagRuleIdFromJson(raw)
-                        if (cleaned != null) updates.add(cursor.getLong(idIndex) to cleaned)
-                    }
-                    cursor.close()
-                    updates.forEach { (id, json) ->
-                        db.execSQL(
-                            "UPDATE system_tts_v2 SET config = ? WHERE id = ?",
-                            arrayOf(json, id)
-                        )
-                    }
+            /** 删 v1 表的 speechRule_tagRuleId 列（SQLite < 3.35 时退化为重建表）。 */
+            private fun dropSysTtsTagRuleIdColumn(db: SupportSQLiteDatabase) {
+                if (!tableExists(db, "sysTts")) return
+                if (!columnExists(db, "sysTts", "speechRule_tagRuleId")) return
+                // DROP COLUMN 自 SQLite 3.35（Android 12 / API 31）起支持。
+                // 用 API 版本判断而非 runCatching 试探：后者失败时错误状态难收拾，
+                // 且部分版本会先把表写坏再报错。API 31+ 直接删列，其余重建表。
+                if (android.os.Build.VERSION.SDK_INT >= 31) {
+                    db.execSQL("ALTER TABLE `sysTts` DROP COLUMN `speechRule_tagRuleId`")
+                } else {
+                    rebuildSysTts(db)
                 }
             }
 
-            /**
-             * 从配置 JSON 里剔除 `speechRule.tagRuleId`。返回 null 表示无需改动（解析失败也返回
-             * null——宁可留着旧值，也不能把用户配置写坏）。
-             */
-            private fun stripTagRuleIdFromJson(raw: String): String? = runCatching {
+            /** 本机 SQLite 不支持 DROP COLUMN 时的兜底：重建表并搬数据（保留全部其它列）。 */
+            private fun rebuildSysTts(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `sysTts_new` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `groupId` INTEGER NOT NULL DEFAULT 1,
+                        `displayName` TEXT,
+                        `isEnabled` INTEGER NOT NULL,
+                        `tts` TEXT NOT NULL,
+                        `order` INTEGER NOT NULL DEFAULT 0,
+                        `speechRule_target` INTEGER NOT NULL,
+                        `speechRule_isStandby` INTEGER NOT NULL,
+                        `speechRule_specifiedStandbyId` INTEGER,
+                        `speechRule_tag` TEXT NOT NULL,
+                        `speechRule_tagName` TEXT NOT NULL,
+                        `speechRule_tagData` TEXT NOT NULL,
+                        `speechRule_configId` INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    INSERT INTO `sysTts_new` (
+                        `id`, `groupId`, `displayName`, `isEnabled`, `tts`, `order`,
+                        `speechRule_target`, `speechRule_isStandby`, `speechRule_specifiedStandbyId`,
+                        `speechRule_tag`, `speechRule_tagName`, `speechRule_tagData`, `speechRule_configId`
+                    )
+                    SELECT
+                        `id`, `groupId`, `displayName`, `isEnabled`, `tts`, `order`,
+                        `speechRule_target`, `speechRule_isStandby`, `speechRule_specifiedStandbyId`,
+                        `speechRule_tag`, `speechRule_tagName`, `speechRule_tagData`, `speechRule_configId`
+                    FROM `sysTts`
+                    """.trimIndent()
+                )
+                db.execSQL("DROP TABLE `sysTts`")
+                db.execSQL("ALTER TABLE `sysTts_new` RENAME TO `sysTts`")
+            }
+
+            /** 清掉 v2 表 config JSON 里的 speechRule.tagRuleId 键。 */
+            private fun stripTagRuleIdFromConfigs(db: SupportSQLiteDatabase) {
+                val updates = ArrayList<Pair<Long, String>>()
+                db.query("SELECT id, config FROM system_tts_v2").use { cursor ->
+                    val idIndex = cursor.getColumnIndexOrThrow("id")
+                    val cfgIndex = cursor.getColumnIndexOrThrow("config")
+                    while (cursor.moveToNext()) {
+                        val raw = cursor.getString(cfgIndex).orEmpty()
+                        if (!raw.contains("tagRuleId")) continue
+                        val cleaned = stripTagRuleId(raw) ?: continue
+                        updates.add(cursor.getLong(idIndex) to cleaned)
+                    }
+                }
+                updates.forEach { (id, json) ->
+                    db.execSQL(
+                        "UPDATE system_tts_v2 SET config = ? WHERE id = ?",
+                        arrayOf(json, id)
+                    )
+                }
+            }
+
+            private fun tableExists(db: SupportSQLiteDatabase, table: String): Boolean =
+                db.query(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+                    arrayOf(table)
+                ).use { it.moveToFirst() }
+
+            private fun columnExists(db: SupportSQLiteDatabase, table: String, column: String): Boolean =
+                db.query("PRAGMA table_info(`$table`)").use { c ->
+                    val nameIndex = c.getColumnIndexOrThrow("name")
+                    while (c.moveToNext()) if (c.getString(nameIndex) == column) return true
+                    false
+                }
+
+            /** 删掉 config JSON 里的 `speechRule.tagRuleId`；无需改动或解析失败返回 null。 */
+            private fun stripTagRuleId(raw: String): String? = runCatching {
                 val root = org.json.JSONObject(raw)
                 val rule = root.optJSONObject("speechRule") ?: return null
                 if (!rule.has("tagRuleId")) return null
