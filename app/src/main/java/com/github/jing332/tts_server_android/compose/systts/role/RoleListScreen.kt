@@ -1260,6 +1260,19 @@ private fun RoleRow(
                                         else tagTextColor(),
                                 maxLines = 1,
                                 overflow = TextOverflow.Clip,
+                                // ⚠️ 必须关掉软换行（11-10 十九改，修用户实拍「标签后面
+                                // 至少能放两个字」的空白）：
+                                //
+                                // 名字「聆小玥-超拟人（Pro）」在可用宽（164-20=144dp）下放不下，
+                                // 中文会在「（」前折行 → 第二行「（Pro）」被 maxLines=1 丢弃；
+                                // 但 **Text 的测量宽度仍按"折行后占满 144dp"上报**，
+                                // 于是 Surface 按 164dp 画、墨迹只到 ~100dp，右侧剩 44dp 纯空白。
+                                //
+                                // softWrap=false 后：文字不折行、按本色宽度测量——
+                                // 放得下 → 框跟着收缩到实际内容宽（右侧不再有空白）；
+                                // 放不下 → 在框边缘被 Clip 裁掉，而不是在框内留一大块空。
+                                // 这正是用户要的「让框收缩」。
+                                softWrap = false,
                                 // 内边距（11-10 十五改同批）：vertical 6→5dp，回到 bdaf2058 原值。
                                 // 6dp 是 11-09 03:50 随"内容换显示名+字号提 14sp"一起顺手的，
                                 // 与 13sp 字不配套——13sp 正文字配 5dp 上下衬才是原比例。
@@ -1402,7 +1415,11 @@ private fun RoleRow(
                         // 固定行高 16sp：emoji 13sp 字形全高渲染会把本行撑高
                         //（装机实锤「有 emoji 的行第一行与角色名错位」根因）
                         if (litMarks.isNotEmpty()) {
-                            Spacer(Modifier.width(6.dp))
+                            // 间距口径（11-10 二十改，用户实拍「加了 emoji 之后多出一块空白」）：
+                            // 原来 Spacer(6dp) + emoji 自带 padding(horizontal=6dp) **叠加成 12dp**，
+                            // 加上 emoji 字形本身的左空，实测与前一文字间距约 14dp，比字距大三倍。
+                            // 现改为：**取消 Spacer**，只保留 emoji 的 6dp 内衬（兼作触控热区）——
+                            // 视觉间距回 6dp，与「·」前后字距同档；触控区不变。
                             litMarks.forEach { (_, emojiText) ->
                                 Text(
                                     emojiText,
