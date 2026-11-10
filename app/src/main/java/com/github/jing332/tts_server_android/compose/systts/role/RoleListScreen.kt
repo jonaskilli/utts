@@ -1179,30 +1179,34 @@ private fun RoleRow(
                     interactionSource = remember { MutableInteractionSource() },
                 )
                 .padding(vertical = 10.dp),
-            // 11-11 用户令「第一行和第二行应该中线水平对齐」+「第一行要对齐，不要考虑第二行」：
-            // 改回 Top——左右两列都从顶部起排，左侧名字第一行与右侧标签行顶端齐平。
-            // ⚠️ 上一版曾为修「播放键太靠上」把这里改成 CenterVertically，那是错改层级：
-            // ▶ 的居中该由**第一行自己的 Row**负责（见下方 firstRow verticalAlignment），
-            // 不该让整个外层 Row 居中——那样右列（39dp）会在左列（多别名时 50dp）里居中下坠。
-            verticalAlignment = Alignment.Top
+            // 11-11 用户令终稿「居中对齐」：外层 Row 改 CenterVertically，
+            // 左列名字块**始终在右侧两行的高度内垂直居中**。配合左列行高 22dp，三种情况自动成立：
+            //   1 个名字 → 中心 21.5 = 右侧两行正中间
+            //   2 个名字 → 第1行中心 11 ↔ 标签行、第2行中心 33 ↔ 注行（逐行居中对齐）
+            //   3 个名字 → 中间那行中心 33 = 两行正中间，上下各一行
+            // 前提：右列两行 = 标签行 22dp（中心 11）+ 间隔 1dp + 注行 20dp（中心 33），
+            //       两行中心差正是 22dp —— 这就是左列行高取 22dp 的原因，别改成别的值。
+            // ⚠️ 沿革：曾改 Top（"第一行对齐"），但那样单名贴顶、多别名时右侧下坠；
+            // 居中 + 22dp 行高是唯一能让 1/2/3 个别名都对上的组合。
+            verticalAlignment = Alignment.CenterVertically
         ) {
             // 名字列：照 v9 排布（主名第一行，别名逐个竖排，每行带性别色圆点）
             Column(
-                Modifier
-                    .widthIn(max = halfRow)
-                    .heightIn(min = 44.dp),
-                // 11-09 用户令（图一实锤「第一行没对齐」）：撤 Center 改 Top——名字列
-                // 与右列同一 Top 基准，标签框与第一行名字顶齐（原 Center 让名字短时
-                // 名字块垂直居中，两列基准错位）
+                // 11-11：撤掉 heightIn(min = 44.dp)。它把左列撑到 44dp，导致单名时名字
+                // 贴在 44dp 的顶部、居不中（外层 CenterVertically 也救不回来，因为列本身已 44dp）。
+                // 现在高度由内容决定（1 名 22dp / 2 名 44dp / 3 名 66dp），行高由下面的
+                // lineHeight = 22.dp 控制，外层 Row 负责整体居中。
+                Modifier.widthIn(max = halfRow),
                 verticalArrangement = Arrangement.Top,
             ) {
                 nameList.forEachIndexed { idx, name ->
-                    // 圆点 top 9dp 钉在首行文字中线（16sp/行高 24sp 几何中心，10-14 甲案）
-                    Row(verticalAlignment = Alignment.Top) {
+                    // 11-11 行高 22dp（=右列两行中心差，见外层 Row 注释）。
+                    // 圆点改为行内垂直居中：行高从 24 改 22 后，原来写死的 top=9dp
+                    // 会偏下 1dp，改用 CenterVertically 自动跟行中线。
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         Spacer(
                             Modifier
                                 .padding(start = 4.dp)
-                                .padding(top = 9.dp)
                                 .size(6.dp)
                                 .background(genderDotColor(rec.voice), CircleShape)
                         )
@@ -1212,12 +1216,19 @@ private fun RoleRow(
                                 if (isFav) append("【$name】") else append(name)
                                 if (idx == 0 && isProtagonist) append(" 👑")
                             },
-                            style = MaterialTheme.typography.bodyLarge.copy(fontSize = 16.sp),
+                            // 行高显式钉 22dp（bodyLarge 默认 24dp）：这是「1/2/3 个别名
+                            // 都能与右侧两行对齐」的关键值，= 右列标签行与注行的中心差。
+                            // 改它之前先看外层 Row 的居中注释，别单独改。
+                            style = MaterialTheme.typography.bodyLarge.copy(
+                                fontSize = 16.sp,
+                                lineHeight = 22.sp,
+                            ),
                             color = MaterialTheme.colorScheme.onSurface,
                             // 名字超半屏折行续排，不省略（10-12「显示完全」口径保持）
                         )
                     }
-                    if (idx < nameList.lastIndex) Spacer(Modifier.height(2.dp))
+                    // 原 Spacer(height = 2dp) 已撤：行距改由上面的 lineHeight 22sp 表达，
+                    // 再叠 2dp 会变成 24dp，破坏与右侧两行的中心对齐。
                 }
             }
             // 右侧两行（voice 空不渲染，照插件）

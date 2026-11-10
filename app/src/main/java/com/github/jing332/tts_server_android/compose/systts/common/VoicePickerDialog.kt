@@ -1188,20 +1188,17 @@ fun VoicePickerDialog(
                 // 名字会被压到只剩几个字；拆两行后名字独占整行宽度（328dp≈20 个汉字），
                 // 按钮移到第二行右端，两者互不抢空间。
                 Column(Modifier.fillMaxWidth()) {
+                // 11-11 用户令（三行结构定稿）：第一行只放「当前发音人」标签，
+                // 显示名 + emoji + 🎲▶⋮ 一起下移到第二行。
+                // 沿革：标签曾与名字同行并加冒号（"当前发音人：然月"），但标签独占一行时
+                // 后面没有值跟着，冒号就没有意义，故一并撤掉。
+                Text(
+                    "当前发音人",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    // 11-11 用户令「把当前发音人和他的名字放在同一行」：
-                    // 原来「当前发音人」独占一行、名字在下一行（只差 2dp），读起来像
-                    // 一行字被硬拆成两截，也是「行间距不均」的来源之一。
-                    Text(
-                        // 11-11 用户令「前面是小字儿，后面是大字儿，中间也没有冒号」：
-                        // 原写法「当前发音人」小字直接接「然月」大字，两块字挤在一起又无连接符。
-                        // 加全角冒号（中文标签-值最自然的写法），冒号跟着小字标签同色同号。
-                        "当前发音人：",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        modifier = Modifier.padding(end = 4.dp),
-                    )
                     // 显示名（大字半粗；吃剩余宽度先缩，emoji 钉右不参与省略）
                     // 11-09 用户令一行式：插件名缀在显示名后（「显示名 · 插件名」一行放完，
                     // 用户怕字号大放不下——超宽时只缩显示名，插件名 outline 小字钉住永不截）
@@ -1965,13 +1962,18 @@ internal fun VoiceOverflowMenu(
         // 视觉盒缩小后触摸目标仍是 48dp（这正是用户说的"它触控区也不小"）。
         IconButton(
             onClick = { menuOpen = true },
-            modifier = Modifier.size(32.dp),
+            // 11-11 用户令（角色列表「右列第一行和第二行间距太大」）：32dp → 20dp。
+            // 真因不是行距——两行之间本来就只有 padding(top = 1dp)；是 32dp 的视觉盒
+            // 把第二行（文字仅 16dp）撑高到 32dp，文字下方多出约 12dp 空白，看着像行距大。
+            // 收到 20dp 后第二行回到文字高度，两行间距就是真实的 1dp。
+            // 三处调用（角色列表 / 换声面板顶部 / 候选行）共用，用户已确认一起改。
+            modifier = Modifier.size(20.dp),
         ) {
             Icon(
                 Icons.Filled.MoreVert,
                 contentDescription = "更多操作",
-                // 图标 20dp 配 32dp 盒：24dp 字形塞进去会溢出
-                modifier = Modifier.size(20.dp),
+                // 图标 16dp 配 20dp 盒（原 20dp 配 32dp，比例一致：盒内留白各 2dp）
+                modifier = Modifier.size(16.dp),
             )
         }
         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
