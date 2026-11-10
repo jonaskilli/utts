@@ -61,6 +61,7 @@ import com.github.jing332.tts_server_android.constant.SpeechTarget
 import com.github.jing332.tts_server_android.model.rhino.speech_rule.SpeechRuleEngine
 import com.github.jing332.tts_server_android.ui.view.AppDialogs.displayErrorDialog
 import kotlinx.serialization.encodeToString
+import com.github.jing332.database.entities.systts.SpeechRuleIds
 
 @Composable
 fun SpeechRuleEditScreen(
@@ -84,13 +85,11 @@ fun SpeechRuleEditScreen(
     // tagRuleId 空值兜底（用户令 11-11：配置列表与 z阅读 通用，JSON 里不写这一项）。
     // 规则全局只启用一条，故空值显示/使用启用中的那条；这里不主动改库，
     // 用户任何一次编辑落库时都把实际 id 写回（下拉 onSelectedChange 也会），自然收敛。
-    val effectiveRuleId = config.speechRule.tagRuleId.ifBlank {
-        speechRules.firstOrNull()?.ruleId.orEmpty()
-    }
+    val effectiveRuleId = SpeechRuleIds.RULE_ID
     val speechRule by rememberUpdatedState(newValue = speechRules.find { it.ruleId == effectiveRuleId })
 
     // 第4项: 标签实时刷新 - 修改tag或tagData后立即重算tagName
-    LaunchedEffect(config.speechRule.tag, config.speechRule.tagData, config.speechRule.tagRuleId) {
+    LaunchedEffect(config.speechRule.tag, config.speechRule.tagData) {
         if (speechRule != null) {
             var tagName = ""
             runCatching {
@@ -129,17 +128,8 @@ fun SpeechRuleEditScreen(
         onSysttsChange(
             systts.copy(
                 config = config.copy(
-                    speechRule = config.speechRule.copy(
-                        tagName = tagName,
-                        // 只在真的「按标签朗读」时把兜底出的规则 id 写回；纯音色（全部/旁白）
-                        // 没有标签归属，就不写——保持配置项干净，与 z阅读 侧一致。
-                        // 写回后该配置自带归属，不再依赖「空值 = 当前启用规则」的推断。
-                        tagRuleId = when {
-                            config.speechRule.tagRuleId.isNotBlank() -> config.speechRule.tagRuleId
-                            config.speechRule.target == SpeechTarget.TAG -> effectiveRuleId
-                            else -> ""
-                        },
-                    )
+                    // tagRuleId 不进序列化（用户令 11-11），这里只落 tagName
+                    speechRule = config.speechRule.copy(tagName = tagName)
                 )
             )
         )
@@ -306,11 +296,8 @@ fun SpeechRuleEditScreen(
                             text = { Text(stringResource(id = R.string.copy)) },
                             onClick = {
                                 showTagOptions = false
-                                // 复制出的标签数据同样不带 tagRuleId（用户令 11-11：任何导出都不该有这一项）。
-                                // 空串=默认值，序列化时该键直接消失。
-                                val jStr = AppConst.jsonBuilder.encodeToString(
-                                    config.speechRule.copy(tagRuleId = "")
-                                )
+                                // tagRuleId 已不进序列化（用户令 11-11），复制出来的自然没有这一项
+                                val jStr = AppConst.jsonBuilder.encodeToString(config.speechRule)
                                 ClipboardUtils.copyText(jStr)
                                 context.toast(R.string.copied)
                             })
@@ -329,12 +316,8 @@ fun SpeechRuleEditScreen(
                                         AppConst.jsonBuilder.decodeFromString<SpeechRuleInfo>(
                                             jStr
                                         )
-                                    // 粘贴来的数据通常不带 tagRuleId（导出已抹掉）：按标签朗读的项补上
-                                    // 当前生效规则，否则贴完又变回「无归属」。规则全局只启用一条。
-                                    val pasted = if (info.tagRuleId.isBlank() &&
-                                        info.target == SpeechTarget.TAG && effectiveRuleId.isNotBlank()
-                                    ) info.copy(tagRuleId = effectiveRuleId) else info
-                                    onSysttsChange(systts.copy(config = config.copy(speechRule = pasted)))
+                                    // tagRuleId 不进 DB，粘贴后无需补值——运行时统一由 TagRuleResolver 回退
+                                    onSysttsChange(systts.copy(config = config.copy(speechRule = info)))
                                 }.onSuccess {
                                     context.longToast(R.string.save_success)
                                 }.onFailure {
@@ -361,18 +344,9 @@ fun SpeechRuleEditScreen(
                         value = effectiveRuleId,
                         values = speechRules.map { it.ruleId },
                         entries = speechRules.map { it.name },
-                        onSelectedChange = { k, v ->
-                            if (config.speechRule.target != SpeechTarget.TAG) return@AppSpinner
-                            onSysttsChange(
-                                systts.copy(
-                                    config = config.copy(
-                                        speechRule = config.speechRule.copy(
-                                            tagRuleId = k as String
-                                        )
-                                    )
-                                )
-                            )
-                        }
+                        // 规则全局只启用一条，tagRuleId 已不落库（用户令 11-11）：
+                        // 下拉退化为只读展示（value=当前生效规则），选中不再写字段
+                        onSelectedChange = { _, _ -> }
                     )
 
                     speechRule?.let { rule ->

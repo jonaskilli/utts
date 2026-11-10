@@ -19,7 +19,6 @@ import androidx.compose.ui.unit.dp
 import com.github.jing332.tts_server_android.compose.systts.ConfigExportBottomSheet
 import com.github.jing332.tts_server_android.constant.AppConst
 import com.github.jing332.database.entities.systts.GroupWithSystemTts
-import com.github.jing332.database.entities.systts.stripTagRuleId
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
@@ -33,8 +32,7 @@ fun ListExportBottomSheet(onDismissRequest: () -> Unit, list: List<GroupWithSyst
     var json by remember(list) { mutableStateOf<String?>(null) }
     LaunchedEffect(list) {
         json = withContext(Dispatchers.IO) {
-            // 导出前抹掉 tagRuleId：与 z阅读 配置列表字段对齐（见 stripTagRuleId 注释）
-            AppConst.jsonBuilder.encodeToString(list.stripTagRuleId())
+            AppConst.jsonBuilder.encodeToString(list)
         }
     }
     val jStr = json

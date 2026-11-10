@@ -101,6 +101,7 @@ import com.github.jing332.tts_server_android.service.systts.help.CharacterRecord
 import com.github.jing332.tts_server_android.service.systts.help.KeyListFile
 import com.github.jing332.tts_server_android.service.systts.help.VoiceMarksFile
 import kotlinx.coroutines.launch
+import com.github.jing332.database.entities.systts.SpeechRuleIds
 
 /**
  * 角色管理·1:1 复刻（拍板「照 v10 插件原样搬，之后他再改」）：
@@ -702,7 +703,7 @@ fun RoleListScreen(
     deleteConfigTarget?.let { delTarget ->
         val delDto = delTarget.config as? TtsConfigurationDTO
         val delTag = delDto?.speechRule?.tag.orEmpty()
-        val tagRuleIdDel = delDto?.speechRule?.tagRuleId.orEmpty()
+        val tagRuleIdDel = SpeechRuleIds.RULE_ID
         val tagLabel = voiceNames[delTag]
         val tagShown = tagLabel?.ifBlank { null } ?: delTag
         val assigned = remember(delTarget.id) {
@@ -737,7 +738,7 @@ fun RoleListScreen(
                             }
                             val stillEnabled = dbm.systemTtsV2.allEnabled.any { item ->
                                 val d = item.config as? TtsConfigurationDTO ?: return@any false
-                                d.speechRule.tagRuleId == tagRuleIdDel && d.speechRule.tag == delTag
+                                d.speechRule.tag == delTag
                             }
                             if (!stillEnabled && delTag.isNotBlank()) {
                                 CharacterRecordsFile.removeFromPool(tagRuleIdDel, delTag)

@@ -6,7 +6,6 @@ import com.github.jing332.database.constants.ReplaceExecution
 import com.github.jing332.database.dbm
 import com.github.jing332.database.entities.systts.SpeechRuleInfo
 import com.github.jing332.database.entities.systts.SystemTtsV2
-import com.github.jing332.database.entities.systts.TagRuleResolver
 import com.github.jing332.tts.ConfigType
 import com.github.jing332.tts.error.TextProcessorError
 import com.github.jing332.tts.synthesizer.ITextProcessor
@@ -20,6 +19,7 @@ import com.github.michaelbull.result.Ok
 import com.github.michaelbull.result.Result
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlin.random.Random
+import com.github.jing332.database.entities.systts.SpeechRuleIds
 
 class TextProcessor : ITextProcessor {
     companion object {
@@ -55,10 +55,8 @@ class TextProcessor : ITextProcessor {
             //
             // 取哪条配置的 tagRuleId 作依据：优先第一个**非空**的（原实现只取 component1()，
             // 首项恰好为空时即使后面都绑定了也白搭）。全都为空时才回退到启用中的规则。
-            val configsList = configs.values.toList()
-            val boundRuleId = configsList.firstOrNull { it.speechInfo.tagRuleId.isNotBlank() }
-                ?.speechInfo?.tagRuleId
-            val ruleId = TagRuleResolver.resolve(boundRuleId.orEmpty())
+            // 规则归属是常量（tagRuleId 字段已删）：本机只有一套规则
+            val ruleId = SpeechRuleIds.RULE_ID
             if (boundRuleId == null && ruleId.isNotBlank()) {
                 logger.debug { "tagRuleId 缺省，回退到当前启用规则: $ruleId" }
             }
@@ -80,9 +78,6 @@ class TextProcessor : ITextProcessor {
                     val systts = cfg.tag as? SystemTtsV2
                     cfg.copy(
                         speechInfo = cfg.speechInfo.copy(
-                            // 空值项在运行期统一补成实际生效的规则：后续 VoicePicker/插件回调
-                            // 拿 speechInfo.tagRuleId 找目录时也不会落到 /chajian/ 根上
-                            tagRuleId = cfg.speechInfo.tagRuleId.ifBlank { ruleId },
                             configId = entry.key,
                             voice = cfg.source.voice,
                             displayName = systts?.displayName ?: ""

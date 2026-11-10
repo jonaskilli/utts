@@ -72,13 +72,12 @@ internal class TtsRepository(
                 // 备用=用户显式标记「作为备用引擎」的条目，按 tagName 认亲。
                 // 同性别兜底：target 只是作用域标记（整理类操作不写它），不作硬条件；
                 // 优先同规则同 target，其次同规则，避免跨规则误配。
+                // 规则归属已统一为常量（tagRuleId 字段已删），只用 tagName + target 认亲
                 val standby = standbyConfigs.find {
                     it.speechInfo.tagName == dto.speechRule.tagName &&
-                        it.speechInfo.tagRuleId == dto.speechRule.tagRuleId &&
                         it.speechInfo.target == dto.speechRule.target
                 } ?: standbyConfigs.find {
-                    it.speechInfo.tagName == dto.speechRule.tagName &&
-                        it.speechInfo.tagRuleId == dto.speechRule.tagRuleId
+                    it.speechInfo.tagName == dto.speechRule.tagName
                 }
                 val genderStandby = run {
                     val originalTag = dto.speechRule.tag
@@ -105,11 +104,7 @@ internal class TtsRepository(
                     // 故逐级放宽、命中即止：同规则同 target > 同规则 > 仅 tag。
                     genderFallbackConfigs.find {
                         it.speechInfo.tag == genderTag &&
-                            it.speechInfo.tagRuleId == dto.speechRule.tagRuleId &&
                             it.speechInfo.target == dto.speechRule.target
-                    } ?: genderFallbackConfigs.find {
-                        it.speechInfo.tag == genderTag &&
-                            it.speechInfo.tagRuleId == dto.speechRule.tagRuleId
                     } ?: genderFallbackConfigs.find {
                         it.speechInfo.tag == genderTag
                     }

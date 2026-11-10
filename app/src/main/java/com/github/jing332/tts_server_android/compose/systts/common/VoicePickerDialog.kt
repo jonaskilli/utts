@@ -97,6 +97,7 @@ import com.github.jing332.tts_server_android.service.systts.SystemTtsService
 import com.github.jing332.tts_server_android.service.systts.help.CharacterRecordsFile
 import com.github.jing332.tts_server_android.service.systts.help.VoiceMarksFile
 import kotlinx.coroutines.launch
+import com.github.jing332.database.entities.systts.SpeechRuleIds
 
 /**
  * 通用换声弹窗（用户 09-13 定稿「完全同源」）：日志快捷面板与角色管理插件共用的
@@ -218,11 +219,7 @@ fun VoicePickerDialog(
     // 本面板下面十几处都要拿它定位角色卡/发音人池/标记表（/chajian/<tagRuleId>/…），
     // 传空串会读写到 /chajian 根目录、与角色管理互相看不见——所以统一在这里取一次有效值。
     // 规则全局只启用一条，空值即「当前启用规则」，无歧义。
-    val effectiveRuleId = remember(entity.id) {
-        val raw = config.speechRule.tagRuleId
-        if (raw.isNotBlank()) raw
-        else runCatching { dbm.speechRuleDao.allEnabled.firstOrNull()?.ruleId }.getOrNull().orEmpty()
-    }
+    val effectiveRuleId = SpeechRuleIds.RULE_ID
     // 规则 tags 表（tag id→显示名）：大分类显示的权威来源（与编辑页标签两层弹窗同源）。
     // config.speechRule.tagName 只是绑定时的快照，规则改版后会过期——实测
     // 非绑定分类显示不对，改从 rule.tags 现查
@@ -443,7 +440,7 @@ fun VoicePickerDialog(
     fun deletePreviewedConfig(target: SystemTtsV2) {
         val targetDto = target.config as? TtsConfigurationDTO ?: return
         val targetTag = targetDto.speechRule.tag
-        val tagRuleId = targetDto.speechRule.tagRuleId.ifBlank { effectiveRuleId }
+        val tagRuleId = effectiveRuleId
         scope.launch {
             var tagNowEmpty = false
             var reassignedCount = 0
@@ -452,7 +449,7 @@ fun VoicePickerDialog(
                 runCatching { CachedEngineManager.removeEngine(targetDto.source) }
                 val stillEnabled = dbm.systemTtsV2.allEnabled.any { item ->
                     val d = item.config as? TtsConfigurationDTO ?: return@any false
-                    d.speechRule.tagRuleId == tagRuleId && d.speechRule.tag == targetTag
+                    d.speechRule.tag == targetTag
                 }
                 if (!stillEnabled) {
                     tagNowEmpty = true

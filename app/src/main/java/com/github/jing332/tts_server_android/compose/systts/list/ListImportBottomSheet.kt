@@ -548,7 +548,7 @@ private fun insertJReadItems(parsed: JReadConfigMigration.Parsed): ListImportRes
                     val bound = item.copy(id = baseId + 100000L + i, groupId = groupId)
                     val cfg = bound.config as? TtsConfigurationDTO
                     val toInsert = if (enabledRuleId.isNotBlank() && cfg != null && cfg.speechRule.tag.isNotBlank()) {
-                        bound.copy(config = cfg.copy(speechRule = cfg.speechRule.copy(tagRuleId = enabledRuleId)))
+                        bound
                     } else bound
                     importedItems.add(toInsert)
                     toInsert

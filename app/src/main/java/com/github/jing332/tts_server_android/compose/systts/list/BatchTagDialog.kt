@@ -25,6 +25,7 @@ import com.github.jing332.tts_server_android.service.systts.SystemTtsService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.github.jing332.database.entities.systts.SpeechRuleIds
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -53,17 +54,8 @@ fun BatchTagDialog(
     // 空值兜底（用户令 11-11：配置列表与 z阅读 通用，库里可能不带这一项）：
     // 规则全局只启用一条，空值等价于「当前启用规则」，所以这里先按这个口径归一，
     // 否则「带 id 的老项 + 不带 id 的新项」混选会被误判成「规则不一致」而整块禁用。
-    val enabledRuleId = remember {
-        runCatching { dbm.speechRuleDao.allEnabled.firstOrNull()?.ruleId }.getOrNull().orEmpty()
-    }
-    val commonTagRuleId by remember(selectedItems, enabledRuleId) {
-        derivedStateOf {
-            val ruleIds = selectedItems.map {
-                (it.config as TtsConfigurationDTO).speechRule.tagRuleId.ifBlank { enabledRuleId }
-            }.distinct()
-            if (ruleIds.size == 1) ruleIds.first() else null
-        }
-    }
+    // 规则归属已是常量（tagRuleId 字段已删），不再存在「规则不一致」的情况
+    val commonTagRuleId: String? = SpeechRuleIds.RULE_ID
 
     // 获取可用标签列表
     var speechRule by remember { mutableStateOf<SpeechRule?>(null) }
@@ -244,7 +236,7 @@ fun BatchTagDialog(
                                 val tagKey = keys.getOrNull((startIndex + idx) % keys.size) ?: return@forEachIndexed
                                 ruleData.target = com.github.jing332.tts_server_android.constant.SpeechTarget.TAG
                                 ruleData.tag = tagKey
-                                ruleData.tagRuleId = commonTagRuleId ?: ""
+                                // tagRuleId 不进序列化（用户令 11-11），无需写入
                                 // 用与「一键分配/重排」一致的 computeTagName（含 ⚠ 回退），
                                 // 保证批量分配标签的显示名与朗读规则一致。
                                 ruleData.tagName = computeTagName(context, speechRule, ruleData, tagKey)

@@ -51,6 +51,7 @@ import com.github.jing332.tts_server_android.service.systts.SystemTtsService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.github.jing332.database.entities.systts.SpeechRuleIds
 
 internal data class TagItem(val tag: String, val tagName: String)
 
@@ -268,7 +269,7 @@ fun TagSwitchDialog(
 
     val config = item.config as? TtsConfigurationDTO
     val currentTag = config?.speechRule?.tag ?: ""
-    val tagRuleId = config?.speechRule?.tagRuleId ?: ""
+    val tagRuleId = SpeechRuleIds.RULE_ID
 
     var speechRule by remember { mutableStateOf<SpeechRule?>(null) }
     var loaded by remember { mutableStateOf(false) }
@@ -276,8 +277,7 @@ fun TagSwitchDialog(
         loaded = false
         // tagRuleId 空值兜底（用户令 11-11）：导出与 z阅读 通用后配置不再带 tagRuleId，
         // 规则全局只启用一条，故空值直接用启用中的那条，不再弹「未绑定朗读规则」。
-        // resolveTagRuleId 会查库，必须在 IO 线程
-        val effectiveRuleId = withContext(Dispatchers.IO) { resolveTagRuleId(tagRuleId) }
+        val effectiveRuleId = SpeechRuleIds.RULE_ID
         if (effectiveRuleId.isNotBlank()) {
             val rule = withContext(Dispatchers.IO) { dbm.speechRuleDao.getByRuleId(effectiveRuleId) }
             if (rule != null) {
@@ -298,11 +298,8 @@ fun TagSwitchDialog(
             scope.launch {
                 withContext(Dispatchers.IO) {
                     val ruleData = config!!.speechRule.copy()
-                    // 空值兜底后落库要带上规则 id：否则切完标签还是空串，下次又走回退，
-                    // 且 VoicePicker 按它找角色目录会落到 /chajian/ 根（见语音选择弹窗注释）
-                    speechRule?.ruleId?.takeIf { ruleData.tagRuleId.isBlank() }?.let {
-                        ruleData.tagRuleId = it
-                    }
+                    // tagRuleId 不进序列化（用户令 11-11）：切标签只改 tag/tagName，
+                    // 规则归属由运行期 TagRuleResolver 按当前启用规则推出
                     ruleData.tag = tag
                     ruleData.tagName = computeTagName(context, speechRule, ruleData, tag)
                     dbm.systemTtsV2.update(

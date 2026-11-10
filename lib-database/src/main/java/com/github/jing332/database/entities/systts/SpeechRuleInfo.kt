@@ -23,7 +23,10 @@ data class SpeechRuleInfo(
     var specifiedStandbyId: Long? = null,
 
     var tag: String = "",
-    var tagRuleId: String = "",
+
+    // ⚠️ 原 tagRuleId 字段已于 11-11 整体删除（用户令「数据库里真的不存，字段整个删掉」）：
+    // 本机朗读规则只有一套，归属是常量，存在配置里纯属冗余，还让导出 JSON 多出一项、
+    // 与 z阅读 的配置列表对不上。需要规则 id 的地方一律用 SpeechRuleIds.RULE_ID。
 
     // 显示在列表右上角的标签名
     var tagName: String = "",
@@ -54,13 +57,11 @@ data class SpeechRuleInfo(
      * 判断tag是否相同
      * @return 相同
      */
-    fun isTagSame(rule: SpeechRuleInfo): Boolean {
-        return tag == rule.tag && tagRuleId == rule.tagRuleId
-    }
+    /** 标签是否相同。11-11 起规则归属是常量，不再参与比较。 */
+    fun isTagSame(rule: SpeechRuleInfo): Boolean = tag == rule.tag
 
     fun resetTag() {
         tag = ""
-        tagRuleId = ""
         tagName = ""
         mutableTagData.clear()
     }
