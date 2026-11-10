@@ -1343,35 +1343,6 @@ private fun RoleRow(
                         // 现在 ▶/⋮ 左右各 8dp 对称；换声弹窗的 ⋮ 同步改为 8dp
                         //（IconButton 补 padding(end=8dp)），两处口径一致。
                         // ⚠️ 别再叠 offset 压右缘：padding 已经给足，再加 offset 会把右留白挤没。
-                        // 已点亮标记 emoji（11-10 用户令：从第二行挪到**标签后、试听前**）：
-                        // ① 选中态补淡主题色圆角底（用户问「选中之后的底色我怎么没看见」——
-                        //    原实现只有 clip(AppShapes.md) 而没设底色，clip 等于空转，故无底衬）；
-                        // ② **只显示、不可点**（用户令「emoji 容易误触，就把点击取消的功能去掉」）：
-                        //    它左边是标签框（点=换声）、右边是 ▶（点=试听），13sp 小字夹在
-                        //    两个热区中间，误触代价是「想取消标记却开唱」或「想试听却取消标记」。
-                        //    取消标记改从 ⋮ 菜单（第二行末尾）操作——菜单里同一组三项 toggle，
-                        //    点一次切一次，语义完整，这里不再重复提供点击入口。
-                        // 固定行高 16sp：emoji 13sp 字形全高渲染会把本行撑高，
-                        // 导致第一行与左侧角色名错位（装机实锤过）。
-                        if (litMarks.isNotEmpty()) {
-                            litMarks.forEach { (_, emojiText) ->
-                                Box(
-                                    modifier = Modifier
-                                        // ⚠️ 顺序：先 clip 成圆角再画底，否则底是直角的
-                                        .clip(AppShapes.md)
-                                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
-                                        .padding(horizontal = 6.dp, vertical = 4.dp),
-                                ) {
-                                    Text(
-                                        emojiText,
-                                        fontSize = 13.sp,
-                                        lineHeight = 16.sp,
-                                        maxLines = 1,
-                                    )
-                                }
-                            }
-                            Spacer(Modifier.width(4.dp))
-                        }
                         if (hasAnchor) {
                             Text(
                                 previewLabel,
@@ -1458,7 +1429,13 @@ private fun RoleRow(
                             if (pluginName != null) {
                                 // 插件名吃剩余宽度，超长时**只缩它**；同样按整字截断
                                 // （11-10 用户令「不要省略号，超过就截断」且不能切出半个汉字）
-                                BoxWithConstraints(Modifier.weight(1f)) {
+                                // ⚠️ 必须是 weight(1f, fill = false)，不能只写 weight(1f)：
+                                // fill=true 会让插件名**占满**半屏剩余宽度，短插件名后面的
+                                // 空地也被它吃掉，⋮ 被推到很远——这就是用户实拍
+                                // 「插件和三个点菜单之间有非常大的一个空格」的根因。
+                                // fill=false 时：短名按内容宽收缩、⋮ 紧跟；
+                                // 长名仍能吃到剩余宽并按整字截断（fill=false 只是不强行撑开）。
+                                BoxWithConstraints(Modifier.weight(1f, fill = false)) {
                                     TruncatedAnnotatedText(
                                         text = AnnotatedString(" · $pluginName"),
                                         style = MaterialTheme.typography.labelSmall,
@@ -1469,6 +1446,30 @@ private fun RoleRow(
                                     )
                                 }
                             }
+                        }
+                        // 已点亮标记 emoji（11-11 用户令：从第一行**挪回第二行**，
+                        // 位置定在插件名之后、⋮ 之前；并且**不加任何底色**）：
+                        // · 为什么回第二行：第一行里有标签框和 ▶ 两个热区，emoji 夹在中间
+                        //   视觉上把「标签—试听」这一对拆开了；第二行是纯标注行，附加信息
+                        //   放这里不抢第一行。
+                        // · 为什么在 ⋮ 前而不是行首：行首会让 emoji 看起来像分类的一部分
+                        //   （读成「❤️ 男青年45 · 本悦读」），主次倒置；放 ⋮ 前则是
+                        //   「分类 · 插件 → 标记 → 菜单」，标记作为状态收在行尾，与菜单同侧。
+                        // · 为什么去掉底色：11-11 用户令「现在 emoji 它是有底色的，你不应该加」。
+                        //   只保留 emoji 本身，不再画淡主题色圆角底。
+                        // · 仍**只显示、不可点**（11-10 用户令：emoji 容易误触，取消标记走 ⋮ 菜单）。
+                        // 行高固定 16sp，避免 emoji 全高字形撑高纯文字行。
+                        if (litMarks.isNotEmpty()) {
+                            litMarks.forEach { (_, emojiText) ->
+                                Text(
+                                    emojiText,
+                                    fontSize = 13.sp,
+                                    lineHeight = 16.sp,
+                                    maxLines = 1,
+                                    modifier = Modifier.padding(horizontal = 2.dp),
+                                )
+                            }
+                            Spacer(Modifier.width(2.dp))
                         }
                         // ⋮ 菜单（11-10 用户令：从第一行挪到**第二行末尾**，
                         // 「分类名/插件名这一块和三个点紧密挨着、整体靠右对齐」）。
