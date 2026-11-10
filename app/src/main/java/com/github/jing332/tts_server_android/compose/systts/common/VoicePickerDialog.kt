@@ -1228,8 +1228,9 @@ fun VoicePickerDialog(
                             emojiText,
                             fontSize = 13.sp,
                             maxLines = 1,
+                            // 11-11 用户令「显示名和 emoji 别留空格」：删掉 start = 4.dp，
+                            // 把所有内衬并到下面一处且水平归 0（原为 start4 + horizontal4 = 左 8dp）。
                             modifier = Modifier
-                                .padding(start = 4.dp)
                                 .clip(AppShapes.md)
                                 .clickable {
                                     val markId = VoiceMarksFile.MARK_ITEMS
@@ -1242,37 +1243,15 @@ fun VoicePickerDialog(
                                         if (sharedVM != null) sharedVM.voiceMarksVersion.value += 1
                                     }
                                 }
-                                .padding(horizontal = 4.dp, vertical = 1.dp),
+                                // 水平归 0（emoji 紧跟名字，字形自带少量留白），只保留下内衬
+                                .padding(vertical = 1.dp),
                         )
                     }
-                    } // ===== 第一行结束（显示名 + 标记 emoji，恒一行）=====
-                    // ===== 第二行：插件名（左） + 🎲 ▶ ⋮（右，行尾对齐）=====
-                    // 23 改：插件名从第一行挪到本行，并**去掉原来的「·」分隔点**——
-                    // 那个点是"名字·插件名"同行的连接符，分两行后已无连接语义（用户令）。
-                    // 本行 fillMaxWidth + 两段：插件名左起、按钮组右对齐；
-                    // 右缘与候选行 ⋮ 对齐（候选行外层同样 fillMaxWidth、行尾无额外 padding）。
-                    Row(
-                        // 上下各 6dp：这一行的视觉高度原先完全由内部 48dp 按钮盒决定，
-                        // 名字与它之间的空隙是"按钮盒顶出来的"而非设计意图。
-                        // 现在按钮盒固定 32dp（见 VoiceOverflowMenu）+ 这里显式给 6dp，
-                        // 间距由布局支配，不再随某个按钮的触控尺寸漂移。
-                        Modifier.fillMaxWidth().padding(vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                    if (topPluginName != null) {
-                        // 11-10：插件名同样去省略号、按整字截断（与候选行/角色列表同口径）
-                        BoxWithConstraints {
-                            TruncatedAnnotatedText(
-                                text = AnnotatedString(topPluginName),
-                                style = MaterialTheme.typography.labelSmall,
-                                // 11-10 用户令：插件名用日志插件牌的灰青固定色（不随主题变），
-                                // 原 secondary 会随主题变绿/紫/蓝，与"来源标识"语义不符。
-                                color = pluginChipColor(),
-                                maxWidth = maxWidth,
-                            )
-                        }
-                    }
-                    // 唯一的 weight 源：把 🎲▶⋮ 推到行尾
+                    // 11-11 用户令「按钮就放显示名+emoji 那一行的右侧，靠右放」：
+                    // 🎲 ▶ ⋮ 从第二行上移到本行右端。这样第二行才能只放「插件名 … 终值」，
+                    // 真正做成两端分开（否则终值会夹在插件名和按钮之间，分不开）。
+                    // 右缘与候选行的 ⋮ 对齐（候选行外层同样 fillMaxWidth、行尾无额外 padding）。
+                    // 唯一的 weight 源：把 🎲▶⋮ 推到第一行右端
                     Spacer(Modifier.weight(1f))
                     if (isBindingMode) {
                         Text(
@@ -1360,33 +1339,60 @@ fun VoicePickerDialog(
                         deleteEnabled = topDeleteTarget != null,
                         onDelete = { topDeleteTarget?.let { deleteConfirmTarget = it } },
                     )
-                    } // ===== 第二行结束（插件名 + 🎲 ▶ ⋮）=====
+                    } // ===== 第一行结束（显示名 + 标记 emoji，恒一行）=====
+                    // ===== 第二行：插件名（左） … 终值（右）=====
+                    // 11-11 定稿：按钮组已上移到第一行右端，本行只剩「插件名 左 / 终值 右」，
+                    // 中间由 Spacer(weight) 撑开，构成真正的两端分开。
+                    // 沿革：23 改时本行是「插件名（左）+ 🎲▶⋮（右）」；后来先试「插件名+终值+按钮」
+                    // 三段，发现终值会夹在插件名和按钮之间、两端分不开，故把按钮移到第一行。
+                    Row(
+                        // 上下各 6dp：这一行原本的视觉高度由内部 48dp 按钮盒决定，
+                        // 按钮上移后只由文字行高决定，6dp 是它与上下文的呼吸量。
+                        Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                    if (topPluginName != null) {
+                        // 11-10：插件名同样去省略号、按整字截断（与候选行/角色列表同口径）
+                        BoxWithConstraints {
+                            TruncatedAnnotatedText(
+                                text = AnnotatedString(topPluginName),
+                                style = MaterialTheme.typography.labelSmall,
+                                // 11-10 用户令：插件名用日志插件牌的灰青固定色（不随主题变），
+                                // 原 secondary 会随主题变绿/紫/蓝，与"来源标识"语义不符。
+                                color = pluginChipColor(),
+                                maxWidth = maxWidth,
+                            )
+                        }
+                    }
+                    // 终值计算（原在下方独占行时声明，现随终值上移到第二行）
+                    val finalSpeed = speed * pluginSpeed * globalSpeed
+                    val finalVolume = volume * pluginVolume * globalVolume
+                    val finalPitch = pitch * pluginPitch * globalPitch
+                    // 用户令「按钮就放显示名+emoji 那一行的右侧，靠右放」：按钮组已上移到
+                    // 第一行右端；本行只剩「插件名（左） … 终值（右）」，这才真正两端分开。
+                    Spacer(Modifier.weight(1f))
+                    // 终值：12sp 主题绿，贴本行右缘（与第一行的 ⋮ 同一条右线）。
+                    // 原字号 bodyMedium(14sp)，两端分开后中间空出约 116dp，右端若仍 14sp 会过重；
+                    // 12sp 与插件名 11sp 差一档，主次仍在。
+                    if (!addMode) {
+                        Text(
+                            text = stringResource(
+                                R.string.audio_params_final,
+                                finalSpeed.toParamText(),
+                                finalVolume.toParamText(),
+                                finalPitch.toParamText(),
+                            ),
+                            style = MaterialTheme.typography.bodyMedium.copy(fontSize = 12.sp),
+                            color = MaterialTheme.colorScheme.primary,
+                            maxLines = 1,
+                        )
+                    }
+                    } // ===== 第二行结束（插件名 + 终值）=====
                 } // ===== Column 结束（顶部固定两行）=====
             }
 
-            // ===== 终值（播放链同源三层乘积；三维恒显，用户 09-10）=====
-            // 最终值恒为 配置×插件×全局（三层草稿实时跟随；音高 09-10 起同规格走草稿；
-            // 接管判定已废除，恒乘积）
-            val finalSpeed = speed * pluginSpeed * globalSpeed
-            val finalVolume = volume * pluginVolume * globalVolume
-            val finalPitch = pitch * pluginPitch * globalPitch
-            Text(
-                // 与卡片参数行口径不同（用户 09-10 二稿）：
-                // 卡片=管道+1 位+加粗，弹窗/面板=逗号+2 位+无后缀（删除 x 乘号，与日志/试听保持一致）
-                text = stringResource(
-                    R.string.audio_params_final,
-                    finalSpeed.toParamText(),
-                    finalVolume.toParamText(),
-                    finalPitch.toParamText(),
-                ),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.primary,
-                // 11-11 用户令定稿：top 8 / bottom 4。
-                // 原值上下各 2dp（09-11「顶部三行是紧密信息」），但它上方还夹着第二行的
-                // 按钮组，2dp 让「插件名 → 终值」比「名字 → 插件名」紧得多，读起来像贴在一起。
-                // 终值是与上面整块（标题+名字+插件名+按钮）并列的另一组，应当松一档。
-                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
-            )
+            // 终值行已并入第二行右端（11-11 用户令：插件名与终值合并一行、两端分开），
+            // 原先独占一行的终值 Text 与其变量声明一并删除，计算随之上移到第二行之前。
             } // if (!addMode) 顶部块收尾
 
             // 分段两区（用户 09-11 下午「完全 MD3 版」终裁：官方 SegmentedButton 全 app 统一）：
@@ -2033,10 +2039,13 @@ private fun CandidateRow(
     usedBadge: Boolean = false,
 ) {
     Row(
+        // 11-11 用户令「候选列表行间距太近了」：2dp → 10dp。
+        // 上一版去掉 ▶ 的 vertical 内衬后，行高只剩文字（约 20dp），相邻候选几乎叠在一起。
+        // 10dp 让每行约 40dp，既松快又接近 44dp 的可点高度（整行可点，热区随之变大）。
         Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(vertical = 2.dp),
+            .padding(vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         // ===== 左列（11-09 用户令终稿）：一行式=✓前缀+显示名+已用徽章+标记 emoji
