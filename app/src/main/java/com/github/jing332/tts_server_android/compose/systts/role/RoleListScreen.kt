@@ -1059,30 +1059,29 @@ private fun emojiMarkOf(emoji: String): String =
  */
 
 /**
- * 角色标签的文字色（11-10 五改，用户选定「浅胶囊」形态后配套定义）。
+ * 角色标签框的文字色 = **与左侧角色名同一个颜色**（onSurface）。
  *
- * ## 沿革（别再给绿色主题单独配色）
+ * ## 11-10 二十二改（用户令「发音人列表显示名的颜色改成跟角色名一样的颜色就行」）
  *
- * 10-13 起：绿底绿字（secondaryContainer 底 + primary 字）。
- * 11-10 五改：形态改浅胶囊后，我给绿色主题单独配了深绿 #0A6E3B
- *（理由是"主色压灰底只 2.80:1，加深好读"）。
- * **11-10 六改：撤销那枚 #0A6E3B，四套主题一律用 primary**——
- * 用户明确要「发音人标签的绿改成和主题这个绿一样」，
- * 那枚加深的深绿偏离了主题主色，看着发闷，不是他要的那个绿。
+ * 改为与角色名同色后，一屏里「角色名 + 它的发音人标签」是一组同色文字，
+ * 读起来是"这个人叫什么 / 用什么声音"，不再靠色相暗示层级。
  *
- * 11-10 二十一改：**不再用 primary，改用 onSecondaryContainer**（用户令「显示名标签的
- * 颜色不能是主题色」）。primary 当字色只有 3:1 左右，发虚；且一屏里标签字、▶、⋮、
- * 分类标签全是同一个主色绿，颜色失去区分力。
+ * ## 沿革（别再往回改）
  *
- * onSecondaryContainer 是 M3 给"次要容器底"配的**前景色**，天然适配每套主题：
- *   绿色 #0D1F13 深墨绿 / 紫色 #3B2B55 深紫 / 蓝色 #24335C 深蓝 / 黑色 #33353A 深灰
- * 对各自标签底对比度 9.9~14.6（原 primary 只有 2.99~7.44），四套全达标；
- * 且仍带各自色相，换主题时"标签是彩色字"这层语义成立，不是一律变黑。
+ * 10-13：绿底绿字（secondaryContainer 底 + primary 字）。
+ * 11-10 五改：浅胶囊形态，给绿色主题单配深绿 #0A6E3B。
+ * 11-10 六改：撤销 #0A6E3B，四套主题一律 primary（用户「发音人标签的绿改成和
+ *   主题这个绿一样」）。
+ * 11-10 二十一改：改 onSecondaryContainer（用户「显示名标签的颜色不能是主题色」）
+ *   —— 绿色 #0D1F13 / 紫色 #3B2B55 / 蓝色 #24335C / 黑色 #33353A，
+ *   带各自色相，但仍是"彩色字"。
+ * 11-10 二十二改：**改为 onSurface，与角色名完全同色**（用户令）。
+ *   绿色 #191C19 / 紫色 #26242C / 蓝色 #21252F / 黑色 #23252A —— 都是近黑的中性深色。
  *
- * ⚠️ 别再改回 primary。
+ * ⚠️ 别再改回 primary 或 onSecondaryContainer。
  */
 @Composable
-private fun tagTextColor(): Color = MaterialTheme.colorScheme.onSecondaryContainer
+private fun tagTextColor(): Color = MaterialTheme.colorScheme.onSurface
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
