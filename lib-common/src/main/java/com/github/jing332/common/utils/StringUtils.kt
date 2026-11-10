@@ -176,38 +176,37 @@ fun String.limitDisplayLength(max: Int, suffix: String = ""): String {
 }
 
 /**
- * 插件名显示用的截断（11-10 二次定稿：改为**遇符号即切**）。
+ * 插件名显示用的截断。**主规则是限宽**（空间有限），符号只是收尾规则。
  *
- * ## 规则（用户 11-10「我之前说要前缀，括号或者其他符号后面跟的内容就直接留前面的」）
+ * ## 预算（用户 11-10 定稿，别擅自改）
  *
- * 1. **先按符号切**：遇到括号/下划线/竖线/点/冒号/顿号等符号，只保留它**前面**的部分。
- *    · 「剪映_v12」   → 「剪映」
- *    · 「讯飞（Pro）」 → 「讯飞」
- *    · 「本悦读_v」    → 「本悦读」
- * 2. **连字符 `-` 不切**：插件名里「豆包-猫箱」「萧文-超拟人」是真实名，`-` 连接两个有效词，
- *    按符号切会丢信息。这也是本函数唯一放行的连接符。
- * 3. 切出来的前缀为空（名字以符号开头）→ 原样返回，不切。
- * 4. 最后仍按**显示宽度预算**兜底截断（默认 12 = 中文 6 字 / 英文 12 字母），
- *    保证超长前缀不会把行撑爆。预算从 8 放宽到 12（11-10）：切完符号后名字已经
- *    在 6 字量级，「豆包-猫箱」「萧文-超拟人」这类真实插件名在 8 宽下会被拦腰砍断，
- *    而 12 宽下恰好完整，且仍比改动前的 12 字+省略号更收敛。
+ * 8 个半角单位 = 中文 4 字 / 英文 8 字母 / 混排按实宽累加。
+ * 用户原话「我限制字数，只是因为空间有限」——4 字是空间约束，不是审美偏好，
+ * 所以既不能放宽到 6 字，也不能给英文 12 个字符。
  *
- * ## 为什么不按补全语义保留一个字
+ * ## 符号规则（用户 11-10「后面跟的内容如果遇到符号怎么处理」）
  *
- * 曾经考虑过「符号后面是中文就留一个字」（如「剪映（需填变量）」→「剪映需」），
- * 但插件名本身符号很少、带中文尾巴的极罕见，收益远小于「多一个字就多占一格」的成本。
- * 用户 11-10 定稿：直接留前面的。
+ * 截断**撞上**符号时，符号及其后的内容一律不要——宁可短，不留半截怪形状：
+ *   · 「本悦读_v12」  宽 8 → 本悦读_v1 → 撞 `_` → **本悦读**（不是「本悦读_v1」）
+ *   · 「剪映_v12」   宽 8 → 剪映_v12   → 撞 `_` → **剪映**
+ *   · 「讯飞（Pro）」  宽 8 → 讯飞（Pr   → 撞 `（`→ **讯飞**
+ *   · 「火山翻译(2026)」宽 8 → 火山翻译(2 → 撞 `(` → **火山翻译**
+ *
+ * 只在**预算范围内**找符号：符号落在 4 字之外时宽度已经先截断，不额外影响。
+ *
+ * ## 哪些不算符号（关键，改之前先看真实插件名列表）
+ *
+ * - **空格**：`BreezeBlue 微风蓝 TTS`、`Fish Audio官网音色广场` —— 空格是名字分隔，
+ *   切在空格会把中文名整个丢掉（只剩「BreezeBlue」「Fish」）。
+ * - **英文点 `.`**：`mr.wang & JRead` 的 `.` 是域名式写法，切了只剩「mr」。
+ * - **连字符 `-`**：`通义千问-完全版`、`豆包-猫箱` 的 `-` 连接两个有效词。
+ *
+ * 只把括号类、下划线、点 `·`、竖线、冒号顿号这类**纯分隔**符号当切点。
  *
  * 不补省略号（插件牌是标签不是句子，10-06 口径）。
  */
-fun String.limitByDisplayWidth(budget: Int = 12): String {
+fun String.limitByDisplayWidth(budget: Int = 8): String {
     if (isEmpty()) return this
-    // 切点符号：成对括号（开闭都算）、竖线、下划线、点、冒号、顿号、波浪号、各种空格。
-    // 刻意**不含** '-'：插件名里的连字符连接两个有效词，切了会丢信息。
-    val cutChars = "（(【[《<「{）)】]》>」}｜|_·．.。：:;；~～、，, \u3000"
-    val cutIndex = indexOfFirst { it in cutChars }
-    val head = if (cutIndex > 0) substring(0, cutIndex).trim() else this.trim()
-    val base = head.ifEmpty { this }
 
     fun widthOf(c: Char): Int {
         val b = Character.UnicodeBlock.of(c)
@@ -220,19 +219,26 @@ fun String.limitByDisplayWidth(budget: Int = 12): String {
                 b == Character.UnicodeBlock.HANGUL_SYLLABLES
         return if (wide) 2 else 1
     }
+
+    // ① 先按预算取候选（中文 4 字 / 英文 8 字母）
     var acc = 0
     val sb = StringBuilder()
-    for (c in base) {
+    for (c in this) {
         val w = widthOf(c)
         if (acc + w > budget) break
         sb.append(c); acc += w
     }
-    // 宽度截断后可能留下末尾悬空符号（如「剪映_」），再清一次
     var out = sb.toString()
-    while (out.isNotEmpty() && out.last() in "_-·|｜.。,,、~～ 　:：;；") {
-        out = out.dropLast(1)
-    }
-    return out.ifEmpty { base }
+
+    // ② 候选里撞上符号 → 截到符号之前（符号后内容一律不要）
+    //    刻意不含空格、英文点 '.'、连字符 '-'：它们常是名字本身的一部分
+    val cutChars = "（(【[《<「{）)】]》>」}｜|_·．。：:;；~～、，,"
+    val cutIndex = out.indexOfFirst { it in cutChars }
+    if (cutIndex > 0) out = out.substring(0, cutIndex)
+
+    // ③ 清掉末尾悬空的符号/空白
+    out = out.trimEnd(' ', '\u3000', '_', '-', '·', '|', '｜', '.', '。', ':', '：', ';', '；')
+    return out.ifEmpty { substring(0, minOf(length, 1)) }
 }
 
 fun String.fromCookie(): Map<String, String> {

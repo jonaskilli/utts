@@ -25,11 +25,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -91,6 +88,7 @@ import com.github.jing332.tts.TaggedTtsPreviewPlayer
 import com.github.jing332.tts_server_android.R
 import com.github.jing332.tts_server_android.compose.ListGutter
 import com.github.jing332.tts_server_android.compose.LocalBottomBarBehavior
+import com.github.jing332.tts_server_android.compose.systts.common.VoiceOverflowMenu
 import com.github.jing332.tts_server_android.compose.systts.common.VoicePickerDialog
 import com.github.jing332.tts_server_android.service.systts.SystemTtsService
 import com.github.jing332.tts_server_android.service.systts.help.CharacterRecordsFile
@@ -104,7 +102,7 @@ import kotlinx.coroutines.launch
  * **平铺列表**（非分组）：每行=左名字列（主名+别名每行一个、性别色圆点、收藏【】、主角👑）
  * + 右侧两行（11-08 重构）：
  *   第一行=标签框（只放分类 tag，点=换声弹窗 / 长按=随机换声）+ ▶试听（三态）+ ⋮菜单
- *   （❤️🚶😈 标记 toggle + 删除配置项，与换声弹窗 VoiceOverflowMenu 同款）；
+ *   （❤️🚶😈 标记 toggle + 删除配置项，11-10 起直接复用 VoiceOverflowMenu 共用组件）；
  *   第二行=注释行：发音人 displayName·插件名(前4字) 在左，已点亮标记 chip 钉行尾（点击取消）。
  *   宽度不够时削减顺序=displayName 先缩（chip/插件名保住）——11-08 用户令。
  * 除右侧标签框/▶/⋮ 各自吃掉点击外，整行其余区域点击=选中角色（11-08 用户令「点击范围」）。
@@ -1052,7 +1050,7 @@ private fun emojiMarkOf(emoji: String): String =
  * 右侧两行：
  *   第一行=发音人标签框（只放**分类 tag**如「女青年01」，点=换声、长按=随机换声）
  *     + ▶ 试听（▶/…/■ 三态，TaggedTtsPreviewPlayer 全局单实例）
- *     + ⋮ 菜单（❤️🚶😈 标记 toggle + 删除配置项，与换声弹窗 VoiceOverflowMenu 同款）；
+ *     + ⋮ 菜单（❤️🚶😈 标记 toggle + 删除配置项，11-10 起复用 VoiceOverflowMenu）；
  *   第二行=注释行：displayName（查不到=tag+⚠）·插件名（前4字）在左，
  *     已点亮标记 chip 钉**行尾**（点击即取消——QQ 式；11-08 用户令：
  *     chip 不够宽时削的是 displayName 字数，chip 永不被挤掉、更不竖排）。
@@ -1322,52 +1320,19 @@ private fun RoleRow(
                                     .clickable(onClick = onPreview)
                                     .padding(horizontal = 8.dp, vertical = 12.dp),
                             )
-                            // ⋮ 菜单（与换声弹窗 VoiceOverflowMenu 同款）：
-                            // 标记三项 toggle（点亮打勾、菜单不关可连点）+ 删除配置项
-                            var menuOpen by remember { mutableStateOf(false) }
-                            Box {
-                                Text(
-                                    "⋮",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    modifier = Modifier
-                                        .clickable { menuOpen = true }
-                                        // 左右各 8dp（同 ▶，见上方沿革注释）——撤掉原 offset(+6dp)
-                                        .padding(horizontal = 8.dp, vertical = 12.dp),
-                                )
-                                DropdownMenu(
-                                    expanded = menuOpen,
-                                    onDismissRequest = { menuOpen = false },
-                                ) {
-                                    VoiceMarksFile.MARK_ITEMS.forEach { (mark, emojiText, label) ->
-                                        DropdownMenuItem(
-                                            text = { Text(label) },
-                                            leadingIcon = { Text(emojiText) },
-                                            trailingIcon = {
-                                                if (mark in marks) Icon(
-                                                    Icons.Filled.Check,
-                                                    contentDescription = "已点亮",
-                                                )
-                                            },
-                                            onClick = { onToggleMark(mark) },
-                                        )
-                                    }
-                                    HorizontalDivider()
-                                    DropdownMenuItem(
-                                        text = { Text("删除配置项", color = MaterialTheme.colorScheme.error) },
-                                        leadingIcon = {
-                                            Icon(
-                                                Icons.Filled.Delete,
-                                                contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.error,
-                                            )
-                                        },
-                                        onClick = {
-                                            menuOpen = false
-                                            onDeleteConfig()
-                                        },
-                                    )
-                                }
-                            }
+                            // ⋮ 菜单（11-10 用户令「换成换声面板那版」，改用共用组件）：
+                            // 旧实现是本地复制的一份——用文本 "⋮" 当触发图标（细、点距松、
+                            // 触控区只有文字大小），且删除项没有置灰能力（无锚点时仍可点）。
+                            // 换声弹窗那版是 Icon(MoreVert) + IconButton 48dp 触控盒 +
+                            // deleteEnabled 置灰，是标准做法，故统一到 VoiceOverflowMenu。
+                            // 行为不变：标记三项 toggle（点亮打勾、菜单不关可连点）+ 删除配置项；
+                            // 标记键=rec.voice（与候选行同口径）；无锚点配置项时删除项置灰。
+                            VoiceOverflowMenu(
+                                marks = marks,
+                                onToggleMark = onToggleMark,
+                                deleteEnabled = hasAnchor,
+                                onDelete = onDeleteConfig,
+                            )
                         }
                     }
                     // ===== 第二行：标注行（分类纯文字 · 插件名 + emoji）=====

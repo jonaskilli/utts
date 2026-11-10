@@ -1493,6 +1493,11 @@ fun VoicePickerDialog(
                         Modifier
                             .fillMaxWidth()
                             .weight(1f)
+                            // 11-10 用户令：候选列表左缘比上方的分类框/搜索框**再右移 8dp**——
+                            // 列表与控件左缘严格对齐看着"贴死"，稍错开一层更像列表。
+                            // 用户口径：「选择插件的插件列表、声音列表都是这样，跟上方搜索框比
+                            // 稍微右移一点」。两处 LazyColumn（绑定/非绑定）同步，别只改一处。
+                            .padding(start = 8.dp)
                             .padding(top = 6.dp),
                     ) {
                         if (filtered.isEmpty()) {
@@ -1685,6 +1690,11 @@ fun VoicePickerDialog(
                         Modifier
                             .fillMaxWidth()
                             .weight(1f)
+                            // 11-10 用户令：候选列表左缘比上方的分类框/搜索框**再右移 8dp**——
+                            // 列表与控件左缘严格对齐看着"贴死"，稍错开一层更像列表。
+                            // 用户口径：「选择插件的插件列表、声音列表都是这样，跟上方搜索框比
+                            // 稍微右移一点」。两处 LazyColumn（绑定/非绑定）同步，别只改一处。
+                            .padding(start = 8.dp)
                             .padding(top = 6.dp),
                     ) {
                         if (narrationCandidates.isEmpty()) {
@@ -1877,7 +1887,9 @@ private fun LaunchedEffectOnce(key: Any?, block: suspend kotlinx.coroutines.Coro
 private fun snapParam(v: Float): Float = (kotlin.math.round(v * 100f) / 100f)
 
 /**
- * 行末 ⋮ 菜单（候选行与顶部「当前发音人」行共用，用户 09-17 方案A）。
+ * 行末 ⋮ 菜单（换声弹窗的候选行与顶部「当前发音人」行、**角色列表角色行**共用，
+ * 用户 09-17 方案A；11-10 用户令「角色列表 ⋮ 换成换声面板那版」后角色列表也改走这里，
+ * 不再各复制一份）。
  *
  * 菜单项与候选行**完全同源**：❤️喜欢 / 🚶路人 / 😈坏人（多选 toggle，点亮行尾打勾）
  * + 分隔线 + 🗑 删除配置项（10-04 回退原名，曾试「并随机分配」显歧义；行为不变——删除会立即
@@ -1889,7 +1901,7 @@ private fun snapParam(v: Float): Float = (kotlin.math.round(v * 100f) / 100f)
  * emoji 是彩色字形染不上色（与角色管理 v10 同款），故点亮态交给行尾勾。
  */
 @Composable
-private fun VoiceOverflowMenu(
+internal fun VoiceOverflowMenu(
     marks: List<String>,
     onToggleMark: (String) -> Unit,
     deleteEnabled: Boolean,
