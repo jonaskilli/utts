@@ -130,6 +130,14 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 
+// ===================== 11-11 密钥页固定配色（用户令）=====================
+// 组头=以前的绿色（改版前 5da5a1ae 之前绿主题的 surfaceContainer 槽 #E4F7E8）；
+// 模型区/条目行=与配置项卡片一致的紫白 #F7F2FA。
+// 两者都**不随主题走**——用户要的是"以前那个绿 + 现在那个白"这组固定搭配。
+private val KEY_GROUP_HEADER_COLOR = Color(0xFFE4F7E8)
+private val KEY_CARD_COLOR = Color(0xFFF7F2FA)
+
+
 /**
  * 密钥管理页（KeyManagerActivity）：接口分组密钥列表 + 备份恢复 + 书籍管理。
  * 分组 = 一个接口一张卡；条目两行 = 显示名/当前徽章 + 动作图标居右。
@@ -288,9 +296,8 @@ private fun KeyEntryRow(
     // 否则行底比卡面深一档出现「卡中卡」；红/黄结果字对比由组头绿带与药丸承担
     val cardColor = when {
         selectionMode && checked ->
-            MaterialTheme.colorScheme.error.copy(alpha = 0.12f)
-                .compositeOver(MaterialTheme.colorScheme.surfaceContainerLow)
-        else -> MaterialTheme.colorScheme.surfaceContainerLow
+            MaterialTheme.colorScheme.error.copy(alpha = 0.12f).compositeOver(KEY_CARD_COLOR)
+        else -> KEY_CARD_COLOR
     }
 
     // 10-07 连体卡：条目行并入组 ElevatedCard。勾中浅红底改由本区块 background 表达
@@ -725,7 +732,10 @@ private fun GroupHeaderBlock(
             // lerp(background, surfaceContainerLow, 0.5)（GREEN ≈#F8FCF7）→ 主页子分组行
             // 定稿 B 档 surfaceContainer（#EAF7EF，比页底深约 8 级、比卡底深 3 级），两页同口径。
             // 卡片本体（ElevatedCard surfaceContainerLow）不动——结构（组头）与内容（模型区）分层。
-            MaterialTheme.colorScheme.surfaceContainer
+            // 11-11 用户令「组头恢复之前的绿色」：改版前（5da5a1ae 之前）绿主题组头用的是
+            // surfaceContainer 槽 = #E4F7E8。现改成固定值，四套主题都用同一个绿
+            // （与模型区 #F7F2FA 一样走「不随主题」的固定配色）。
+            KEY_GROUP_HEADER_COLOR
         )
     ) {
         Column(Modifier.padding(vertical = 4.dp)) {
@@ -1671,7 +1681,8 @@ fun KeyManagerScreen(tagRuleId: String, onBack: () -> Unit) {
                                 .fillMaxWidth()
                                 .padding(start = 4.dp, end = 0.dp, top = 10.dp, bottom = 4.dp),
                             colors = CardDefaults.elevatedCardColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+                                // 11-11 用户令：模型区颜色跟配置项卡片一致（#F7F2FA 紫白）
+                                containerColor = KEY_CARD_COLOR
                             )
                         ) {
                         GroupHeaderBlock(
