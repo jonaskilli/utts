@@ -121,13 +121,14 @@ internal fun Item(
     val markEmoji = VoiceMarksFile.emojiOf(marks)
     val nameWithMarks = if (markEmoji.isEmpty()) limitedName else "$limitedName $markEmoji"
 
-    // 11-11 三次修订（用户两轮反馈合并口径）：中性灰 #EEEEEE / 深色 #262626。
+    // 11-11 三次修订定稿：卡面 = 主题 surfaceContainerLow（即用户要的「之前那个中性灰」）。
     // 沿革：①hunyuan 时代吃 M3 默认色（surfaceContainerLow = #F7F2FA，微紫，C*=4.49）
     // → ②10-10「底色中性化」批把中性槽压成纯灰 #F9F9F9（C*=0.01），卡片与页底对比只剩 1.028
     // → ③11-08 试过纯白+6dp 阴影，装机实测「不如以前」回滚
     // → ④11-11 早先按用户令回 #F7F2FA，但用户随即反馈「某些主题下太突兀」（微紫在绿/雾底上串色），
-    //    而退回旧灰 #F9F9F9 又「不够突出」（对紫页底只有 1.004）→ ⑤本档。
-    // 判据见 theme/Theme.kt 的 neutralCardColor()（彩度 0 + 四主题对比 1.107~1.133）。
+    //    退回旧灰 #F9F9F9 又「不够突出」（对紫页底只有 1.004），我试做了四档中性灰，
+    //    用户「没啥感觉」→ ⑤最终按用户令回退到 surfaceContainerLow，不再自造色值。
+    // 细节与取舍见 theme/Theme.kt 的 neutralCardColor()。
     // ⚠️ 只改颜色、不加阴影——11-08 翻车的是 6dp 重阴影，不是颜色。
     ElevatedCard(
         modifier = modifier,
