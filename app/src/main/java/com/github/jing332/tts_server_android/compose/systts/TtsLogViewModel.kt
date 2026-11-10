@@ -79,6 +79,37 @@ class TtsLogViewModel : ViewModel() {
     // 实时滚动开关 - 勾选后新日志自动滚动到底部（默认不勾选）
     val autoScrollToBottom = mutableStateOf(false)
 
+    // ===== 书 / 章范围（11-10 用户令「日志分小说、分章节」）=====
+    // 语义：空值=不限；scopeBook 非空=只看该书；scopeChapter 非空=只看该章。
+    // ⚠️ 这里的「切书」只切**日志查看范围**，绝不写 cunfang.txt、不动角色管理的当前书
+    //（用户 11-10 明确：「切书就在日志里生效」）——所以状态只活在内存里、不持久化：
+    // 重进日志页回到「全部」，避免上次的筛选把人困在一本书里看不到新日志。
+    val scopeBook = mutableStateOf<String?>(null)
+    val scopeChapter = mutableStateOf<String?>(null)
+
+    /** 日志里出现过的书（按首次出现顺序，供切换弹窗列表用） */
+    val knownBooks: List<String>
+        get() = logs.asSequence()
+            .mapNotNull { it.bookName.takeIf { b -> b.isNotBlank() } }
+            .distinct()
+            .toList()
+
+    /** 某本书下出现过的章（按首次出现顺序），带每章条数 */
+    fun chaptersOf(book: String): List<Pair<String, Int>> =
+        logs.asSequence()
+            .filter { it.bookName == book }
+            .mapNotNull { it.chapterTitle.takeIf { c -> c.isNotBlank() } }
+            .toList()
+            .groupingBy { it }
+            .eachCount()
+            .toList()
+
+    /** 清掉书章范围（筛选弹窗「全部书籍」/ 切书后回到不限） */
+    fun clearScope() {
+        scopeBook.value = null
+        scopeChapter.value = null
+    }
+
     // DEBUG(D) 级开关（用户 09-10 定稿）：**默认开启**——插件开发靠 console.debug 调试；
     // 嫌吵的用户在筛选里关掉后 D 级完全不进列表。持久化到配置，避免每次启动重关。
     val showDebugLogs = com.github.jing332.tts_server_android.conf.SystemTtsConfig.isDebugLogEnabled
@@ -314,6 +345,24 @@ class TtsLogViewModel : ViewModel() {
 
 
     private fun toLogEntry(line: String): LogEntry {
+        // 带书章的新格式（11-10，v1.7 规则）：
+        //   time | LEVEL | configId | roleName | §bookName | chapterTitle | message
+        // 判别靠 bookName 前的固定标记 §：旧日志行里没有这一节，不会误判；正文里的 " | "
+        // 也不会被当成字段分隔（message 永远是最后一段，非贪婪匹配 book/chapter 即可）。
+        // ⚠️ 必须排在最前：这行的前半段与 09-08 老格式长得一样，先跑老正则会把它啃掉。
+        Regex(
+            "^(\\d{4}-\\d\\d-\\d\\d \\d\\d:\\d\\d:\\d\\d\\.\\d{3}) \\|\\s*([A-Z]+)\\s*\\|\\s*(\\d*)\\s*\\|\\s*(.*?)\\s*\\|\\s*§(.*?)\\s*\\|\\s*(.*?)\\s*\\|\\s*(.*)$"
+        ).find(line)?.let { m ->
+            return LogEntry(
+                level = m.groupValues[2].toLogLevel(),
+                time = m.groupValues[1],
+                message = m.groupValues[7],
+                configId = m.groupValues[3].toLongOrNull() ?: 0L,
+                roleName = m.groupValues[4],
+                bookName = m.groupValues[5],
+                chapterTitle = m.groupValues[6],
+            )
+        }
         // 新格式（09-08）：time | LEVEL | configId | roleName | message —— configId/roleName
         // 随 MDC 落盘，重启后旧日志行仍可点开快捷面板；configId 恒为数字作判别，兼容旧三段格式
         Regex(

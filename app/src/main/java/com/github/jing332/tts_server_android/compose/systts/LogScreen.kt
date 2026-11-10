@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -75,6 +76,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -171,6 +173,20 @@ internal class LogGroups(
         class Header(val date: String) : Item()
         class Bare(val index: Int) : Item()
 
+        // 书籍条（11-10 用户令「日志分小说、然后还要分章节」 / 方案 A）：
+        // 换书处插一条，列出书名与本书条目数；点击可切书（只切日志查看范围）
+        class BookBar(val book: String, val count: Int) : Item()
+
+        // 章节签：跨章处插一条，列出章名与本章条数；点击跳到本章首条。
+        // anchorEntry = 本章第一条的**条目下标**（不是列表项下标）——跳转时经
+        // LogGroups.listItemFor 换算成列表位置，不必在渲染层反查。
+        class ChapterBar(
+            val book: String,
+            val chapter: String,
+            val anchorEntry: Int,
+            val count: Int,
+        ) : Item()
+
         // 一次请求管线的归组（10-10 行流改版：渲染层不再画卡，只保留归组供
         // 搜索跳转/多选粒度/头行药丸推导用）。head=「请求音频」主行；
         // members=结果子行(indent>0)/插件过程行/其他主行(重试/备用/失败)。
@@ -196,6 +212,9 @@ internal class LogGroups(
 
     fun entriesOf(item: Item): List<Int> = when (item) {
         is Item.Header -> emptyList()
+        // 书条/章节签是纯装饰性分隔头，不带可复制条目（多选/复制不把它们算进去）
+        is Item.BookBar -> emptyList()
+        is Item.ChapterBar -> emptyList()
         is Item.Bare -> listOf(item.index)
         // ⚠️ 吸收条必须算进本组（10-12 用户实报「有些信息无法复制了」）：absorbError 是
         // 失败全文条（真因 + 正文 + 发音人信息），10-11 起由组头代画、**不进 members**——
@@ -341,18 +360,72 @@ internal class LogGroups(
             }
             closeCard()
 
-            // 插日期签 + 建条目→列表项映射
-            val finalItems = ArrayList<Item>(raw.size + 4)
+            // 插书条/章节签/日期签 + 建条目→列表项映射
+            //
+            // 层级（方案 A，11-10 用户拍板）：书 > 章 > 日期 > 行。
+            // 三者都只在「变化处」出现：同书连续不重复画书条，同章连续不重复画章节签，
+            // 同一天不重复画日期签——所以正常阅读时一屏最多各一条，不会顶掉正文。
+            // ⚠️ 书/章取的是**锚点条目**（组头或裸行）自身的字段：请求行才带书章，
+            // 结果子行/插件行没有，用它们判断会漏。
+            val finalItems = ArrayList<Item>(raw.size + 8)
             val map = IntArray(list.size) { -1 }
             var lastDate: String? = null
+            var lastBook: String? = null
+            var lastChapter: String? = null
+
+            // 先统计每本书/每章各有多少条（书条/章节签要显示「N 条」键 + 首条下标）
+            fun anchorOf(item: Item): Int = when (item) {
+                is Item.Bare -> item.index
+                is Item.Group -> item.head
+                else -> -1
+            }
+            val bookCount = HashMap<String, Int>()
+            val bookStart = HashMap<String, Int>()            // 书 -> 首条目下标
+            val chapterCount = HashMap<Pair<String, String>, Int>()
+            val chapterStart = HashMap<Pair<String, String>, Int>()  // (书,章) -> 首条目下标
             raw.forEach { item ->
-                val anchorIdx = when (item) {
-                    is Item.Bare -> item.index
-                    is Item.Group -> item.head
-                    is Item.Header -> -1
+                val ai = anchorOf(item)
+                if (ai < 0) return@forEach
+                val e = list[ai]
+                if (e.bookName.isBlank()) return@forEach
+                bookCount[e.bookName] = (bookCount[e.bookName] ?: 0) + 1
+                if (!bookStart.containsKey(e.bookName)) bookStart[e.bookName] = ai
+                if (e.chapterTitle.isNotBlank()) {
+                    val k = e.bookName to e.chapterTitle
+                    chapterCount[k] = (chapterCount[k] ?: 0) + 1
+                    if (!chapterStart.containsKey(k)) chapterStart[k] = ai
                 }
+            }
+
+            raw.forEach { item ->
+                val anchorIdx = anchorOf(item)
                 if (anchorIdx >= 0) {
-                    val t = list[anchorIdx].time
+                    val e = list[anchorIdx]
+                    // ① 书条：换书处（无书名的老日志不画，避免出现空条）
+                    if (e.bookName.isNotBlank() && e.bookName != lastBook) {
+                        finalItems.add(Item.BookBar(e.bookName, bookCount[e.bookName] ?: 0))
+                        lastBook = e.bookName
+                        // 换书必然换章：清掉章的游标，让新书第一章也出章节签
+                        lastChapter = null
+                    }
+                    // ② 章节签：跨章处（同书内才画；章节名为空则退化成只有书条）
+                    if (e.bookName.isNotBlank() && e.chapterTitle.isNotBlank()
+                        && e.chapterTitle != lastChapter
+                    ) {
+                        val k = e.bookName to e.chapterTitle
+                        finalItems.add(
+                            Item.ChapterBar(
+                                book = e.bookName,
+                                chapter = e.chapterTitle,
+                                // 首条下标优先用统计值；缺失时退回当前锚点（不会跳到 0）
+                                anchorEntry = chapterStart[k] ?: anchorIdx,
+                                count = chapterCount[k] ?: 1,
+                            )
+                        )
+                        lastChapter = e.chapterTitle
+                    }
+                    // ③ 日期签
+                    val t = e.time
                     if (t.length >= 10) {
                         val d = t.substring(0, 10)
                         if (d != lastDate) {
@@ -366,7 +439,7 @@ internal class LogGroups(
                     is Item.Bare -> map[item.index] = finalItems.size
                     is Item.Group -> (listOf(item.head) + item.members)
                         .forEach { map[it] = finalItems.size }
-                    is Item.Header -> {}
+                    else -> {}
                 }
                 finalItems.add(item)
             }
@@ -408,6 +481,10 @@ internal fun LogScreen(
     onLocateOriginal: (LogEntry) -> Unit = {},
     // 定位高亮：命中条目黄底闪现（完整流里看到前后文），上层 2s 后清除
     locateHighlight: LogEntry? = null,
+    // 书籍条右侧「切换书」（11-10 方案 A）：null=不显示切换入口（如转发器日志页）
+    onSwitchBook: ((String) -> Unit)? = null,
+    // 点章节签跳章：上层可借此同步「当前章」用于筛选联动
+    onJumpToChapter: ((book: String, chapter: String) -> Unit)? = null,
 ) {
     ControlBottomBarVisibility(listState, LocalBottomBarBehavior.current)
     val scope = rememberCoroutineScope()
@@ -664,6 +741,30 @@ internal fun LogScreen(
         ) {
                 itemsIndexed(currentGroups.items, key = { index, _ -> index }) { _, item ->
                     when (item) {
+                        // 书籍条（方案 A，11-10 用户拍板）：换书处出现，列出书名 + 本书条数，
+                        // 右侧「切换书」入口。只切日志查看范围，不动角色管理里的当前书
+                        is LogGroups.Item.BookBar -> {
+                            BookBarRow(
+                                book = item.book,
+                                count = item.count,
+                                onSwitch = onSwitchBook?.let { { it(item.book) } },
+                            )
+                        }
+                        // 章节签：跨章处出现，列出章名 + 本章条数，点击跳到本章首条
+                        is LogGroups.Item.ChapterBar -> {
+                            ChapterBarRow(
+                                book = item.book,
+                                chapter = item.chapter,
+                                count = item.count,
+                                onClick = {
+                                    val target = currentGroups.listItemFor(item.anchorEntry)
+                                    onJumpToChapter?.invoke(item.book, item.chapter)
+                                    scope.launch {
+                                        runCatching { listState.animateScrollToItem(target) }
+                                    }
+                                },
+                            )
+                        }
                         is LogGroups.Item.Header -> {
                             // 日期签：每天第一条上方出现一次（10-06：日期不再逐行重复）。
                             // 签盒 start 7 + 签内衬 9 = 签文字 16，与裸行/卡内正文同线
@@ -1423,3 +1524,111 @@ private fun LogEntryBody(
 // RoleNamePill（角色名圆角丸）已于 10-12 随「角色名改纯字色」整体删除——
 // 它只被正文渲染那一处调用，用户否掉丸形态后即成死代码。
 // 若要复活「丸」形态，先读 remapMetaColor 与 LogEntryBody 里的终稿注释（为什么撤）。
+
+// ===================== 书籍条 / 章节签（11-10 用户令「日志分小说、分章节」，方案 A）=====================
+// 层级：书 > 章 > 日期 > 行。两者都是「分隔头」，不是数据行：
+//   · 书条：底色 secondaryContainer 往卡底混 10%（与日期签同算式，但更深一档），
+//     整行可点右侧「切换书」，只切日志查看范围、不动角色管理的当前书；
+//   · 章节签：底色再淡一档（bookfill 0.06），左侧章节序号小牌 + 章名 + 条数，
+//     整行点击跳到本章首条。
+// 两者的左缘都落 16dp 内容线（与裸行/日期签文字/卡内正文同线），不各自另起一列。
+@Composable
+private fun BookBarRow(
+    book: String,
+    count: Int,
+    onSwitch: (() -> Unit)?,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                lerp(
+                    MaterialTheme.colorScheme.secondaryContainer,
+                    MaterialTheme.colorScheme.surfaceContainerLow,
+                    0.10f
+                )
+            )
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = "《$book》",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.primary,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = if (count > 0) "$count 条" else "",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(end = 8.dp),
+        )
+        if (onSwitch != null) {
+            Text(
+                text = "切换书",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier
+                    .clip(AppShapes.sm)
+                    .clickable(onClick = onSwitch)
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun ChapterBarRow(
+    book: String,
+    chapter: String,
+    count: Int,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                lerp(
+                    MaterialTheme.colorScheme.secondaryContainer,
+                    MaterialTheme.colorScheme.surfaceContainerLow,
+                    0.55f
+                )
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // 章节序号小牌：只从章名里取「第N章」这一段，取不到就整串当章名
+        val idx = Regex("^第\\s*[0-9一二三四五六七八九十百零]+\\s*章").find(chapter)?.value
+        if (idx != null) {
+            Text(
+                text = idx,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier
+                    .clip(AppShapes.xs)
+                    .background(MaterialTheme.colorScheme.secondaryContainer)
+                    .padding(horizontal = 6.dp, vertical = 1.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+        }
+        Text(
+            // 已带序号就不再重复一遍序号前缀
+            text = idx?.let { chapter.removePrefix(it).trim() }?.ifEmpty { chapter } ?: chapter,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = if (count > 0) "$count 条" else "",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}

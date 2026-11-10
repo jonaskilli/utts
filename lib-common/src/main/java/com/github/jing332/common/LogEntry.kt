@@ -25,6 +25,11 @@ data class LogEntry(
     // 合并组的末条时间（与 time 同格式）：行头显示「首条–末条」完整时间用
     //（10-11 用户令：两头都要完整，不能只写秒钟）。repeatCount<=1 时为空串
     val endTime: String = "",
+    // 书名 / 章标题（11-10 用户令「日志分小说，然后还要分章节」）：
+    // 由朗读规则 v1.7 随片段透传，请求行经 MDC 落盘。空串=旧规则/单语音/定位失败，
+    // 日志页按「无书章」处理（不画书条、不画章节签），与旧行为完全一致
+    val bookName: String = "",
+    val chapterTitle: String = "",
 ) :
     Parcelable {
     fun getLevelChar(): String = level.toLogLevelChar()

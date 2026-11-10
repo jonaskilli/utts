@@ -35,6 +35,13 @@ fun LogFilterDialog(
     onAutoScrollToggle: () -> Unit,
     showDebugLogs: Boolean,
     onDebugLogsToggle: () -> Unit,
+    // 按书/章收窄（11-10 用户令「日志分小说、分章节」）：
+    // scopeBook 非空=只看该书；scopeChapter 非空=只看该章；都空=不限
+    scopeBook: String? = null,
+    scopeChapter: String? = null,
+    onShowAllBooks: () -> Unit = {},
+    onScopeBookToggle: () -> Unit = {},
+    onScopeChapterToggle: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
     AlertDialog(
@@ -125,6 +132,54 @@ fun LogFilterDialog(
                         onClick = { onAutoScrollToggle() },
                         label = { Text("实时显示最新日志") },
                     )
+                }
+
+                // 按书 / 章（11-10 用户令「日志分小说、分章节」）：
+                // 「只看本书/只看本章」是开关，「切到别的书」走日志页书条右侧的「切换书」，
+                // 这里不做下拉——同一件事两个入口会互相打架。
+                // 老规则/单语音模式下日志没有书章，整组置灰并给一句说明，不显示空开关。
+                if (scopeBook != null || scopeChapter != null) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    HorizontalDivider()
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = "按书 / 章",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    // 当前范围一句话说清（比开关本身更容易读懂"我现在在看什么"）
+                    Text(
+                        text = buildString {
+                            append("当前：")
+                            append(scopeBook ?: "全部书籍")
+                            if (!scopeChapter.isNullOrBlank()) append(" · ").append(scopeChapter)
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        FilterChip(
+                            selected = scopeBook == null,
+                            onClick = { onShowAllBooks() },
+                            label = { Text("全部书籍") },
+                        )
+                        FilterChip(
+                            selected = scopeBook != null,
+                            onClick = { onScopeBookToggle() },
+                            label = { Text("只看本书") },
+                        )
+                        FilterChip(
+                            selected = scopeChapter != null,
+                            onClick = { onScopeChapterToggle() },
+                            label = { Text("只看本章") },
+                        )
+                    }
                 }
             }
         },

@@ -116,15 +116,37 @@ class TextProcessor : ITextProcessor {
 
         fun add(vararg fragments: TextSegment) {
             fragments.forEach { f ->
+                // 书/章（v1.7）必须原样带过去：这里重建 TextSegment 时漏一个字段，
+                // 日志里就整条链都拿不到书章（add 是唯一出口，所有片段都经它）
                 resultList.add(
-                    TextSegment(text = replace(f.text, ReplaceExecution.AFTER), f.tts, f.roleName)
+                    TextSegment(
+                        text = replace(f.text, ReplaceExecution.AFTER),
+                        tts = f.tts,
+                        roleName = f.roleName,
+                        bookName = f.bookName,
+                        chapterTitle = f.chapterTitle,
+                    )
                 )
             }
         }
 
-        fun splitAndAdd(text: String, config: TtsConfiguration, roleName: String = "") {
+        fun splitAndAdd(
+            text: String,
+            config: TtsConfiguration,
+            roleName: String = "",
+            bookName: String = "",
+            chapterTitle: String = "",
+        ) {
             splitText(text).forEach {
-                add(TextSegment(text = it, tts = config, roleName = roleName))
+                add(
+                    TextSegment(
+                        text = it,
+                        tts = config,
+                        roleName = roleName,
+                        bookName = bookName,
+                        chapterTitle = chapterTitle,
+                    )
+                )
             }
         }
 
@@ -160,7 +182,11 @@ class TextProcessor : ITextProcessor {
                                     "tag=${effectiveTag}, id=${txtWithTag.id}"
                                 )
                             )
-                        splitAndAdd(txtWithTag.text, config, txtWithTag.roleName)
+                        // 书/章取规则 v1.7 返回的字段（旧规则为空串，后续按无书章处理）
+                        splitAndAdd(
+                            txtWithTag.text, config, txtWithTag.roleName,
+                            txtWithTag.bookName, txtWithTag.chapterTitle,
+                        )
                     }
                 }
             } else {

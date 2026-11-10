@@ -13,6 +13,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,6 +28,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
 
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
@@ -75,7 +77,9 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.runtime.CompositionLocalProvider
@@ -100,6 +104,9 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
     // 日志文件列表弹窗（用户 09-08：文件夹点开自由选择文件，不再直接扔给外部查看器）
     var showLogFilesDialog by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
+    // 书籍切换弹窗（11-10 方案 A）：点书籍条右侧「切换书」打开，只改日志查看范围。
+    // 非空=弹窗打开，值为点进来的那本书（用于高亮当前书）
+    var bookPickerFor by remember { mutableStateOf<String?>(null) }
     // 「只看匹配」退役（10-08 log-ui-1008 ②拍板）：搜索即筛选——输入立刻只剩
     // 匹配条目，不再两段式开关绕弯；跳转目标直接在过滤后的列表里
     val listState = rememberLazyListState()
@@ -108,15 +115,24 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
     fun LogEntry.matchesQuery(q: String): Boolean =
         message.contains(q, ignoreCase = true) || time.contains(q, ignoreCase = true)
 
-    // 基础列表 = 等级/插件筛选结果；搜索词非空即按关键字实时过滤（10-08 ②拍板：
-    // 打字列表跟着缩，不再是「搜完只跳转、列表纹丝不动」）
+    // 基础列表 = 等级/插件筛选结果 → 书/章收窄（11-10）→ 搜索词实时过滤。
+    // 书/章收窄放在搜索之前：搜索是在「选定范围内」找词，符合直觉
     val displayLogs by remember(vm) {
         derivedStateOf {
             val q = searchQuery.trim()
-            if (q.isNotEmpty())
-                vm.filteredLogs.filter { it.matchesQuery(q) }
-            else
-                vm.filteredLogs
+            val base = vm.filteredLogs
+                .let { list ->
+                    // 「只看本书 / 只看本章」：由 VM 持有，供筛选弹窗与本处共用
+                    val b = vm.scopeBook.value
+                    val c = vm.scopeChapter.value
+                    when {
+                        b.isNullOrBlank() && c.isNullOrBlank() -> list
+                        b.isNullOrBlank() -> list.filter { it.chapterTitle == c }
+                        c.isNullOrBlank() -> list.filter { it.bookName == b }
+                        else -> list.filter { it.bookName == b && it.chapterTitle == c }
+                    }
+                }
+            if (q.isNotEmpty()) base.filter { it.matchesQuery(q) } else base
         }
     }
 
@@ -128,6 +144,11 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
             else displayLogs.count { it.matchesQuery(q) }
         }
     }
+
+    // 「当前在看哪本书」：日志里最近一条带书名的条目所属书。
+    // 筛选弹窗「只看本书」用它取默认值——比让人从下拉里再挑一次少一步
+    fun currentBookInView(): String? =
+        vm.logs.lastOrNull { it.bookName.isNotBlank() }?.bookName
 
     // 归组结果（10-06 全链卡）：与 LogScreen 共用同一实例——搜索跳转要把条目下标
     // 换算成列表项下标（一张卡=一个列表项），必须用同一份归组才不会错位
@@ -503,6 +524,61 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
             showLocateKey = isFiltered,
             onLocateOriginal = { entry -> locateOriginal(entry) },
             locateHighlight = locateHighlight,
+            // 书籍条右侧「切换书」：开书单弹窗（只切日志查看范围，用户 11-10 明确）
+            onSwitchBook = { bookPickerFor = it },
+            // 点章节签只负责滚动到本章首条（滚动已在 LogScreen 内完成，这里不再改筛选——
+            // 一改 scopeChapter 列表就重排，刚滚到的位置会立刻错位）
+        )
+    }
+
+    // 书籍切换弹窗（11-10 方案 A）：只切「日志看哪本书」，不写 cunfang.txt、
+    // 不动角色管理的当前书（用户 11-10 明确「切书就在日志里生效」）。
+    // 版式照角色管理的书籍列表：当前书=主色竖条 + 主色书名，其余=彩色圆点。
+    bookPickerFor?.let { currentBook ->
+        val books = vm.knownBooks
+        AlertDialog(
+            containerColor = androidx.compose.material3.MaterialTheme.colorScheme.surfaceContainerLow,
+            onDismissRequest = { bookPickerFor = null },
+            title = { Text("书籍列表") },
+            text = {
+                Column(
+                    Modifier
+                        .heightIn(max = 380.dp)
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    if (books.isEmpty()) {
+                        Text(
+                            "日志里还没有书章信息（需朗读规则 v1.7 起）",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    // 「全部书籍」置顶：清掉书章范围，回到完整时间流
+                    BookPickRow(
+                        name = "全部书籍",
+                        count = vm.logs.size,
+                        isCurrent = vm.scopeBook.value == null,
+                        isAll = true,
+                    ) { vm.clearScope(); bookPickerFor = null }
+                    books.forEachIndexed { idx, book ->
+                        val isCurrent = vm.scopeBook.value == book
+                        BookPickRow(
+                            name = book,
+                            count = vm.logs.count { it.bookName == book },
+                            isCurrent = isCurrent,
+                            dotColor = BOOK_PICK_DOTS[idx % BOOK_PICK_DOTS.size],
+                        ) {
+                            // 切书=重设范围；章节归属变了，顺手清掉章范围，免得锁在旧书的章上
+                            vm.scopeBook.value = book
+                            vm.scopeChapter.value = null
+                            bookPickerFor = null
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { bookPickerFor = null }) { Text(stringResource(R.string.cancel)) }
+            },
         )
     }
 
@@ -590,6 +666,27 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
             onAutoScrollToggle = { vm.autoScrollToBottom.value = !vm.autoScrollToBottom.value },
             showDebugLogs = vm.showDebugLogs.value,
             onDebugLogsToggle = { vm.showDebugLogs.value = !vm.showDebugLogs.value },
+            // 按书/章（11-10）：显示当前范围名，供弹窗画「当前：…」与三枚开关
+            scopeBook = vm.scopeBook.value,
+            scopeChapter = vm.scopeChapter.value,
+            onShowAllBooks = { vm.clearScope() },
+            // 只看本书：开=锁当前书（清章范围）；关=回到全部
+            onScopeBookToggle = {
+                vm.scopeBook.value = if (vm.scopeBook.value != null) null else currentBookInView()
+                vm.scopeChapter.value = null
+            },
+            // 只看本章：开=锁当前书+当前章（章取列表里最后一条的书章）；关=清章范围
+            onScopeChapterToggle = {
+                if (vm.scopeChapter.value != null) {
+                    vm.scopeChapter.value = null
+                } else {
+                    val last = vm.logs.lastOrNull { it.chapterTitle.isNotBlank() }
+                    if (last != null) {
+                        vm.scopeBook.value = last.bookName.takeIf { it.isNotBlank() }
+                        vm.scopeChapter.value = last.chapterTitle
+                    }
+                }
+            },
             onDismiss = { vm.showFilterDialog.value = false }
         )
     }
@@ -662,5 +759,60 @@ private fun openLogFileWithViewer(context: android.content.Context, file: java.i
                 }
             )
         }
+    }
+}
+
+// ===================== 日志「切换书」弹窗的行（11-10 方案 A）=====================
+// 与角色管理 BookRow 同语汇：当前书=主色竖条 + 主色书名，其余=彩色圆点 + 常规色。
+// 额外带「N 条」计数——日志页选书是为看历史，条数能让人知道这本书有多少料。
+private val BOOK_PICK_DOTS = listOf(
+    Color(0xFF7E57C2), Color(0xFF5C6BC0), Color(0xFF26A69A), Color(0xFF8D6E63),
+    Color(0xFF66BB6A), Color(0xFFEC407A), Color(0xFFFF7043), Color(0xFF42A5F5),
+)
+
+@Composable
+private fun BookPickRow(
+    name: String,
+    count: Int,
+    isCurrent: Boolean,
+    isAll: Boolean = false,
+    dotColor: Color = Color(0xFF7E57C2),
+    onClick: () -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 6.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // 行首标记位固定 16dp：当前书=主色竖条 / 其余=5dp 彩色圆点 → 书名左缘始终对齐
+        Box(Modifier.width(16.dp), contentAlignment = Alignment.CenterStart) {
+            if (isCurrent) {
+                Box(
+                    Modifier
+                        .width(3.dp)
+                        .height(18.dp)
+                        .background(MaterialTheme.colorScheme.primary, AppShapes.xs)
+                )
+            } else if (!isAll) {
+                Box(Modifier.size(5.dp).background(dotColor, CircleShape))
+            }
+        }
+        Text(
+            text = name,
+            // 15sp：与角色管理书籍行同档（bodyLarge 16sp 在弹窗里偏大，降到 15 仍高于次要信息）
+            style = MaterialTheme.typography.bodyLarge.copy(fontSize = 15.sp),
+            color = if (isCurrent) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = "$count 条",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }

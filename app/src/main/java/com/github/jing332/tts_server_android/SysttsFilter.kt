@@ -53,6 +53,10 @@ class SysttsFilter : Filter<ILoggingEvent>() {
                     configId = event.mdcPropertyMap["configId"]?.toLongOrNull() ?: 0L,
                     // 实时角色名同走 MDC（多角色对话请求才有值）
                     roleName = event.mdcPropertyMap["roleName"] ?: "",
+                    // 书/章（v1.7 规则，11-10 用户令「日志分小说、分章节」）：
+                    // 同样随 MDC 落盘，重启后旧日志行仍可按书/章归组；无值即空串
+                    bookName = event.mdcPropertyMap["bookName"] ?: "",
+                    chapterTitle = event.mdcPropertyMap["chapterTitle"] ?: "",
                 )
             )
 

@@ -963,6 +963,12 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                         org.slf4j.MDC.put("configId", configId.toString())
                         if (e.request.roleName.isNotBlank())
                             org.slf4j.MDC.put("roleName", e.request.roleName)
+                        // 书/章（v1.7，用户 11-10「日志分小说、分章节」）：同走 MDC 落盘，
+                        // 重启后旧日志行仍按书/章归组。空串不写——老的三种解析格式原样兼容
+                        if (e.request.bookName.isNotBlank())
+                            org.slf4j.MDC.put("bookName", e.request.bookName)
+                        if (e.request.chapterTitle.isNotBlank())
+                            org.slf4j.MDC.put("chapterTitle", e.request.chapterTitle)
                         logI("请求音频：" + e.request.text())
                         // 降级兜底提示：规则 JS 分析失败会把文本直接投给兜底标签，
                         // 请求行与正常请求无异、看不出是兜底。判定：括号4 本职是『』括号发音人，
@@ -998,6 +1004,8 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                     } finally {
                         org.slf4j.MDC.remove("configId")
                         org.slf4j.MDC.remove("roleName")
+                        org.slf4j.MDC.remove("bookName")
+                        org.slf4j.MDC.remove("chapterTitle")
                     }
                 }
 

@@ -177,8 +177,12 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
         prefetchedCostMs: Long = 0,
         roleName: String = "",
         failoverFromTag: String? = null,
+        // v1.7 书/章：随片段一路带到 RequestPayload，最终进日志行。
+        // 重试/切备用的递归调用必须原样透传，否则失败链上的那条日志会丢掉书章
+        bookName: String = "",
+        chapterTitle: String = "",
     ) {
-        val request = RequestPayload(params, config, roleName, failoverFromTag)
+        val request = RequestPayload(params, config, roleName, failoverFromTag, bookName, chapterTitle)
         suspend fun retry() {
             CachedEngineManager.removeEngine(config.source)
             delay(context.cfg.retryDelay())
@@ -202,6 +206,7 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
                 requestAndProcess(
                     channel, params, config.standbyConfig, 0, maxRetries,
                     roleName = roleName, failoverFromTag = fromTag,
+                    bookName = bookName, chapterTitle = chapterTitle,
                 )
             } else {
                 val next = retries + 1
@@ -217,6 +222,7 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
                 requestAndProcess(
                     channel, retryParams, config, next, maxRetries,
                     roleName = roleName, failoverFromTag = failoverFromTag,
+                    bookName = bookName, chapterTitle = chapterTitle,
                 )
             }
         }
@@ -326,17 +332,27 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
                                     channel, segParams, segment.tts,
                                     prefetchedStream = prefetched.stream,
                                     prefetchedCostMs = prefetched.costMs,
-                                    roleName = segment.roleName
+                                    roleName = segment.roleName,
+                                    bookName = segment.bookName,
+                                    chapterTitle = segment.chapterTitle,
                                 )
                             } else {
                                 // 无预取（首段/预取失败），正常请求
-                                requestAndProcess(channel, segParams, segment.tts, roleName = segment.roleName)
+                                requestAndProcess(
+                                    channel, segParams, segment.tts,
+                                    roleName = segment.roleName,
+                                    bookName = segment.bookName,
+                                    chapterTitle = segment.chapterTitle,
+                                )
                             }
 
                             // 启动下一段的预取请求（与当前段的处理并行执行）
                             if (index + 1 < list.size) {
                                 val nextSeg = list[index + 1]
-                                val nextRequest = RequestPayload(params.copy(text = nextSeg.text), nextSeg.tts, nextSeg.roleName)
+                                val nextRequest = RequestPayload(
+                                    params.copy(text = nextSeg.text), nextSeg.tts, nextSeg.roleName,
+                                    bookName = nextSeg.bookName, chapterTitle = nextSeg.chapterTitle,
+                                )
                                 prefetchJob = async(Dispatchers.IO) {
                                     val start = SystemClock.elapsedRealtime()
                                     val s = runCatching {
