@@ -1080,6 +1080,12 @@ fun KeyManagerScreen(tagRuleId: String, onBack: () -> Unit) {
         //（智谱内置种子已退役 10-04：不再内置 Key/自动重建任何组；存量失效 key 由用户手动删）
         withIO {
             KeyListFile.migrateLegacy(tagRuleId)
+            // 启用池孤儿收养（11-10 用户需求）：外部 App（z阅读 混元太极）点「使用」时
+            // 直接覆写 miyue.txt，那把钥在密钥列表里没有条目——池页只能显示「已无对应条目」、
+            // 不能编辑也不能出现在密钥管理里。按它自带的三要素补建成正式条目，
+            // 与手动「新增」完全同权。必须排在 heal 之前，收养出来的条目才能一起归组。
+            // 幂等：已在列表中的值不会重复建条目。
+            KeyListFile.adoptOrphanPoolValues(tagRuleId)
             KeyListFile.heal(tagRuleId)
             KeyListFile.writeFolderGuide(tagRuleId) // 文件说明.txt（幂等，内容没变不重写）
         }

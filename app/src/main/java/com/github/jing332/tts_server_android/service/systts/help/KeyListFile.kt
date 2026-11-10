@@ -711,6 +711,53 @@ object KeyListFile {
         return changed
     }
 
+    /**
+     * 池孤儿收养：启用池（miyue.txt）里存在、但密钥列表（key_list.json）里没有对应条目的值，
+     * 按它自带的三要素（地址@@模型@@Key）补建成正式条目，与手动「新增」效果一致：
+     * 名称取模型名（重名自动加序号）、keyCode 自动续号，随后走 [heal] 自动建分组。
+     *
+     * 起因（11-10 用户实报）：z阅读 混元太极点「使用」密钥时直接覆写 miyue.txt，
+     * 该把钥在 UTTS 里既不在密钥列表、也不能在启用池页编辑；规则其实照常轮换得到它
+     * （readPool 读的就是 miyue），只在界面上"看不见、管不了"。收养后即与自建条目同权。
+     *
+     * 只收养完整三要素（地址/模型/Key 都非空）；裸 Key 不收养（UI 本就禁止启用裸 Key）。
+     * 幂等：已存在的值不会重复建条目。返回是否发生写入。
+     */
+    fun adoptOrphanPoolValues(tagRuleId: String): Boolean {
+        val keys = readKeys(tagRuleId)
+        val pool = readPool(tagRuleId)
+        if (pool.isEmpty()) return false
+        val known = keys.map { normalizePoolValue(it.value) }.toHashSet()
+        var list = keys
+        var changed = false
+        pool.forEach { v ->
+            val norm = normalizePoolValue(v)
+            // known 同时承担「已存在条目」与「本轮已收养」两重职责（循环内即时 add）：
+            // 同一把钥在池里重复出现（外部 App 反复点「使用」）时只收养一次，
+            // 不会在密钥列表里造出两条一样的条目（11-10 用户要求：重复的不用加）。
+            if (norm.isEmpty() || norm in known) return@forEach
+            val p = parseKeyValue(v) ?: return@forEach
+            if (p.isDirect) return@forEach
+            if (p.url.isBlank() || p.model.isBlank() || p.key.isBlank()) return@forEach
+            val used = list.map { it.name }.toMutableSet()
+            val baseName = p.model.trim()
+            val name = dedupName(baseName, used)
+            list = list + KeyEntry(
+                name = name,
+                keyCode = nextKeyCode(list),
+                value = v.trim(),
+            )
+            known.add(norm)
+            changed = true
+            Log.i(TAG, "adoptOrphanPoolValues($tagRuleId): 收养池中孤立密钥 $name")
+        }
+        if (!changed) return false
+        if (!saveKeys(tagRuleId, list)) return false
+        // 建完条目立刻自愈分组，避免它们停在「未分组」、与手动新增的观感不一致
+        heal(tagRuleId)
+        return true
+    }
+
     /** 拉取模型后把模型名登记进接口的 models（去重）；返回是否发生写入 */
     fun addModelsToInterface(tagRuleId: String, ifcName: String, models: List<String>): Boolean {
         if (ifcName.isBlank() || models.isEmpty()) return false
@@ -874,7 +921,11 @@ object KeyListFile {
                 i += 3
             }
         }
-        return out.distinct()
+        // 去重口径走 normalizePoolValue（11-10）：同一把钥可能以 /v1 与 /v1/chat/completions
+        // 两种写法同时存在于池里（UTTS 勾选 vs 外部 App 写入），字符串 distinct 去不掉，
+        // 归一后再去重才对，否则池页会出现两条指向同一把钥的重复行。
+        val seen = HashSet<String>()
+        return out.distinct().filter { seen.add(normalizePoolValue(it)) }
     }
 
     /** 读启用池（miyue → gengxin → backup 链） */
