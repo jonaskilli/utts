@@ -1342,14 +1342,44 @@ private fun RoleRow(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.padding(top = 1.dp),
                     ) {
-                        // 分类 · 插件名（纯文字灰标注；分类=tag id「女青年29」）
+                        // 分类 · 插件名（纯文字标注；分类=tag id「女青年29」）
+                        //
+                        // 11-10 十七改（用户选 D1）：**分类加深、插件名保持原灰**，
+                        // 用明度分主次，不给分类上色。两个候选（B 上主题色 / D1 排版分层）
+                        // 出过预览，用户选 D1。
+                        //
+                        // ## 为什么不上色
+                        //
+                        // ① 同屏已两处绿：第一行标签框底（secondaryContainer 淡绿）+ 框内
+                        //    主色绿字。分类再上主色，一行里三处同色相绿，"重要"失去区分力
+                        //    ——颜色只有在能区分时才有信息量。
+                        // ② 对比度不够：本行 labelSmall 11sp（小字门槛 4.5），
+                        //    主色 #109D58 压页底只有 3.45:1，上色反而更糊。
+                        // ③ 分类与插件名是**同一类信息**（这角色用谁的声音、哪套服务合成），
+                        //    分开染色等于谎称两者不同类。
+                        //
+                        // ## D1 具体做法
+                        //
+                        // 分类 onSurface（#191C19，16.89:1）最深、**不加粗**；
+                        // 插件名留 onSurfaceVariant（#414941，9.15:1）不动。
+                        // 单靠明度差（16.89 vs 9.15）分主次，整行仍是灰阶，
+                        // 一屏六行不会花，也不与第一行标签框争颜色。
+                        //
+                        // 实现用 buildAnnotatedString 叠两个 SpanStyle（不是套 Row）：
+                        // 保持"一条 Text"的排版本质——widthIn/截断/基线全都与改前一致，
+                        // 不会因为多一层 Row 影响宽度约束或在行尾 emoji 前插空。
                         Text(
-                            buildString {
+                            buildAnnotatedString {
                                 append(rec.voice)
-                                if (pluginName != null) append(" · $pluginName")
+                                if (pluginName != null) {
+                                    withStyle(
+                                        SpanStyle(color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    ) { append(" · $pluginName") }
+                                }
                             },
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            // 基础色=分类色；插件名段由上面 span 覆盖成次级灰
+                            color = MaterialTheme.colorScheme.onSurface,
                             maxLines = 1,
                             overflow = TextOverflow.Clip,
                             modifier = Modifier.widthIn(max = halfRow),
