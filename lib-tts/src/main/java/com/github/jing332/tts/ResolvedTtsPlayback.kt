@@ -100,7 +100,6 @@ fun resolveTtsPlayback(
         speed = multiplyParam(pluginParams.speed, dto.audioParams.speed, globalParams.speed),
         volume = multiplyParam(pluginParams.volume, dto.audioParams.volume, globalParams.volume),
         pitch = multiplyParam(pluginParams.pitch, dto.audioParams.pitch, globalParams.pitch),
-        reverbEnabled = dto.audioParams.reverbEnabled,
     )
     val route = parameterRoute(
         pluginId = plugin?.pluginId.orEmpty(),

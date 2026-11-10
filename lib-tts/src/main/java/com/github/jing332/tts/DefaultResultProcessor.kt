@@ -12,7 +12,6 @@ import com.github.jing332.common.audio.AudioDecoder.Companion.readPcmChunk
 import com.github.jing332.common.audio.exo.DownmixAudioProcessor
 import com.github.jing332.common.audio.exo.ExoAudioDecoder
 import com.github.jing332.common.audio.exo.LoudnessAudioProcessor
-import com.github.jing332.common.audio.exo.ReverbAudioProcessor
 import com.github.jing332.common.audio.exo.SampleRateResampleProcessor
 import com.github.jing332.common.utils.rootCause
 import com.github.jing332.tts.error.StreamProcessorError
@@ -170,7 +169,6 @@ internal class DefaultResultProcessor(
                     if (context.cfg.silenceSkipEnabled()) skipAudioProcessor else null,
                     if (needsSonic) sonicAudioProcessor else null,
                     if (needsLoudness) loudnessAudioProcessor else null,
-                    if (config.audioParams.reverbEnabled) ReverbAudioProcessor() else null,
                     if (inputSampleRate != targetSampleRate)
                         SampleRateResampleProcessor(inputSampleRate, targetSampleRate) else null,
                 ).filterNotNull()

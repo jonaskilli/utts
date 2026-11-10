@@ -14,6 +14,11 @@ data class AudioParams(
 
     var pitch: Float = 1f,
 
+    /**
+     * 混响开关。11-10 用户令混响功能整体下线（UI 与处理链均已删除），但**字段保留**：
+     * SystemTtsGroup 的 audioParams_ 前缀嵌入列已在表里，Room 打开库时会校验 schema，
+     * 删字段必须重建整表并升版本，风险远大于收益。现值恒为 false，读写路径已无消费方。
+     */
     @ColumnInfo(defaultValue = "0")
     var reverbEnabled: Boolean = false,
 ) : Parcelable {

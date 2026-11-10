@@ -206,7 +206,7 @@ internal class BackupPayloadFactory(
                 "segmentPauseMs", "isLoudnessEnabled", "loudnessMaxGain", "isKeepAliveEnabled",
                 "isAccessibilityKeepAliveEnabled", "isNotificationKeepAliveEnabled", "isAlarmKeepAliveEnabled",
                 "isAutoStartEnabled", "isNetworkKeepAliveEnabled", "isPixelKeepAliveEnabled",
-                "restartOnMaxRetryMode", "timeoutWatchdogSeconds", "isInnerThoughtAiEnabled",
+                "restartOnMaxRetryMode", "timeoutWatchdogSeconds",
             ),
             "systts_forwarder" to setOf("port", "isWakeLockEnabled", "isAutoStart"),
         )

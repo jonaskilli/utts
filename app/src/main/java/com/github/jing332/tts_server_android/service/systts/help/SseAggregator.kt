@@ -5,7 +5,7 @@ import java.net.HttpURLConnection
 
 /**
  * SSE 聚合桥（10-06 账号池配套）：CodeBuddy 上游只收流式（非流式 code 11101 被拒），
- * 而密钥测试/心声分类/朗读链三处都按"非流式 OpenAI 响应"解析——本桥发 stream=true 的
+ * 而密钥测试/朗读链两处都按"非流式 OpenAI 响应"解析——本桥发 stream=true 的
  * 请求后把 SSE data: 帧里的 delta.content 增量拼成完整文本，再包回标准
  * {choices:[{message:{content}}]} JSON 字符串，让三处原解析逻辑零改动。
  *

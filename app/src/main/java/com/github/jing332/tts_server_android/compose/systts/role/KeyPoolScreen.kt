@@ -81,7 +81,7 @@ import org.burnoutcrew.reorderable.reorderable
  * ⊖ 移出 = 只移出池、密钥本体保留（可逆，主页多选可再加回）；真删除只在密钥管理页（🗑 + 二次确认）。
  * 排序 = 长按拖动（照主界面 reorderable 同款，放手落位、序号自动重排）；多选模式下禁拖。
  * 底层 = miyue.txt 启用池（KeyListFile.savePool 三写），朗读规则 DualKeyManager 按此顺序轮换，
- * 第一把同时供 app 心声 AI 兜底使用。
+ * 第一把同时供 app 侧自动分类兜底使用。
  */
 
 /** 一行要展示的信息：显示名 + 副行素材 + 归一化值（测试结果/测试中标记的 key） */

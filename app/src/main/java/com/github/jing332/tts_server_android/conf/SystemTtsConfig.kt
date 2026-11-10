@@ -239,15 +239,6 @@ object SystemTtsConfig {
         initialValue = 20
     )
 
-    // ========== 心声 AI 判定配置 ==========
-
-    /** 心声 AI 兜底判定开关（正则弱线索命中时才调用；密钥自动读 miyue.txt=角色管理「当前密钥」） */
-    val isInnerThoughtAiEnabled = mutableDataSaverStateOf(
-        dataSaverInterface = dataSaverPref,
-        key = "isInnerThoughtAiEnabled",
-        initialValue = false
-    )
-
     /**
      * 日志栏是否显示 DEBUG(D) 级日志（用户 09-13 定稿：默认**关闭**——普通用户不看 D 级，
      * 嫌吵；插件调试时在日志筛选里打开，开一次即持久化。关后 D 级完全不进列表）

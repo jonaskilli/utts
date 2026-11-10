@@ -59,7 +59,6 @@ import com.github.jing332.tts_server_android.compose.systts.list.expandSpeechRul
 import com.github.jing332.tts_server_android.constant.AppConst
 import com.github.jing332.tts_server_android.constant.SpeechTarget
 import com.github.jing332.tts_server_android.model.rhino.speech_rule.SpeechRuleEngine
-import com.github.jing332.tts_server_android.service.systts.help.InnerThoughtClassifier
 import com.github.jing332.tts_server_android.ui.view.AppDialogs.displayErrorDialog
 import kotlinx.serialization.encodeToString
 
@@ -71,7 +70,7 @@ fun SpeechRuleEditScreen(
 
     showSpeechTarget: Boolean = true,
     speechRules: List<SpeechRule> = remember { dbm.speechRuleDao.allEnabled },
-    // true 时正文（规则脚本/标签字段+心声+自定义字段+cardTrailer）包进无标题淡底卡（完整编辑页用），
+    // true 时正文（规则脚本/标签字段+自定义字段+cardTrailer）包进无标题淡底卡（完整编辑页用），
     // 顶部的音频参数行/朗读切换行仍在卡外平铺；false 全部平铺（快捷编辑面板等）
     bodyInCard: Boolean = false,
     // bodyInCard 且标签态时渲染在正文卡末尾的内容（完整编辑页把分组/显示名称等基本信息放进同一张卡）
@@ -135,13 +134,61 @@ fun SpeechRuleEditScreen(
     //   完整编辑页(TtsEditContainerScreen) → 由 PluginTtsUI/LocalTtsUI 的试听文本行补上；
     //   快捷编辑面板(QuickEditBottomSheet) → 不再提供音频参数入口（用户确认：直接去掉）。
     // 其余入口不受影响：卡片⋮菜单「音频参数」保留。
-    // 「作为备用引擎(isStandby)」也于同日挪入基本信息卡（BasicInfoEditScreen），
-    // 与分组/显示名等属性同区——原顶部行随音频参数按钮摘除后只剩备用键，不再独占一行。
+    // 「作为备用引擎」11-10 用户令：从基本信息卡搬回顶部、单独占一行。
+    // 在基本信息卡里时它与「心声混响」并排挤在显示名和试听文本之间，用户觉得难看；
+    // 顶部独立一行更清楚。11-10 心声三件套整体下线后，本行是顶部唯一的行为开关。
+    var showStandbyHelpDialog by remember { mutableStateOf(false) }
+    if (showStandbyHelpDialog)
+        AppDialog(
+            title = { Text(stringResource(id = R.string.systts_as_standby_help)) },
+            content = { Text(stringResource(id = R.string.systts_standby_help_msg)) },
+            buttons = {
+                TextButton(onClick = { showStandbyHelpDialog = false }) {
+                    Text(stringResource(id = R.string.confirm))
+                }
+            },
+            onDismissRequest = { showStandbyHelpDialog = false }
+        )
 
     if (showSpeechTarget)
         Column(modifier.fillMaxWidth()) {
             // 第6项: 子分组(categoryPath)编辑已统一由 BasicInfoEditScreen 的分组树选择器负责,
             // 此处不再重复提供子分组输入,避免同一编辑流程出现两个 categoryPath 编辑入口。
+
+            // 作为备用：顶部独占一行、居中。官方 MD3 默认触摸区（用户 09-11 下午终裁
+            // 「自定义的并不好，按官方来」）：不收 minimumInteractiveComponentSize、
+            // 不加 clip/Role——48dp 触摸区与文字间距全由 Checkbox/IconButton 自管。
+            Row(
+                Modifier.align(Alignment.CenterHorizontally),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Row(
+                    Modifier.clickable {
+                        onSysttsChange(
+                            systts.copy(
+                                config = config.copy(
+                                    speechRule = config.speechRule.copy(
+                                        isStandby = !config.speechRule.isStandby
+                                    )
+                                )
+                            )
+                        )
+                    },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Checkbox(
+                        checked = config.speechRule.isStandby,
+                        onCheckedChange = null,
+                    )
+                    Text(stringResource(id = R.string.as_standby))
+                    IconButton(onClick = { showStandbyHelpDialog = true }) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.HelpOutline,
+                            stringResource(id = R.string.systts_as_standby_help)
+                        )
+                    }
+                }
+            }
 
             var showTagClearDialog by remember { mutableStateOf(false) }
             if (showTagClearDialog) {
@@ -276,47 +323,9 @@ fun SpeechRuleEditScreen(
                 }
             }
 
-            // 正文：规则脚本/标签字段+心声芯片，卡片模式与平铺模式共用同一份内容。
-            // 芯片、选择器、说明文字必须包进 Column 才竖排（AnimatedVisibility 内容是堆叠布局，
-            // 此前「心声(内心独白)」芯片就压在规则脚本选择器上）
+            // 正文：规则脚本选择器 + 标签字段，卡片模式与平铺模式共用同一份内容。
+            // 选择器与标签字段必须包进 Column 才竖排（AnimatedVisibility 内容是堆叠布局）
             val ruleTagBody: @Composable () -> Unit = {
-                // 心声保留标签是否生效：标签下拉候选与芯片、说明文案共用
-                val isInnerThought = config.speechRule.tag == InnerThoughtClassifier.INNER_THOUGHT_TAG
-
-                // 勾选内心独白前的原标签（用户 09-11：取消勾选时还原为勾选前的标签，不再清空）。
-                // 会话内 remember——若勾选→保存→退出→重进再取消，原标签已无从得知，回落为清空（旧行为）
-                var tagBeforeMonologue by remember(systts.id) { mutableStateOf<String?>(null) }
-                var showInnerThoughtHelp by remember { mutableStateOf(false) }
-                if (showInnerThoughtHelp)
-                    AppDialog(
-                        title = { Text(stringResource(id = R.string.systts_inner_thought_help)) },
-                        content = { Text(stringResource(id = R.string.systts_inner_thought_help_msg)) },
-                        buttons = {
-                            TextButton(onClick = { showInnerThoughtHelp = false }) {
-                                Text(stringResource(id = R.string.confirm))
-                            }
-                        },
-                        onDismissRequest = { showInnerThoughtHelp = false }
-                    )
-
-                fun toggleInnerThought() {
-                    if (config.speechRule.target != SpeechTarget.TAG) return
-                    val newTag: String
-                    if (config.speechRule.tag == InnerThoughtClassifier.INNER_THOUGHT_TAG) {
-                        // 取消勾选：还原为勾选前的原标签
-                        newTag = tagBeforeMonologue ?: ""
-                        tagBeforeMonologue = null
-                    } else {
-                        // 勾选：先记住当前标签
-                        tagBeforeMonologue = config.speechRule.tag
-                        newTag = InnerThoughtClassifier.INNER_THOUGHT_TAG
-                    }
-                    onSysttsChange(
-                        systts.copy(
-                            config = config.copy(config.speechRule.copy(tag = newTag))
-                        )
-                    )
-                }
                 Row(Modifier) {
                     AppSpinner(
                         modifier = Modifier
@@ -364,8 +373,7 @@ fun SpeechRuleEditScreen(
                                 .clickable { showTagPicker = true }
                         ) {
                             OutlinedTextField(
-                                value = if (isInnerThought) "心声(内心独白)"
-                                else config.speechRule.tagName.ifBlank { config.speechRule.tag },
+                                value = config.speechRule.tagName.ifBlank { config.speechRule.tag },
                                 onValueChange = {},
                                 readOnly = true,
                                 enabled = false,
@@ -406,41 +414,6 @@ fun SpeechRuleEditScreen(
                     }
                 }
 
-                // 内心独白（用户 09-10 晚定稿）：与基本信息卡「心声混响 / 作为备用」同款复选框行，
-                // 位置紧贴归属字段「标签」。勾选＝标签设为内置「内心独白」标签；
-                // 取消＝还原为勾选前的原标签（用户 09-11，不再清空）
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { toggleInnerThought() }
-                        .padding(top = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    // 官方 MD3 默认（用户 09-11 下午终裁「自定义的并不好，按官方来」）：
-                    // 不收触摸区、零 offset，与基本信息卡两行同款（详见彼处注释）
-                    Checkbox(
-                        checked = isInnerThought,
-                        onCheckedChange = { toggleInnerThought() },
-                    )
-                    Text("心声标签")
-                    // 问号 IconButton 官方默认 48dp 触摸区（同上终裁）
-                    IconButton(
-                        onClick = { showInnerThoughtHelp = true },
-                    ) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.HelpOutline,
-                            stringResource(id = R.string.systts_inner_thought_help)
-                        )
-                    }
-                }
-                if (isInnerThought) {
-                    Text(
-                        "朗读中判定为内心独白的句子会改用本配置的音色；可搭配设置页「启用心声 AI 判定」提升识别",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(start = 4.dp, top = 2.dp)
-                    )
-                }
             }
 
             // 卡片模式（完整编辑页）：正文+自定义字段+基本信息(cardTrailer)同一张淡底卡，

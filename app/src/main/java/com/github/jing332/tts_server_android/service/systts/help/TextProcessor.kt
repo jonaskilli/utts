@@ -135,18 +135,9 @@ class TextProcessor : ITextProcessor {
             } else if (isMultiVoice) {
                 val fragments = engine.handleText(replacedText, speechRules)
 
-                var offset = 0
                 fragments.forEach { txtWithTag ->
                     if (txtWithTag.text.isNotBlank()) {
-                        val beforeText = replacedText.take(offset)
-                        val afterText = replacedText.drop(offset + txtWithTag.text.length)
-                        val effectiveTag =
-                            if (InnerThoughtClassifier.isInnerThought(
-                                    txtWithTag.text, beforeText, afterText
-                                )
-                            ) InnerThoughtClassifier.INNER_THOUGHT_TAG
-                            else txtWithTag.tag
-                        offset += txtWithTag.text.length
+                        val effectiveTag = txtWithTag.tag
 
                         val sameTagList = configs.filter {
                             !it.speechInfo.isStandby && it.speechInfo.tag == effectiveTag

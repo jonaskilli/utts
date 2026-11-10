@@ -324,7 +324,8 @@ fun SettingsScreen() {
                 }
 
                 // 朗读与播放 / 稳定性 两区（SysttsSettingsScreen 渲染；10-05 用户令：
-                // 交换键与心声 AI 都并进「朗读与播放」，故「显示与交互」「心声」两个区已撤）
+                // 交换键并进「朗读与播放」，故「显示与交互」区已撤；
+                // 11-10 心声 AI 判定整体下线）
                 // 朗读与播放（留在主页；稳定性改独立子页，故只渲染 Loudness 部分）
                 SysttsSettingsScreen(search, SysttsSettingsPart.Loudness)
                     } // 主页内容收尾

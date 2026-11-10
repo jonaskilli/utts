@@ -8,7 +8,6 @@ import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Headset
 import androidx.compose.material.icons.filled.NightsStay
-import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.SelectAll
@@ -182,18 +181,6 @@ internal fun ColumnScope.SysttsSettingsScreen(
             icon = {
                 Icon(Icons.Default.Groups, contentDescription = null)
             }
-        )
-    }
-
-    // 心声 AI 判定（10-05 用户令：原「心声」区撤并入本区；同日再令排在本区末位）
-    var aiEnabled by remember { SystemTtsConfig.isInnerThoughtAiEnabled }
-    SettingItem(search, "心声", "ai", "心理活动", "inner", "内心") {
-        SwitchPreference(
-            title = { Text("启用心声 AI 判定") },
-            subTitle = { Text("正则拿不准时调用 AI 判断") },
-            checked = aiEnabled,
-            onCheckedChange = { aiEnabled = it },
-            icon = { Icon(Icons.Default.Psychology, null) }
         )
     }
 
