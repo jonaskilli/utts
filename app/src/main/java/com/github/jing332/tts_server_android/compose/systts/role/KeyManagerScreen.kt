@@ -135,13 +135,14 @@ import kotlinx.coroutines.sync.withPermit
 // ===================== 11-11 密钥页配色（用户令，两次反馈后定稿）=====================
 // ⚠️ 这里**不再有写死的色值**，两枚色都抽到 theme/Theme.kt，随主题走：
 //   · keyGroupHeaderColor()  组头色带：浅 lerp(secondaryContainer, background, 0.55)
-//   · neutralCardColor()     模型区/条目行：浅 #EEEEEE / 深 #262626（中性灰）
+//   · neutralCardColor()     模型区/条目行：直接取主题 surfaceContainerLow（以前那个中性灰）
 // 历史坑（别重犯）：
 //   ①11-11 曾写死 #E4F7E8 当「以前的绿」——那是 11-10 03:30 的中间产物，只活了 1 小时 9 分，
 //     色相 133°（偏黄绿）在 150° 主色界面里发荧光，用户实拍「太诡异」；
 //     真·老绿是 #EAF7EF（143°），新公式算出来正好落回它。
 //   ②用户随后明确补充「你也得根据主题色来变化，不能都只是绿」——旧表本来也是每主题一套。
-//   ③卡片原写死 #F7F2FA（微紫白）：绿/雾底上串色 → 换中性灰 #EEEEEE（深色 #262626）。
+//   ③卡片原写死 #F7F2FA（微紫白）：绿/雾底上串色 → 回退主题 surfaceContainerLow。
+//     中途试过自造四档中性灰（#F2F2F2/#EEEEEE/#E9E9E9），用户「没啥感觉」→ 已弃。
 
 
 /**
@@ -1686,7 +1687,7 @@ fun KeyManagerScreen(tagRuleId: String, onBack: () -> Unit) {
                                 .fillMaxWidth()
                                 .padding(start = 4.dp, end = 0.dp, top = 10.dp, bottom = 4.dp),
                             colors = CardDefaults.elevatedCardColors(
-                                // 11-11 用户令：与配置项卡片同色（中性灰 #EEEEEE / 深色 #262626）
+                                // 11-11 用户令：与配置项卡片同色（主题 surfaceContainerLow）
                                 containerColor = neutralCardColor()
                             )
                         ) {
