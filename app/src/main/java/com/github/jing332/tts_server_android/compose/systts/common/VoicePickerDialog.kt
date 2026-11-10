@@ -1061,13 +1061,27 @@ fun VoicePickerDialog(
                 voiceOwners.filterValues { names -> names.any { it != bindingKey } }.keys
             } else emptySet()
 
-            fun pickRandomIn(category: String?, search: String, exclude: String?): String? =
-                poolEnabled.filter {
+            // ## 29 改（用户令 11-10）：**优先未被占用**，而不是简单排除
+            //
+            // 用户最初就说过要"优先未占用"。28 改只做了"排除已用"，够用但不最优：
+            // 当候选池里未被占用的项少、而已用项多时，排除后池子变小，随机仍可能显得局限。
+            // 更贴用户意图的两级策略（与 CharacterRecordsFile.pickCategoryVoice 同口径）：
+            //   ① 先只在**未被任何角色占用**的候选里随机
+            //   ② 若①为空（该分类全被占满），退回到全部可用候选里随机
+            // 这样既保证优先用"空闲"发音人，又不会在极端情况下"随机不到"。
+            //
+            // 注：不同于 pickCategoryVoice——那边按 usage 计数做三级（未用 → 最少用），
+            // 这里只有"占用/未占用"二元信息，二级策略已足够。
+            fun pickRandomIn(category: String?, search: String, exclude: String?): String? {
+                val base = poolEnabled.filter {
                     it != exclude &&
-                        it !in occupiedTags &&
                         (category == null || tagCategoryOf(it) == category) &&
                         tagHitSearch(it, search)
-                }.randomOrNull()
+                }
+                if (base.isEmpty()) return null
+                val free = base.filter { it !in occupiedTags }
+                return (if (free.isNotEmpty()) free else base).randomOrNull()
+            }
             // 显示名限长（10-06 用户令）：吃设置页「限制显示名称长度」滑杆，0=不限；
             // 候选行/顶部当前发音人/Toast 三处同一份，与主列表卡片、日志显示名全站一口径。
             // 只截显示、不动数据（真音已验 | MINI_MAX 这类后缀原样保留在库里）
