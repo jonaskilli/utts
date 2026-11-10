@@ -1202,7 +1202,12 @@ object KeyListFile {
         } catch (e: Exception) {
             runCatching { collect(JSONArray(body)) }
         }
-        return out
+        // 必须去重（11-03 22:34 崩溃实锤）：拉模型弹窗把模型名直接当 LazyColumn 的 item key
+        // （KeyManagerScreen `item(key = "m_$m")`），同一模型在 /models 里出现两次时
+        // Compose 抛 IllegalArgumentException: Key "..." was already used，
+        // 且只在条目滚进视口时才校验 —— 表现为「打开不崩、一滚就闪退」。
+        // 中转站重复返回同名 id 很常见，去重放在数据源头最省事，同时保住列表不出现重复行。
+        return out.distinct()
     }
 
     /** 测试目标（照插件 parseKeyForTest 的返回形状） */

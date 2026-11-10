@@ -337,29 +337,42 @@ class ListManagerViewModel : ViewModel() {
             }
         }
 
+    /**
+     * 主列表单条启停（含「换旁白」：把另一条旁白配置打开）。
+     *
+     * ⚠️ 通知必须在**落库之后**发（11-10 用户实报「切了旁白，日志里还是以前的旁白」）：
+     * 本函数是 viewModelScope.launch(IO) 里的异步写库，调用方若在外面抢先
+     * notifyUpdateConfig()，服务收到广播后 initManager() 重读库时写库还没发生，
+     * 拿到的是旧启用集（= 旧旁白），且之后没有第二次重载 —— 一直挂在旧配置上。
+     * 且**关闭方向也要通知**：停掉旧旁白同样需要服务重读。
+     */
     fun updateTtsEnabled(
         item: SystemTtsV2,
         enabled: Boolean,
     ) = viewModelScope.launch(Dispatchers.IO) {
+        // 互斥口径必须与朗读链选配置的口径一致：TextProcessor.process 只用
+        // (speechInfo.tag, !isStandby) 过滤，target/tagName/tagRuleId 一概不看。
+        // 旧实现按「target+tagRuleId+tag+tagName+isStandby」全等才停用，只要 target
+        // （全部/标签）或 tagName 有一处不同，「新旁白」和「旧旁白」就双双留在启用态，
+        // 而 TextProcessor 在同 tag 多条启用时是 randomOrNull() 随机挑一条 ——
+        // 表现就是「换了旁白，有时还在念以前那一条」。故这里按 tag + isStandby 判重，
+        // 与朗读链 1:1 对齐（想同时保留多条请在设置里开「相同朗读目标可多选」）。
         if (!SystemTtsConfig.isVoiceMultipleEnabled.value && enabled) {
             val itemConfig = (item.config as? TtsConfigurationDTO)
-            if (itemConfig != null)
+            val tag = itemConfig?.speechRule?.tag
+            if (itemConfig != null && !tag.isNullOrBlank()) {
+                val standby = itemConfig.speechRule.isStandby
                 dbm.systemTtsV2.allEnabled.forEach { systts ->
-                    if (systts.config is TtsConfigurationDTO) {
-                        val config = systts.config as TtsConfigurationDTO
-                        if (config.speechRule.target == itemConfig.speechRule.target) {
-                            if (config.speechRule.tagRuleId == itemConfig.speechRule.tagRuleId
-                                && config.speechRule.tag == itemConfig.speechRule.tag
-                                && config.speechRule.tagName == itemConfig.speechRule.tagName
-                                && config.speechRule.isStandby == itemConfig.speechRule.isStandby
-                            )
-                                dbm.systemTtsV2.update(systts.copy(isEnabled = false))
-                        }
-                    }
+                    val config = systts.config as? TtsConfigurationDTO ?: return@forEach
+                    if (config.speechRule.tag == tag && config.speechRule.isStandby == standby)
+                        dbm.systemTtsV2.update(systts.copy(isEnabled = false))
                 }
+            }
         }
 
         dbm.systemTtsV2.update(item.copy(isEnabled = enabled))
+        // 写完再通知：服务侧 initManager() 重读库，新旁白在下一次朗读请求即时生效
+        SystemTtsService.notifyUpdateConfig()
     }
 
     /**

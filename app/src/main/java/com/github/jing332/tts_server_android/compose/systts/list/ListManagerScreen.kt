@@ -3616,8 +3616,9 @@ internal fun ListManagerScreen(
                                         standby = descriptor.standby,
                                         enabled = item.isEnabled,
                                         onEnabledChange = {
+                                            // 通知已挪进 vm.updateTtsEnabled（落库之后再发）：
+                                            // 此处抢先发广播会让服务重读到未落的旧启用集
                                             vm.updateTtsEnabled(item, it)
-                                            if (it) SystemTtsService.notifyUpdateConfig()
                                         },
                                         desc = descriptor.desc,
                                         params = descriptor.bottom,
@@ -3853,8 +3854,8 @@ internal fun ListManagerScreen(
                                                     standby = descriptor.standby,
                                                     enabled = item.isEnabled,
                                                     onEnabledChange = {
+                                                        // 同主列表分支：通知在 VM 内落库后发
                                                         vm.updateTtsEnabled(item, it)
-                                                        if (it) SystemTtsService.notifyUpdateConfig()
                                                     },
                                                     desc = descriptor.desc,
                                                     params = descriptor.bottom,

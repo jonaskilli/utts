@@ -3216,8 +3216,11 @@ private fun ModelPullDialog(
                                 }
                             }
                         }
-                        list.forEach { m ->
-                            item(key = "m_$m") {
+                        list.forEachIndexed { idx, m ->
+                            // key 兜底再加序号（11-03 崩溃实锤 Key "m_xxx" was already used）：
+                            // 数据源头已去重，这里仍留一层，防止将来别处再塞进重复模型名时整页闪退。
+                            // 用「分类内下标」而非模型名本身，天然唯一且不随筛选变化错位。
+                            item(key = "m_${cat}_${idx}_$m") {
                                 val already = inGroup(m)
                                 Row(
                                     Modifier.fillMaxWidth()
@@ -3307,7 +3310,9 @@ private fun ModelPullDialog(
                     onClick = {
                         val m = manual.trim()
                         manualVisible = false
-                        models = models + m
+                        // 去重（11-03 崩溃，同 parseModelList）：手填的名字已在列表里时不再追加，
+                        // 否则 LazyColumn 的 "m_$m" key 撞车 → 一滚动就 IllegalArgumentException
+                        models = (models + m).distinct()
                         selected = selected + m
                     }
                 ) { Text(stringResource(R.string.confirm)) }
