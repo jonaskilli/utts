@@ -863,10 +863,27 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
         val logFiles = remember(showLogFilesDialog, fileCount) {
             File(vm.logDir()).listFiles()
                 ?.filter { it.isFile }
-                // 11-11 用户定：debug.log **照常列出**（先选过"隐藏"，看到会占 20MB 后改回）。
-                // 它是 logback 的「全量兜底」文件（root level=TRACE，收所有 logger 的所有级别），
-                // 日志页不读它，但列出来才能看到它涨到多大、也才能单独删掉它。
-                ?.sortedByDescending { it.lastModified() } ?: emptyList()
+                // 11-11 用户令：**固定顺序**，不再按修改时间排。
+                // 原来按 lastModified 倒序：谁刚写过谁跳最上面，行序每次打开都不一样，
+                // 想删某个文件得先找一遍。日志文件本来就那么几个，固定位置更好用。
+                // 用户指定：朗读规则日志排在插件日志之前。
+                // 未列出的文件（轮转出来的 *_旧.log 等）统一排在后面，再按时间倒序。
+                ?.sortedWith(
+                    compareBy<File>(
+                        {
+                            when (it.name) {
+                                "system_tts.log" -> 0        // 朗读日志
+                                "system_tts_child.log" -> 1  // 获取结果日志
+                                "speech_rule.log" -> 2       // 朗读规则日志
+                                "plugin.log" -> 3            // 插件日志
+                                "debug.log" -> 4             // 调试日志
+                                "crash.log" -> 5             // 崩溃日志
+                                else -> 9                    // 旧文件/未知文件垫底
+                            }
+                        },
+                        { -it.lastModified() },
+                    )
+                ) ?: emptyList()
         }
         val timeFmt = remember {
             java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.getDefault())
