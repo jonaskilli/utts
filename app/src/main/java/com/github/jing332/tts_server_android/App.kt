@@ -50,12 +50,26 @@ class App : Application() {
     override fun attachBaseContext(base: Context) {
         instance = this
         super.attachBaseContext(base.apply { AppLocale.setLocale(base) })
+        // 11-11 用户令「日志搬到 Download/chajian/log」：logback 的 logback.xml 里
+        // LOG_DIR 取 ${DSH_LOG_DIR}，这里在**任何 logger 初始化之前**把它定下来。
+        // 必须放在 attachBaseContext 而不是 onCreate：logback-android 在首个 logger
+        // 被取用时就会解析 xml，onCreate 里更早的代码（看门狗、CrashCapture）已经会打日志。
+        //
+        // 取值走 AppConst.logDir（含"真实写一次"探测）：权限没给就回退私有目录，
+        // 保证"日志写不进去"这种事永远不会静默发生。
+        runCatching {
+            System.setProperty("DSH_LOG_DIR", AppConst.logDir.absolutePath)
+        }
     }
 
     @SuppressLint("SdCardPath")
     @OptIn(DelicateCoroutinesApi::class, DelicateCoilApi::class)
     override fun onCreate() {
         super.onCreate()
+
+        // 11-11 用户令：日志目录换到 Download/chajian/log，把旧私有目录里的日志复制过去
+        // （目标已存在就跳过，不覆盖新日志；失败静默，迁移不该影响启动）
+        AppConst.migrateOldLogs()
 
         // 启动超时看门狗：独立守护线程，监测"超时后卡死"并自动重启 APP
         TtsTimeoutWatchdog.start()
