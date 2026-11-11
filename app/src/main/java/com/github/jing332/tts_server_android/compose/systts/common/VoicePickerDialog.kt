@@ -257,12 +257,12 @@ fun VoicePickerDialog(
     val previewPlayingColor = Color(0xFFF44336)   // v10 ■ 红
     val previewSynthColor = Color(0xFFFF6F00)     // v10 … 琥珀
 
-    fun previewLabel(key: Any?): String = when {
-        previewingKey != key -> "▶"
-        previewState == PreviewState.PLAYING -> "■"
-        previewState == PreviewState.SYNTHESIZING -> "…"
-        else -> "▶"
-    }
+    /** 该行试听是否在播/合成（构造图标三态；原 previewLabel 的字符三态已退役） */
+    fun previewActive(key: Any?): Boolean =
+        previewingKey == key && previewState != PreviewState.IDLE
+
+    fun previewSynthesizing(key: Any?): Boolean =
+        previewingKey == key && previewState == PreviewState.SYNTHESIZING
 
     /** 三态色照 v10：…=琥珀 / ■=红 / ▶=主题主色（原本只给点亮态染 tertiary，且 ▶ 恒默认灰） */
     @Composable
@@ -1258,6 +1258,9 @@ fun VoicePickerDialog(
                                 .padding(vertical = 1.dp),
                         )
                     }
+                    // 11-11 用户令「纯显示名也得跟后面的播放键有距离」：没有标记 emoji 时
+                    // 名字与右侧按钮组之间保底 10dp；有 emoji 时 emoji 紧贴名字、不再补
+                    if (topLitMarks1.isEmpty()) Spacer(Modifier.width(10.dp))
                     } // ===== 名字 + 标记 emoji 的 weight(1f) 容器结束 =====
                     // 11-11 用户令「按钮就放显示名+emoji 那一行的右侧，靠右放」：
                     // 🎲 ▶ ⋮ 从第二行上移到本行右端。这样第二行才能只放「插件名 … 终值」，
@@ -1291,49 +1294,50 @@ fun VoicePickerDialog(
                             style = MaterialTheme.typography.titleMedium,
                         )
                     }
-                    // ▶ 裸字符键；按键收窄右移（horizontal 12→8，与 🎲 同款）
-                    Text(
-                        previewLabel(PREVIEW_KEY_CURRENT),
-                        color = previewLabelColor(PREVIEW_KEY_CURRENT),
-                        style = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier
-                            .clickable {
-                                // 试听当前声音（09-10 参数跟随）：绑定模式=跟随目标+草稿；
-                                // 旁白=本配置项+暂存voice+草稿；播放中/合成中再点=停止复位（角色管理同款交互）
-                                if (previewingKey == PREVIEW_KEY_CURRENT && previewState != PreviewState.IDLE) {
-                                    TaggedTtsPreviewPlayer.stop()
-                                    previewingKey = null
-                                    return@clickable
-                                }
-                                previewingKey = PREVIEW_KEY_CURRENT
-                                // 点击即置「合成中」（v10 口径）：不等 play() 异步置位，
-                                // 消除「点下先闪 ▶ 再变 …」的状态不准
-                                TaggedTtsPreviewPlayer.markSynthesizing()
-                                scope.launch {
-                                    val target = if (isBindingMode) draftParamsTarget() else null
-                                    // 音效槽位用专用试听文本（与全局/编辑页音效文本同源，用户 09-13）；其余照旧固定句
-                                    val text = if (isLocalSoundSlot)
-                                        AppConfig.localSoundSampleText.value.ifBlank { "你好，这是试听语音。" }
-                                    else "你好，这是试听语音。"
-                                    TaggedTtsPreviewPlayer.play(
-                                        context, target ?: draftEntity(pendingVoice), text,
-                                        // 插件/全局层草稿全覆盖（用户 09-17）：调滑杆即听，
-                                        // 不必先点应用；插件无实体时传 null 保住库值不被 1.0 抹掉
-                                        pluginParamsOverride = plugin?.audioParams?.copy(
-                                            speed = snapParam(pluginSpeed),
-                                            volume = snapParam(pluginVolume),
-                                            pitch = snapParam(pluginPitch),
-                                        ),
-                                        globalParamsOverride = AudioParams(
-                                            speed = snapParam(globalSpeed),
-                                            volume = snapParam(globalVolume),
-                                            pitch = snapParam(globalPitch),
-                                        ),
-                                    )
-                                }
+                    // ▶ 试听（11-11 用户令：播放键与 ⋮ 同级、要大点——改为 20dp 图标 + 24dp 盒）
+                    PreviewIconButton(
+                        playing = previewActive(PREVIEW_KEY_CURRENT),
+                        synthesizing = previewSynthesizing(PREVIEW_KEY_CURRENT),
+                        tint = previewLabelColor(PREVIEW_KEY_CURRENT),
+                        onClick = {
+                            // 试听当前声音（09-10 参数跟随）：绑定模式=跟随目标+草稿；
+                            // 旁白=本配置项+暂存voice+草稿；播放中/合成中再点=停止复位（角色管理同款交互）
+                            if (previewingKey == PREVIEW_KEY_CURRENT && previewState != PreviewState.IDLE) {
+                                TaggedTtsPreviewPlayer.stop()
+                                previewingKey = null
+                                return@PreviewIconButton
                             }
-                            .padding(horizontal = 8.dp, vertical = 2.dp),
+                            previewingKey = PREVIEW_KEY_CURRENT
+                            // 点击即置「合成中」（v10 口径）：不等 play() 异步置位，
+                            // 消除「点下先闪 ▶ 再变 …」的状态不准
+                            TaggedTtsPreviewPlayer.markSynthesizing()
+                            scope.launch {
+                                val target = if (isBindingMode) draftParamsTarget() else null
+                                // 音效槽位用专用试听文本（与全局/编辑页音效文本同源，用户 09-13）；其余照旧固定句
+                                val text = if (isLocalSoundSlot)
+                                    AppConfig.localSoundSampleText.value.ifBlank { "你好，这是试听语音。" }
+                                else "你好，这是试听语音。"
+                                TaggedTtsPreviewPlayer.play(
+                                    context, target ?: draftEntity(pendingVoice), text,
+                                    // 插件/全局层草稿全覆盖（用户 09-17）：调滑杆即听，
+                                    // 不必先点应用；插件无实体时传 null 保住库值不被 1.0 抹掉
+                                    pluginParamsOverride = plugin?.audioParams?.copy(
+                                        speed = snapParam(pluginSpeed),
+                                        volume = snapParam(pluginVolume),
+                                        pitch = snapParam(pluginPitch),
+                                    ),
+                                    globalParamsOverride = AudioParams(
+                                        speed = snapParam(globalSpeed),
+                                        volume = snapParam(globalVolume),
+                                        pitch = snapParam(globalPitch),
+                                    ),
+                                )
+                            }
+                        },
                     )
+                    // ▶ 盒与 ⋮ 盒各 24dp、图标居中自带 2dp 内衬：补 4dp 后图标视觉间距仍是 8dp，
+                    // 与原字符键 + 左右 8dp 内衬同一档，不会挤在一起。
+                    Spacer(Modifier.width(4.dp))
                     // ⋮ 菜单（用户 09-17 方案A）：打开面板想删当前这条配置项，得关掉面板回列表翻半天，
                     // 就地给一个入口。菜单项与候选行同源（标记 + 删除配置项），零学习成本。
                     // ⋮ 图标内边距收紧右移（用户令「▶/⋮ 往右移给左边空位置」同款），
@@ -1643,7 +1647,8 @@ fun VoicePickerDialog(
                                 },
                                 // 音效槽位也渲染试听键（加回：也有自定义配置项的本地音效，
                                 // 试听文本走 localSoundSampleText 专用轨，与顶部 ▶ 同源）
-                                previewText = previewLabel(tag),
+                                playing = previewActive(tag),
+                                synthesizing = previewSynthesizing(tag),
                                 previewColor = previewLabelColor(tag),
                                 onPreview = {
                                     // 行内试听：播放该标签对应启用配置的声音，不应用
@@ -1826,7 +1831,8 @@ fun VoicePickerDialog(
                                     // 两段式（用户 09-08）：点行=暂存选中，底部「确认」才写配置项 voice
                                     pendingVoice = v
                                 },
-                                previewText = previewLabel(v),
+                                playing = previewActive(v),
+                                synthesizing = previewSynthesizing(v),
                                 previewColor = previewLabelColor(v),
                                 onPreview = {
                                     if (previewingKey == v && previewState != PreviewState.IDLE) {
@@ -2101,7 +2107,8 @@ private fun CandidateRow(
     isPending: Boolean,
     nameColor: Color,
     onClick: () -> Unit,
-    previewText: String,
+    playing: Boolean,
+    synthesizing: Boolean,
     previewColor: Color,
     onPreview: () -> Unit,
     marks: List<String>,
@@ -2211,25 +2218,23 @@ private fun CandidateRow(
                 // 由 Column(weight 1f) 吃满剩余自然顶到右缘，不需要这个 Spacer。
             }
         }
-        // ▶ 裸字符键（用户 09-13 方案A）；按键收窄右移（11-09 用户令「▶/⋮ 往右移
-        // 给左边空位置」：horizontal 12→8）
-        // 11-11 用户令「换声面板下方的候选列表行间距也有点宽」：去掉 vertical = 12dp。
-        // 与角色列表同一根因——16sp 字形 + 上下各 12 把每行撑到约 52dp，而名字只有 11~13sp。
-        // 去掉后行高由名字 + 外层 Row 的内衬决定（该内衬已由 2dp 调到 10dp，每行约 30dp）。
-        // ⚠️ 点区没变小：▶ 仍有「字形宽 + 左右各 8dp」≈30×24dp；整行本就挂行点击（点行=选中）。
-        Text(
-            previewText,
-            color = previewColor,
-            style = MaterialTheme.typography.titleMedium,
-            modifier = Modifier
-                .clickable(onClick = onPreview)
-                .padding(horizontal = 8.dp),
+        // 11-11 用户令「纯显示名也得跟后面的播放键有距离，后面跟的是已用或 emoji
+        // 那可以没有距离」：三者都没有时才补 10dp。
+        if (pluginName == null && !usedBadge && marks.isEmpty()) Spacer(Modifier.width(10.dp))
+        // ▶ 试听（11-11 用户令：与 ⋮ 同级，图标 20dp + 24dp 盒）。
+        // 本行高度的真实构成：24dp 盒 + 外层 padding(vertical = 10dp) × 2 = 44dp（与改前一致）。
+        PreviewIconButton(
+            playing = playing,
+            synthesizing = synthesizing,
+            tint = previewColor,
+            onClick = onPreview,
         )
+        Spacer(Modifier.width(4.dp))
         // 与面板顶部行同档位（24dp 盒 / 20dp 图标）：同一个面板里两处 ⋮ 必须一样大。
         // 本行高度的真实构成（11-11 核对，别再凭印象写）：
-        //   ▶ 用 titleMedium，默认 lineHeight 24sp = **24dp**（名字 14sp 只有 20dp，不是控制项）
-        //   + 外层 padding(vertical = 10dp) × 2  ⇒ 每行 **44dp**（放大前也是 44dp）
-        // 24dp 盒与 ▶ 的 24dp 等高，所以改成 24dp 后行高**一点没变**，不会把候选列表撑松。
+        //   ▶ 图标盒 = **24dp**（名字 14sp 只有 20dp，不是控制项）
+        //   + 外层 padding(vertical = 10dp) × 2  ⇒ 每行 **44dp**（与改前一致）
+        // 24dp 盒与 ⋮ 的 24dp 盒等高，改成图标后行高一点没变，不会把候选列表撑松。
         VoiceOverflowMenu(
             marks = marks,
             onToggleMark = onToggleMark,
