@@ -90,7 +90,6 @@ import com.github.jing332.tts_server_android.compose.theme.AppShapes
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.FileProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.runtime.CompositionLocalProvider
 import com.github.jing332.common.LogEntry
@@ -1304,37 +1303,6 @@ private fun readTailLinesForPreview(file: java.io.File, maxLines: Int): List<Str
     return lines.drop(start).filter { it.isNotBlank() }.takeLast(maxLines)
 }
 
-private fun openLogFileWithViewer(context: android.content.Context, file: java.io.File) {
-    val mime = if (file.isDirectory) "*/*" else "text/plain"
-    kotlin.runCatching {
-        val uri = FileProvider.getUriForFile(
-            context,
-            "${context.packageName}.fileprovider",
-            file
-        )
-        context.startActivity(
-            android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
-                setDataAndType(uri, mime)
-                flags = android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                        android.content.Intent.FLAG_ACTIVITY_NEW_TASK
-            }
-        )
-    }.onFailure {
-        kotlin.runCatching {
-            val uri = FileProvider.getUriForFile(
-                context,
-                "${context.packageName}.fileprovider",
-                file
-            )
-            context.startActivity(
-                android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
-                    setDataAndType(uri, "*/*")
-                    flags = android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
-                }
-            )
-        }
-    }
-}
 
 // ===================== 日志「切换书」弹窗的行（11-10 方案 A）=====================
 // 与角色管理 BookRow 同语汇：当前书=主色竖条 + 主色书名，其余=彩色圆点 + 常规色。

@@ -22,6 +22,7 @@ import coil3.SingletonImageLoader
 import coil3.annotation.DelicateCoilApi
 import coil3.request.crossfade
 import kotlinx.coroutines.DelicateCoroutinesApi
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 // 👇 新增：NetConfig 配置所需的包
@@ -70,6 +71,13 @@ class App : Application() {
         // 11-11 用户令：日志目录换到 Download/chajian/log，把旧私有目录里的日志复制过去
         // （目标已存在就跳过，不覆盖新日志；失败静默，迁移不该影响启动）
         AppConst.migrateOldLogs()
+        // 11-11 用户令「日志的定期清理再看一下」：启动时清一次——
+        // 删 7 天前的旧文件，总量超 40MB 再从最旧的删到上限以内。
+        // 放 IO 线程：目录里文件可能有几十个，列目录 + 求和不该占主线程；
+        // 失败静默（清理失败最多是占点空间，绝不能拖慢或搞挂启动）。
+        GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching { AppConst.pruneLogs() }
+        }
 
         // 启动超时看门狗：独立守护线程，监测"超时后卡死"并自动重启 APP
         TtsTimeoutWatchdog.start()
