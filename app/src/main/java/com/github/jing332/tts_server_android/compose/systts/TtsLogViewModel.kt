@@ -390,7 +390,7 @@ class TtsLogViewModel : ViewModel() {
      *
      * ⚠️ 11-11 二次修（用户实报「我都已经全都删除了，还冒出莫名其妙的获取成功日志」）：
      * ①只截断了主文件，但页面回读还有 **三个** 文件：
-     *   `system_tts_child.log`（获取成功子行，pullChildFile 读）、
+     *   `system_tts_child.log`（11-11 合并回主日志前的旧成功子行文件；升级用户盘上可能还有）、
      *   `plugin.log` / `speech_rule.log`（pullConsoleFile 读）。
      * 内存清了、这几份没清 ⇒ 下次进日志页（或 VM 重建、切书重载）pull() 又把旧行读回来，
      * 表现就是"删掉的成功日志又自己冒出来"，而且**只有成功子行、没有对应的请求行**
@@ -406,6 +406,8 @@ class TtsLogViewModel : ViewModel() {
         // 主日志 + 三份回读来源一起截断：清空必须是"清空所有会被读回来的东西"，
         // 只清主文件等于给下次进页面留了一份"复活数据"。
         clearAuxFile(file)
+        // 旧版遗留文件：已合并回主日志后不再产生新内容，但升级用户盘上可能还有，
+        // 顺手清掉（留着只会让人以为"还有个文件没用上"）
         clearAuxFile(File(file.parentFile, "system_tts_child.log"))
         clearAuxFile(consoleFile(isPlugin = true))
         clearAuxFile(consoleFile(isPlugin = false))
@@ -635,18 +637,17 @@ class TtsLogViewModel : ViewModel() {
             Log.e(TAG, "pull: ", it)
         }
 
-        // 成功子行（「获取成功：大小 · 耗时」）回读（11-11 修，用户实报「切书后/单本书时看不到」）。
+        // 旧版成功子行文件的**一次性迁移**（11-11 用户定案合并回主日志后）。
         //
-        // ## 为什么需要这一块
-        // 子行由 SystemTtsService.logS 写入独立文件 system_tts_child.log
-        //（不写 system_tts.log，避免与 logback 抢文件指针）。但 11-10 那次改动只做了写入端，
-        // **读回端从来没实现**——全仓只有写、没有读，于是页面重载或切书后子行永久消失。
-        //
-        // ## 为什么可以并进主解析
-        // 11-11 起 logS 写的格式与主日志的新格式**完全一致**
-        //（time | SUCCESS | configId | roleName | §book | chapter | message），
-        // 所以直接用 toLogEntry 解析即可，书章字段也一并拿到，按书过滤时不会再被丢弃。
-        pullChildFile()
+        // 历史：11-10~11-11 之间，logS 把「获取成功」写进独立的 system_tts_child.log，
+        // 页面靠这里回读。现在写入端已改回主日志，这个文件不再产生新内容；
+        // 但**升级上来的用户磁盘上还留着它**，直接不理会让"最近的历史成功行"凭空消失。
+        // 所以这里读一次、把里面的行并进主日志，然后清空该文件（不是删——见下方注释），
+        // 下次启动文件已是空的，不会重复并入。
+        // 11-11 用户定案：成功子行已合并回主日志，不再单独回读 child 文件。
+        // 若旧版本留下过 system_tts_child.log，pullOneLegacyChildFile 只读一次并迁进主日志，
+        // 之后自然老化（不再写入），不会长期留着一份重复数据。
+        pullOneLegacyChildFile()
         // 插件 / 朗读规则日志回读（11-10 用户令「希望能够保存下来」）：
         // 这两个文件由 SysttsLogger.persistConsole 追加，格式 time | LEVEL | message
         //（无 configId/roleName，也不带 § 书章段）。单独解析成本很低，不必并进上面的主解析。
@@ -655,18 +656,17 @@ class TtsLogViewModel : ViewModel() {
     }
 
     /**
-     * 回读成功子行文件（11-11 新增）。
+     * 把旧版遗留的 system_tts_child.log 并入主日志，并把该文件清空（11-11）。
      *
-     * 排序：子行时间戳晚于其主行（同一请求先「请求音频」后「获取成功」），
-     * 而 [logs] 是按写入顺序追加的列表，主日志与子行分属两个文件，
-     * 直接 append 会让子行整体堆在主日志之后、与主行脱节。
-     * 这里按 (time, 原顺序) 合并排序，保证子行紧跟在对应主行后面。
+     * 只需跑一次：并入后立刻清空文件，下次启动 `f.length() == 0` 直接跳过。
+     * **不清空而是删除**会有两个问题：① 写入端若还有残留调用会重新建文件；
+     * ② 用户在文件列表里点它会"文件不存在"。
      *
-     * 只在 [pull] 首次加载时调用；实时新增走 SysttsLogger 的内存通道，不经此处。
+     * 并入顺序仍按时间排序（旧子行时间戳夹在主日志行之间，直接 append 会堆到末尾）。
      */
-    private suspend fun pullChildFile() {
+    private suspend fun pullOneLegacyChildFile() {
         val f = runCatching { File(file.parentFile, "system_tts_child.log") }.getOrNull() ?: return
-        if (!f.exists()) return
+        if (!f.exists() || f.length() == 0L) return
         runCatching {
             val childEntries = readTailLines(f, 800).mapNotNull { line ->
                 runCatching { toLogEntry(line) }.getOrNull()
@@ -679,7 +679,6 @@ class TtsLogViewModel : ViewModel() {
                 // ⚠️ logs 是 SnapshotStateList，直接 clear()+addAll() 会触发两次重组、
                 // 列表闪一下。这里**原地补位**：按合并后的顺序逐个比对，
                 // 已有元素就地覆盖（不触发变更通知）、缺的位置再插入。
-                // 子行数量远小于主日志（通常每条请求 1 行），插入次数很少。
                 val merged = (logs.toList() + childEntries).sortedBy { it.time }
                 merged.forEachIndexed { i, entry ->
                     if (i < logs.size) {
@@ -689,8 +688,11 @@ class TtsLogViewModel : ViewModel() {
                     }
                 }
             }
+            // 并入完成立刻清空源文件：保证"只迁一次"。
+            // 用截断不用 delete（写入端可能还持有引用；删了下次又建个空的，反而多一次判断）。
+            runCatching { FileWriter(f, false).use { it.write(CharArray(0)) } }
         }.onFailure {
-            Log.e(TAG, "pullChildFile: ", it)
+            Log.e(TAG, "pullOneLegacyChildFile: ", it)
         }
     }
 
