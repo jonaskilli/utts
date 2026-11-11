@@ -970,7 +970,7 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                             ) {
                                 Column(Modifier.weight(1f)) {
                                     // 主标题用中文名（11-11 用户令）；磁盘文件名作为副信息保留——
-                                    // 排障时两边要对得上，只说"朗读主日志"他不知道是哪个文件。
+                                    // 排障时两边要对得上，只说"朗读日志"他不知道是哪个文件。
                                     val cn = logFileDisplayName(f.name)
                                     Text(
                                         text = cn ?: f.name,
@@ -1158,14 +1158,15 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
  * 调用方回退显示原文件名，不会因为新增文件就显示空白。
  */
 private fun logFileDisplayName(fileName: String): String? = when {
-    fileName == "system_tts.log" -> "朗读主日志"
+    // 11-11 用户定名：朗读主日志 → 朗读日志（去掉"主"，它不跟任何东西对仗，反而像"最重要"）
+    fileName == "system_tts.log" -> "朗读日志"
     fileName == "system_tts_child.log" -> "获取结果日志"
     fileName == "plugin.log" -> "插件日志"
     fileName == "speech_rule.log" -> "朗读规则日志"
     fileName == "debug.log" -> "调试日志"
     fileName == "crash.log" -> "崩溃日志"
     // 轮转备份：system_tts_2026-11-11.0.log / debug_2026-11-11.0.log 之类
-    fileName.startsWith("system_tts_") -> "朗读主日志（旧）"
+    fileName.startsWith("system_tts_") -> "朗读日志（旧）"
     fileName.startsWith("debug_") -> "调试日志（旧）"
     fileName.startsWith("crash_") -> "崩溃日志（旧）"
     else -> null
