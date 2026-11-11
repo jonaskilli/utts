@@ -590,9 +590,11 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                     // 滚到底由 LogScreen 内部 autoScrollToBottom 的 LaunchedEffect 完成
                     // ——打开实时最新后 list.size 变化就会自动 animateScrollToItem(lastIndex)。
                     onJumpToLive = {
+                        // ⚠️ 只清筛选 + 请求一次滚底，**绝不碰 autoScrollToBottom**。
+                        // 那个开关是用户勾选的「持续跟随」，点一次跳转不该替用户打开它
+                        //（11-11 用户纠正：「只有我确定勾选了才启用，一般都是正常状态」）。
                         vm.clearScope()
-                        vm.autoScrollToBottom.value = true
-                        jumpToLiveTick++   // 强制重启滚底（可能本来就开着实时最新）
+                        jumpToLiveTick++
                     },
                     // 正在朗读的书（与筛选无关）：用于"筛着 A 在读 B"的跳转提示条
                     readingBook = readingBook,
