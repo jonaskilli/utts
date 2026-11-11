@@ -84,6 +84,7 @@ import com.github.jing332.common.utils.limitByDisplayWidth
 import com.github.jing332.tts_server_android.compose.theme.pluginChipColor
 import com.github.jing332.common.ACCENT_GREEN
 import com.github.jing332.tts_server_android.compose.theme.AppShapes
+import com.github.jing332.tts_server_android.compose.systts.common.PreviewIconButton
 import com.github.jing332.compose.widgets.ControlBottomBarVisibility
 import com.github.jing332.database.dbm
 import com.github.jing332.database.entities.systts.SystemTtsV2
@@ -157,29 +158,17 @@ private val releaseDotColors = listOf(
 private val BOOK_NAME_COLOR = Color(0xFF333333)
 
 /**
- * 角色行右列**第一行（显示名标签框）**的高度，11-11 单名对齐用。
+ * 角色行**第一行**的高度，单名对齐用。
  *
- * ⚠️ 这个常量**不是标签框高度**（标签框是 13sp lineHeight 16 + 上下内衬 3×2 = 22dp），
- * 而是「单名行框的高度」，11-11 起取 **24dp**（= 名字 lineHeight 24sp），
- * 让行框与行高一致、不被 22dp 挤压。
- * 单名的垂直对位改由 [SINGLE_NAME_OFFSET] 的 −1dp 位移完成：
- *   行框 24dp 中心 = 行顶(-1) + 12 = 11dp = 标签框中线 ✓
- * 沿革：曾取 22dp 去"等于标签框高"，那是拿行高参数凑高度，语义错误（用户 11-11 指出）。
- * ⚠️ 改名字行高（lineHeight）时，这个常量与 SINGLE_NAME_OFFSET 要一起重算。
+ * 11-11 用 ▶ 图标（24dp 盒）后，第一行高 = max(标签框 22dp, ▶ 盒 24dp) = **24dp**，
+ * 中线 = 12dp。标签框 22dp 在 24dp 行里垂直居中，其中线同样是 12dp。
+ *
+ * 单名的位移在 RoleRow 里按 `12dp − 24sp/2` 计算（见 singleNameOffset）：
+ * 名字行盒高 24sp，sp 随系统字号缩放，这个式子在大字号下也仍压在 12dp 中线上。
+ * 沿革：曾用固定 −1dp（当时第一行 22dp、名字行 24dp）；改图标 + 字号缩放下会漂。
+ * ⚠️ 改第一行构成（▶ 盒/标签框内衬）或名字 lineHeight 时，这两处要一起重算。
  */
 private val TAG_ROW_HEIGHT = 24.dp
-
-/**
- * 单名角色时，名字行相对右列顶部的位移。
- *
- * 行框高 24dp（= lineHeight 24sp），要让其中心落在标签框中线 **11dp**
- * （标签框 22dp 的一半），行顶须为 11 − 24/2 = **−1dp**。
- *
- * ⚠️ 用位移而不是把 lineHeight 改成 22sp：单行没有"行距"，改 lineHeight 只是
- * 拿行距参数去凑高度，语义是错的（用户 11-11 明确指出）。
- * 它依赖标签框高 22dp；改标签框内衬时这里要跟着重算。
- */
-private val SINGLE_NAME_OFFSET = (-1).dp
 
 /**
  * 标签/书栏/胶囊统一底色（2026-10-11 Radix 版，用户拍板「标签用 step4」）：
@@ -1170,16 +1159,15 @@ private fun RoleRow(
         .distinctBy { it.trim() }
     // 名字列封顶半屏（沿 10-14 定稿）；右侧两行吃剩余
     val halfRow = ((LocalConfiguration.current.screenWidthDp - 2 * ListGutter.value) / 2).dp
+    // 11-11 用户令：单名要与右列第一行**中线**对齐。第一行高由 ▶ 的 24dp 图标盒决定、
+    // 中线 = 12dp；名字行盒高 = 24sp。位移按 12dp − 24sp/2 计算——sp 随系统字号缩放，
+    // 这样字号变大变小都仍压在 12dp 中线上（原先写死 −1dp 只在 1.0 倍字号下成立）。
+    val singleNameOffset = with(LocalDensity.current) { 12.dp - 24.sp.toDp() / 2 }
     // ▶ 三态色（与换声弹窗 previewLabelColor 同源）：空闲=主色 / 合成中=琥珀 / 播放中=红
     val previewColor = when {
         !previewActive -> MaterialTheme.colorScheme.primary
         previewSynthesizing -> Color(0xFFFF6F00)
         else -> Color(0xFFF44336)
-    }
-    val previewLabel = when {
-        !previewActive -> "▶"
-        previewSynthesizing -> "…"
-        else -> "■"
     }
     // 已点亮标记 chip（固定顺序，每枚一个 chip；未点亮不渲染）
     val litMarks = VoiceMarksFile.MARK_ITEMS.filter { it.first in marks }
@@ -1206,34 +1194,21 @@ private fun RoleRow(
                 )
                 .padding(vertical = 10.dp),
             // 11-11 用户令终稿「居中对齐」：外层 Row 用 CenterVertically，
-            // 左列名字块**始终在右侧两行的高度内垂直居中**。配合左列行高 21dp，三种情况自动成立。
+            // 左列名字块在右侧两行的高度内垂直居中（多别名）。
             //
-            // ## 右列两行的真实高度（11-11 删掉标签框上的 minimumInteractiveComponentSize 后重算）
-            //   第一行 = 标签框内容高 22dp（13sp lineHeight 16 + 上下内衬 3×2）
-            //            ⚠️ 之前这个修饰符把第一行钉在 48dp，右列两行中心差 33dp，
-            //            与左列 20dp 差出一大截——这正是用户反复说的「右边比左边松」。
+            // ## 右列两行高度（11-11 用 24dp ▶ 盒 / 24dp ⋮ 盒后）
+            //   第一行 = max(标签框 22dp, ▶ 盒 24dp) = 24dp，中线 12dp
             //   间隔   = 1dp
-            //   第二行 = max(文字 16dp, ⋮ 盒 18dp) = 18dp
-            //   ⇒ 右列总高 41dp，中心：第一行 11、第二行 22+1+9 = 32，**中心差 21dp**
+            //   第二行 = max(文字 16dp, ⋮ 盒 24dp) = 24dp
+            //   ⇒ 右列总高 49dp；名字行 24sp，多别名整块居中。
             //
-            // ## 于是左列行高必须 = 21sp（= 右列中心差），否则对齐会错
-            //   1 名：左 21dp，右 41dp → 行高 41，左 offset 10 → 中心 20.5 = 右块中心 20.5 ✓
-            //   2 名：左 42dp，右 41dp → 行高 42，左 offset 0、右 offset 0.5
-            //        → 左 10.5 / 31.5，右 11.5 / 32.5（**差 1dp**，肉眼不可见；
-            //          这是"左列总高必为整数倍 21、右列 41 为奇数"带来的固有 0.5dp 偏移）
-            //   3 名：左 63dp，右 41dp → 行高 63，右 offset 11 → 中间那行中心 31.5 = 右块中心 31.5 ✓
-            //
-            // ⚠️ 改这个 21 之前，先算一遍上面三行：它必须始终等于右列两行的中心差。
-            // ⚠️ 沿革：曾改 Top（"第一行对齐"），但那样单名贴顶、多别名时右侧下坠。
-            //
-            // 11-11 用户令「当角色名是一个时，换种对齐方法，要首行居中对齐」：
-            // **单名**改走 Top + 左列固定 22dp，让名字中线对到**右列第一行（标签框）中线**；
-            // **多别名**仍用 CenterVertically（整块在右侧两行里居中）。
-            //   单名：左列 22dp、Top → 名字（21dp）在其中居中，中心 = 11dp
-            //         = 右列第一行中心（22/2 = 11dp）✓ 正是用户说的"首行居中对齐"
-            //   多别名：维持 CenterVertically，1/2/3 个都能同时对上两行
+            // 单名（用户 11-11「要首行居中对齐」）：外层 Top + 左列固定 24dp，
+            // 名字行按 singleNameOffset（12dp − 24sp/2）位移，中线压在 12dp。
+            // 多别名：CenterVertically，整块在 49dp 里居中。
             // ⚠️ 为什么不能一直用 Top：多别名时左列会从顶上开始排，
             //    与右侧两行整体错开（历史踩过，注释见上）。
+            // ⚠️ 沿革：曾按「右列中心差 21dp」把行高压到 21sp，那是错的前提
+            //    （右列中心差随 ⋮ 盒/内衬漂移，左列被动跟变）——已在 11-11 废弃。
             verticalAlignment = if (nameList.size == 1) Alignment.Top else Alignment.CenterVertically
         ) {
             // 名字列：照 v9 排布（主名第一行，别名逐个竖排，每行带性别色圆点）
@@ -1268,7 +1243,7 @@ private fun RoleRow(
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = if (nameList.size == 1)
-                            Modifier.offset(y = SINGLE_NAME_OFFSET) else Modifier,
+                            Modifier.offset(y = singleNameOffset) else Modifier,
                     ) {
                         Spacer(
                             Modifier
@@ -1319,7 +1294,8 @@ private fun RoleRow(
             }
             // 右侧两行（voice 空不渲染，照插件）
             if (rec.voice.isNotBlank()) {
-                Spacer(Modifier.width(10.dp))
+                // 11-11 用户令「角色名和右侧显示名中间也得保留一部分间距」：10 → 16dp。
+                Spacer(Modifier.width(16.dp))
                 // 11-09 用户令（图一实锤三问题）版式修正：
                 // ①Column 改 Top 对齐——标签框与第一行角色名顶对齐（原 Center 让两行
                 //   整体垂直居中，多行名字时标签框下坠不对齐）；
@@ -1507,37 +1483,21 @@ private fun RoleRow(
                                 )
                             }
                         }
-                        // ▶ 试听（与换声弹窗顶部试听同链）：无锚点配置项（失效标签）不渲染
-                        // 右缘留白沿革（11-10 十六改）：
-                        //   原版 12dp（11-09 03:01 前）→ 用户「第一行右侧都留空了」嫌太空
-                        //   → 改 8dp padding + offset(+6dp) 视觉右移 → 右缘只剩 2dp
-                        //   → 用户实拍「三个点菜单是不是离右边太近」→ **撤 offset，回 8dp**
-                        // 现在 ▶/⋮ 左右各 8dp 对称；换声弹窗的 ⋮ 同步改为 8dp
-                        //（IconButton 补 padding(end=8dp)），两处口径一致。
-                        // ⚠️ 别再叠 offset 压右缘：padding 已经给足，再加 offset 会把右留白挤没。
+                        // ▶ 试听（与换声弹窗顶部试听同链）：无锚点配置项（失效标签）不渲染。
+                        // 11-11 用户令：▶ 与 ⋮ **同级**——同为 20dp 图标 + 24dp 盒。
+                        // 原来 ▶ 是 16sp 字符（字形只有约 9~13dp 高），⋮ 是 14dp 图标，
+                        // 用户看到的「一大一小」就来自这里；字符放大到 20dp 要 26sp+ 且撑行高、
+                        // 还随字体回落漂移，故改图标（见 PreviewIconButton 注释）。
+                        // 盒前补 6dp：图标在 24dp 盒内居中自带 2dp，视觉间距 = 8dp（与原一致）。
+                        // 右缘：盒贴内容区右缘，与第二行的 ⋮ 盒同一条竖线（两行图标都居中，右距 2dp）。
+                        // 触控：24dp 见方（与 ⋮ 同款取舍）；整行另有点击，点 ▶ 优先消费为试听。
                         if (hasAnchor) {
-                            // 11-11 用户令「下方列表右侧第一行和第二行行间距是不是太大了」：
-                            // 真因不是行距，是这里原先的 vertical = 12.dp——16sp 字形上下各 12，
-                            // 把第一行撑到约 48dp，而第二行只有 11sp（≈16dp），中间空出一大块。
-                            // 现在只留水平内衬：第一行高度改由标签框（13sp + 上下 5dp ≈ 26dp）决定。
-                            //
-                            // ⚠️ 点区没变小：▶ 仍有「字形宽 + 左右各 8dp」≈30×24dp 的点击范围，
-                            // 且整行本就挂行点击（点行=选中、点 ▶=试听），不靠这里撑热区。
-                            Text(
-                                previewLabel,
-                                color = previewColor,
-                                // 11-11 用户令（右侧压到极限）：显式 lineHeight = 16.sp。
-                                // titleMedium 默认行高 24dp，比标签框(22dp)还高，会把第一行撑到 24dp；
-                                // 钉成 16sp 后第一行高度交还给标签框。
-                                // ⚠️ 这段注释里的 45→39dp 是旧值（当时第一行被标签框上的
-                                // minimumInteractiveComponentSize 钉在 48dp，已在 11-11 删除）。
-                                // 现在第一行 22dp、第二行 18dp，右侧总高 41dp（22+1+18）。
-                                // ▶ 自身必须低于标签框，否则又会把第一行顶高。
-                                // ▶ 与所在行（第一行）垂直居中：Row 是 CenterVertically，行高变矮后自动跟随。
-                                style = MaterialTheme.typography.titleMedium.copy(lineHeight = 16.sp),
-                                modifier = Modifier
-                                    .clickable(onClick = onPreview)
-                                    .padding(horizontal = 8.dp),
+                            Spacer(Modifier.width(6.dp))
+                            PreviewIconButton(
+                                playing = previewActive,
+                                synthesizing = previewSynthesizing,
+                                tint = previewColor,
+                                onClick = onPreview,
                             )
                         }
                     }
@@ -1549,9 +1509,9 @@ private fun RoleRow(
                     // 宽度：整行钉住不截（显示名截断压力已在第一行标签框上）
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        // 11-11 用户令「右侧压到极限」：本行目标高度 16dp（纯文字高度）。
-                        // 唯一撑高它的是右端 ⋮ 的视觉盒——已同步收到 16dp（见 VoiceOverflowMenu），
-                        // 与本行文字等高，本行因此回到 16dp。
+                        // 11-11 用户令「角色管理也要同级，建议把三个点菜单调大」：
+                        // 本行高度现在由 ⋮ 的 24dp 盒决定（文字只有 16dp），比改前高 8dp；
+                        // 用户明确表示行距略松没关系。
                         modifier = Modifier.padding(top = 1.dp),
                     ) {
                         // 分类 · 插件名（纯文字标注；分类=tag id「女青年29」）
@@ -1672,11 +1632,11 @@ private fun RoleRow(
                                 onToggleMark = onToggleMark,
                                 deleteEnabled = hasAnchor,
                                 onDelete = onDeleteConfig,
-                                // 角色列表档位：18dp 盒 + 14dp 图标（比面板小一档）。
-                                // 本行是纯文字标注行（16dp），盒必须 ≤18dp——再大就把右侧
-                                // 两行中心差推大，回到用户反复反馈的「右边比左边松」。
-                                boxSize = 18.dp,
-                                iconSize = 14.dp,
+                                // 11-11 用户令「角色管理也要同级，建议把三个点菜单调大，
+                                // 行间距稍微大一点也没关系」：18/14 → 24/20，与换声面板同档。
+                                // 代价：第二行高 16 → 24dp，整行 41 → 49dp，行距略松（用户已接受）。
+                                boxSize = 24.dp,
+                                iconSize = 20.dp,
                             )
                         }
                     }
