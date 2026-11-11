@@ -742,7 +742,8 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
         //（正是用户说的"后来就没有了"）。现在改为主日志同款格式（带 § 书章段），
         // 由 TtsLogViewModel.pull() 合并回读，格式与 toLogEntry 的新格式完全一致。
         runCatching {
-            val logFile = File(AppConst.externalFilesDir.parentFile, "cache/log/system_tts_child.log")
+            // 11-11：与主日志同目录（AppConst.logDir，权限不足时自动回退私有目录）
+            val logFile = File(AppConst.logDir, "system_tts_child.log")
             synchronized(logFileLock) {
                 // 与主文件同样的自限：超 2MB 截半，防止长期运行无限增长
                 if (logFile.exists() && logFile.length() > 2L * 1024 * 1024) {

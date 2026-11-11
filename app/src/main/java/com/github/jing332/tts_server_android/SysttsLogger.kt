@@ -72,7 +72,8 @@ object SysttsLogger {
     }
 
     private fun consoleLogFile(entry: LogEntry): File? = runCatching {
-        val dir = File(AppConst.externalFilesDir.parentFile, "cache/log")
+        // 11-11：统一走 AppConst.logDir（Download/chajian/log，权限不足时自动回退私有目录）
+        val dir = AppConst.logDir
         if (!dir.exists()) dir.mkdirs()
         File(dir, if (entry.isPluginLog) "plugin.log" else "speech_rule.log")
     }.getOrNull()

@@ -22,6 +22,58 @@ object AppConst {
     val externalFilesDir: File by lazy { checkNotNull((app as Context).getExternalFilesDir("")) { "getExternalFilesDir() == null" } }
     val externalCacheDir: File by lazy { checkNotNull((app as Context).externalCacheDir) { "externalCacheDir == null" } }
 
+    /** 用户可见的数据根目录：角色卡/书单/密钥等 JS 落盘文件都在这里（规则脚本同址写） */
+    const val CHAJIAN_BASE_DIR = "/storage/emulated/0/Download/chajian"
+
+    /**
+     * 日志目录（11-11 用户令：搬到 Download/chajian/log，文件管理器里直接可见）。
+     *
+     * ⚠️ 必须有回退：这个目录要「所有文件访问」权限才能写。权限被撤、或首次启动还没来得及授权时，
+     * 直接写会失败——而**日志写不进去恰恰是最需要日志的时候**，静默不写是最坏结果。
+     * 所以先做一次真实写入探测（建目录 + 写个空文件 + 删掉），失败就退回旧的私有目录
+     * `Android/data/<包名>/cache/log`（那个不需要任何权限，永远可写）。
+     *
+     * 探测只在首次取值时做一次（by lazy）：目录一旦确定，整个进程周期不再变，
+     * 避免运行中权限变化导致一半日志在 A、一半在 B。
+     */
+    val logDir: File by lazy {
+        val preferred = File(CHAJIAN_BASE_DIR, "log")
+        // 兜底目录也包一层 runCatching：externalFilesDir 在存储未挂载时会抛异常，
+        // 而"取日志目录"这件事本身绝不该把进程带崩。
+        val fallback = runCatching { File(externalFilesDir.parentFile, "cache/log") }
+            .getOrElse { File(app.filesDir, "log") }
+        val writable = runCatching {
+            preferred.mkdirs()
+            val probe = File(preferred, ".write_probe")
+            try {
+                probe.writeText("")
+                true
+            } finally {
+                runCatching { probe.delete() }
+            }
+        }.getOrDefault(false)
+        if (writable) preferred else fallback.also { runCatching { it.mkdirs() } }
+    }
+
+    /**
+     * 老日志迁移（11-11）：目录换到 chajian/log 后，把旧私有目录里的日志文件复制过去
+     * （目标同名文件已存在就跳过，不覆盖新日志）。只在启动时跑一次，失败静默——
+     * 迁移失败最多是"旧日志看不到"，绝不能因此影响启动。
+     */
+    fun migrateOldLogs() {
+        runCatching {
+            val old = File(externalFilesDir.parentFile, "cache/log")
+            val new = logDir
+            if (old.absolutePath == new.absolutePath) return
+            if (!old.isDirectory) return
+            old.listFiles()?.forEach { f ->
+                if (!f.isFile) return@forEach
+                val target = File(new, f.name)
+                if (!target.exists()) runCatching { f.copyTo(target) }
+            }
+        }
+    }
+
     var isSysTtsLogEnabled = true
     var isServerLogEnabled = false
 

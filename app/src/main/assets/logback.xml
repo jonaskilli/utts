@@ -2,7 +2,12 @@
     xmlns="https://tony19.github.io/logback-android/xml"
     xsi:schemaLocation="https://tony19.github.io/logback-android/xml https://cdn.jsdelivr.net/gh/tony19/logback-android/logback.xsd">
 
-    <property name="LOG_DIR" value="/storage/emulated/0/Android/data/${PACKAGE_NAME}/cache/log" />
+    <!-- 日志目录（11-11 用户令：搬到 Download/chajian/log，文件管理器里直接可见）。
+         DSH_LOG_DIR 由 App.attachBaseContext 在 logback 初始化前写入：
+         它取 AppConst.logDir 的结果——那里面有"真实写一次"的探测，
+         权限没给就回退到私有目录 Android/data/<包名>/cache/log。
+         这里的默认值只是兜底：万一属性没设上（极早期日志），至少有个确定的落点。 -->
+    <property name="LOG_DIR" value="${DSH_LOG_DIR:-/storage/emulated/0/Download/chajian/log}" />
 
     <appender name="logcat" class="ch.qos.logback.classic.android.LogcatAppender">
         <tagEncoder>

@@ -135,7 +135,8 @@ object TtsTimeoutWatchdog {
         runCatching {
             val time = LocalDateTime.now()
                 .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS"))
-            val logFile = File(AppConst.externalFilesDir.parentFile, "cache/log/system_tts.log")
+            // 11-11：与主日志同目录（AppConst.logDir）
+            val logFile = File(AppConst.logDir, "system_tts.log")
             synchronized(fileLock) {
                 FileWriter(logFile, true).use {
                     it.append("$time | ERROR | [Watchdog] 超时后 ${stalledMs}ms 无新日志，判定卡死，重启APP\n")
