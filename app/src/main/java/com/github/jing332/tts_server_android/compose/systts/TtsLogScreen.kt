@@ -930,6 +930,32 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                         .heightIn(max = 380.dp)
                         .verticalScroll(rememberScrollState())
                 ) {
+                    // 11-11 用户令「提示一下当前所在的位置，就写一个 log 文件夹在的位置就行」：
+                    // 日志目录现在在公共存储下（Download/chajian/log），用户可能想自己去
+                    // 文件管理器翻，或想知道"到底存哪了"。这里直接把绝对路径写出来，
+                    // 长按可复制——路径很长，点名拷比手抄靠谱。
+                    // ⚠️ 用 vm.logDir() 而不是写死字符串：权限不足时它会自动回退到私有目录，
+                    // 写死的话显示的位置和真实位置会对不上。
+                    val dirPath = vm.logDir()
+                    Text(
+                        text = dirPath,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 10.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                            .clickable {
+                                // 点一下就整条复制，方便粘到文件管理器或发给我
+                                clipboard.setText(AnnotatedString(dirPath))
+                            }
+                            .padding(horizontal = 8.dp, vertical = 5.dp),
+                    )
+                    Spacer(Modifier.height(4.dp))
                     if (logFiles.isEmpty()) {
                         Text(
                             "日志目录为空",
