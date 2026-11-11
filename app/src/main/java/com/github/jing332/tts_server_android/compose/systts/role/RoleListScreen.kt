@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -158,15 +159,27 @@ private val BOOK_NAME_COLOR = Color(0xFF333333)
 /**
  * 角色行右列**第一行（显示名标签框）**的高度，11-11 单名对齐用。
  *
- * = 13sp 的 lineHeight 16dp + 上下内衬 3dp×2 = **22dp**。
- * 单名角色时左列固定取这个高度并 Top 对齐，名字在其中居中 → 中线 11dp，
- * 与标签框中线重合，实现用户要的「首行居中对齐」。
- *
- * ⚠️ 它必须与角色行里标签框的实际高度同步：改标签框的 `vertical = 3.dp` 或 13sp
- * 的 lineHeight 时，**这个常量要跟着改**，否则单名会轻微偏离标签框中线。
- * 位置见下方 RoleRow 的「第一行 = 标签框内容高 22dp」注释。
+ * ⚠️ 这个常量**不是标签框高度**（标签框是 13sp lineHeight 16 + 上下内衬 3×2 = 22dp），
+ * 而是「单名行框的高度」，11-11 起取 **24dp**（= 名字 lineHeight 24sp），
+ * 让行框与行高一致、不被 22dp 挤压。
+ * 单名的垂直对位改由 [SINGLE_NAME_OFFSET] 的 −1dp 位移完成：
+ *   行框 24dp 中心 = 行顶(-1) + 12 = 11dp = 标签框中线 ✓
+ * 沿革：曾取 22dp 去"等于标签框高"，那是拿行高参数凑高度，语义错误（用户 11-11 指出）。
+ * ⚠️ 改名字行高（lineHeight）时，这个常量与 SINGLE_NAME_OFFSET 要一起重算。
  */
-private val TAG_ROW_HEIGHT = 22.dp
+private val TAG_ROW_HEIGHT = 24.dp
+
+/**
+ * 单名角色时，名字行相对右列顶部的位移。
+ *
+ * 行框高 24dp（= lineHeight 24sp），要让其中心落在标签框中线 **11dp**
+ * （标签框 22dp 的一半），行顶须为 11 − 24/2 = **−1dp**。
+ *
+ * ⚠️ 用位移而不是把 lineHeight 改成 22sp：单行没有"行距"，改 lineHeight 只是
+ * 拿行距参数去凑高度，语义是错的（用户 11-11 明确指出）。
+ * 它依赖标签框高 22dp；改标签框内衬时这里要跟着重算。
+ */
+private val SINGLE_NAME_OFFSET = (-1).dp
 
 /**
  * 标签/书栏/胶囊统一底色（2026-10-11 Radix 版，用户拍板「标签用 step4」）：
@@ -1241,15 +1254,22 @@ private fun RoleRow(
                             .wrapContentHeight(Alignment.Top)
                             .height(TAG_ROW_HEIGHT) else Modifier
                     ),
-                // 单名：只有一行，用 Center 在 22dp 里居中；
-                // 多别名仍 Top（各行依次排下，整体由外层 CenterVertically 居中）
-                verticalArrangement = if (nameList.size == 1) Arrangement.Center else Arrangement.Top,
+                // 单名：只有一行，Top 摆放后靠下面的 offset 精确对位（不再靠改行高凑高度）；
+                // 多别名：Top，各行依次排下，整体由外层 CenterVertically 居中
+                verticalArrangement = Arrangement.Top,
             ) {
                 nameList.forEachIndexed { idx, name ->
-                    // 11-11 行高 22dp（=右列两行中心差，见外层 Row 注释）。
-                    // 圆点改为行内垂直居中：行高从 24 改 22 后，原来写死的 top=9dp
-                    // 会偏下 1dp，改用 CenterVertically 自动跟行中线。
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    // 行高 24sp（11-11 用户令，见下方 Text 的 style）。
+                    // 圆点用 CenterVertically 跟行中线（原来写死 top=9dp，行高变了会偏）。
+                    // 单名对位（11-11）：名字行框高 24dp，要让其中心落在标签框中线 11dp，
+                    // 行顶必须是 11 − 24/2 = **−1dp**，即整体上移 1dp。
+                    // ⚠️ 用位移而不是改 lineHeight：单名没有"行距"概念，改行高只是凑数，
+                    //    会把这个参数用偏（用户 11-11 指出）。
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = if (nameList.size == 1)
+                            Modifier.offset(y = SINGLE_NAME_OFFSET) else Modifier,
+                    ) {
                         Spacer(
                             Modifier
                                 .padding(start = 4.dp)
@@ -1280,13 +1300,14 @@ private fun RoleRow(
                             //        改为「整块在右侧两行里垂直居中」。
                             // ⚠️ 日后若要恢复逐行严格对齐，去调右列（把注行补到与标签框等高 22dp，
                             //    中心差变 22dp），**不要回来压左列行高**。
-                            // ⚠️ 单名单独取 22sp，多别名才用 24sp：
-                            // 单名走的是「Top + 容器固定 22dp」，24dp 的行装不进 22dp 容器
-                            // （溢出 2dp，中线不再精确落在 11dp）。而单名只有一行、
-                            // 不存在"行距"问题，取 22sp 既放得下又与标签框等高对齐。
+                            // 行高统一 24sp（用户令）。
+                            // ⚠️ 2026-11-11 修正：此前令单名取 22sp 是错的——
+                            // lineHeight 对**单行**不产生任何行距，它只决定这一行的行框高度；
+                            // 拿它去凑 22dp 容器是把参数用偏了。单名若需对齐标签框，
+                            // 应当位移（见下方 offset），而不是改行高。
                             style = MaterialTheme.typography.bodyLarge.copy(
                                 fontSize = 16.sp,
-                                lineHeight = if (nameList.size == 1) 22.sp else 24.sp,
+                                lineHeight = 24.sp,
                             ),
                             color = MaterialTheme.colorScheme.onSurface,
                             // 名字超半屏折行续排，不省略（10-12「显示完全」口径保持）
@@ -1383,8 +1404,34 @@ private fun RoleRow(
                                 //   · ▶ / ⋮ 是固定宽兄弟，weight 只会分给"剩余"，
                                 //     所以标签框再怎么长也挤不掉它们（这是去掉 max 后
                                 //     必须补的保护，否则 Arrangement.End 下长名字会把 ▶ 顶出屏）
-                                // min 仍 96dp（短名触点）。
-                                .widthIn(min = 96.dp)
+                                // ⚠️ 11-11 用户令：最小宽 **96 → 72dp**（用户先问"这个宽度是否合适"，
+                                // 看过预览后定 72）。
+                                //
+                                // ## 为什么 96dp 是错的
+                                // 实测截图（屏宽 1260px = 360dp，3.5px/dp）：四个角色的框**全是 108dp**，
+                                // 而文字只有 26~54dp —— 框里空白占 50~76%：
+                                //   然月    框108dp 文字42dp 空66dp
+                                //   云希HD  框108dp 文字26dp 空82dp
+                                //   悦小妮  框108dp 文字54dp 空54dp
+                                // 视觉上就是"一大块绿底中间浮着几个字"。96dp 这个下限当初是为
+                                // 短名的点击区设的，但它把**所有**名字的框都撑到同一宽度，
+                                // 名字长短的差异被抹平了。
+                                //
+                                // ## 72dp 的依据
+                                // 框内可用宽 = 72 − 左右内衬各 10 = **52dp ≈ 4 个汉字**，
+                                // 正好覆盖常见名字长度，且不再有假空白：
+                                //   悦小妮 39dp → 两侧各 6.5dp ｜ 云希HD 45dp → 各 3.5dp
+                                //   然月   26dp → 两侧各 13dp（最短名仍略空，但可接受）
+                                // 长名字照旧走 weight(1f, fill=false) 吃到剩余宽、按整字截断，
+                                // 不受这个下限影响（下限只作用于短名）。
+                                //
+                                // ## 对齐方式：保持**框内居中**，不改分散/左对齐
+                                // 用户问过"文字在框里要不要分散对齐"，结论是不改：
+                                //   分散对齐要把剩余空间摊到字与字之间，2 字名会拉开一整格
+                                //   （「然月」→ 中间空 26dp），而角色名 2/3/4 字混杂，
+                                //   短名会被拆得很怪；左对齐则右缘空、像没写完。
+                                //   方块底色 + 居中文字 = 徽章语义，是这个设计的本体。
+                                .widthIn(min = 72.dp)
                                 .weight(1f, fill = false),
                             // ⚠️ 11-11 删掉这里的 `.minimumInteractiveComponentSize()`（用户
                             // 11-11 首条反馈「右侧的行间距还是远大于左侧，跟没缩前是不是差不多」
