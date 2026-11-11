@@ -199,7 +199,22 @@ internal class LogGroups(
     val pinnedChapter: String = "",
     val pinnedChapterCount: Int = 0,
     val pinnedBookCount: Int = 0,
+    // 11-11「吸顶区跟随滚动」：每个**列表项下标** → 该项所属的 (书, 章)。
+    // 用户令「全部日志我划到哪就显示哪本书的信息」——吸顶区不再是"最新一条"，
+    // 而是"当前视口首项所属"。
+    //   · 建表时机：build() 里逐项扫一遍，遇到带书章的条目就更新「当前书章」并记下；
+    //   · 无书章的项沿用上一个值（同一本书里连续都是同书同章，无需重复算）；
+    //   · 表首（还没遇到过任何书章）为空串对。
+    // 用 IntArray 存两次查表的代价太高，这里直接用两个 String 数组，
+    // 尺寸 = items.size，与 entryToList 同级开销。
+    private val itemBook: Array<String> = emptyArray(),
+    private val itemChapter: Array<String> = emptyArray(),
 ) {
+    /** 取某个列表项所属的书/章（11-11 吸顶跟随用）；越界或未建表时返回空串对 */
+    fun bookChapterAt(itemIndex: Int): Pair<String, String> =
+        if (itemIndex in itemBook.indices && itemIndex < itemChapter.size)
+            itemBook[itemIndex] to itemChapter[itemIndex]
+        else "" to ""
     sealed class Item {
         class Header(val date: String) : Item()
         class Bare(val index: Int) : Item()
@@ -480,6 +495,32 @@ internal class LogGroups(
             val pBook = if (latestWithBook != null) latestWithBook.bookName else fallbackBook
             val pChapter = if (latestWithBook != null) latestWithBook.chapterTitle else fallbackChapter
             val pKey = pBook to pChapter
+
+            // ===== 11-11 吸顶跟随：逐项扫出「每个列表项属于哪本书哪一章」=====
+            // 用户令「全部日志我划到哪就显示哪本书的信息」。
+            // 做法：顺扫 finalItems，遇到带书章的条目就把"当前书章"更新掉并记给这一项；
+            // 没有书章的项沿用上一个（同一本书里连续日志同书同章，不必重复取）。
+            // 成本 O(n)、只建两个数组，与 entryToList 同量级；只在 build 时算一次，
+            // 不进滚动热路径——滚动时只做一次下标查表。
+            val itemBookArr = Array(finalItems.size) { "" }
+            val itemChapterArr = Array(finalItems.size) { "" }
+            run {
+                var cBook = ""
+                var cChapter = ""
+                finalItems.forEachIndexed { li, it ->
+                    val ai = anchorOf(it)
+                    if (ai >= 0 && ai < list.size) {
+                        val e = list[ai]
+                        if (e.bookName.isNotBlank()) {
+                            cBook = e.bookName
+                            cChapter = e.chapterTitle
+                        }
+                    }
+                    itemBookArr[li] = cBook
+                    itemChapterArr[li] = cChapter
+                }
+            }
+
             return LogGroups(
                 items = finalItems,
                 entryToList = map,
@@ -488,6 +529,8 @@ internal class LogGroups(
                 pinnedChapter = pChapter,
                 pinnedChapterCount = if (pChapter.isBlank()) 0 else (chapterCount[pKey] ?: 0),
                 pinnedBookCount = if (pBook.isBlank()) 0 else (bookCount[pBook] ?: 0),
+                itemBook = itemBookArr,
+                itemChapter = itemChapterArr,
             )
         }
     }
@@ -534,6 +577,10 @@ internal fun LogScreen(
     // 与「切换书」对称——书条右端弹书单，章条右端弹章节列表。
     // 始终传非 null（用户令「始终显示」）：只有一章的书也显示，点了能看见确实只有一章。
     onSwitchChapter: ((book: String, chapter: String) -> Unit)? = null,
+    // 视野书章回传（11-11）：吸顶区要显示"你划到了哪本书哪一章"，
+    // 而列表滚动状态只在本组件内，故用回调把结果抛给上层。
+    // 只在**值变化**时回调一次（内部做了比较），不会逐帧触发。
+    onViewChanged: ((book: String, chapter: String) -> Unit)? = null,
 ) {
     ControlBottomBarVisibility(listState, LocalBottomBarBehavior.current)
     val scope = rememberCoroutineScope()
@@ -557,6 +604,30 @@ internal fun LogScreen(
     // 归组结果：外部传入优先，否则内部构建（缓存随列表重建）
     val builtGroups = remember(list, groups) { groups ?: LogGroups.build(list) }
     val currentGroups by rememberUpdatedState(builtGroups)
+
+    // ===== 11-11 吸顶跟随滚动：当前视口首项所属的书/章 =====
+    // 用户令「全部日志我划到哪就显示哪本书的信息」。
+    // 实现要点（这是滚动热路径，不能每帧重算）：
+    //   · 用 derivedStateOf 包装：Compose 只在其**结果变化**时才触发重组；
+    //   · 读取的是 listState.firstVisibleItemIndex（不是 visibleItemsInfo 列表），
+    //     滚动时该值变化次数远少于逐帧，且 firstVisibleItemIndex 的变更会被精确追踪；
+    //   · 真正的查表（currentGroups.bookChapterAt）只在下标变了时才执行一次。
+    // 由于 derivedStateOf 的 lambda 会被重用，这里用 remember(currentGroups) 保证
+    // 换书/筛选后查的是新表。
+    val visibleBookChapter by remember(currentGroups) {
+        derivedStateOf {
+            val idx = listState.firstVisibleItemIndex
+            currentGroups.bookChapterAt(idx)
+        }
+    }
+    // 把视野书章抛给上层（吸顶区渲染在 LogScreen 外面）。
+    // ⚠️ 必须用 LaunchedEffect 而不是在组合中直接调用回调——组合期间写状态会触发
+    // "Writing to state during composition" 的重组风暴。
+    // key 用 visibleBookChapter 本身：只有它变了才重跑，不会逐帧触发。
+    val currentOnViewChanged by rememberUpdatedState(onViewChanged)
+    LaunchedEffect(visibleBookChapter) {
+        currentOnViewChanged?.invoke(visibleBookChapter.first, visibleBookChapter.second)
+    }
 
     // 拖选笔画共享态：手势跑在 AwaitPointerEventScope（受限挂起作用域）里，编译器禁止
     // 在其中 launch 协程，边缘自动滚只能挂外部协程，靠这组状态桥接手势与滚动手
