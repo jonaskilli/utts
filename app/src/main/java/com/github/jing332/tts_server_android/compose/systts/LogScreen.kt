@@ -98,19 +98,27 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.abs
 
 // SystemTtsService 拼接次级信息所用哨兵色，此处按主题重映射
-// ===================== 日志字号阶梯（11-11 用户令「缩一下字号，但要有主次」）=====================
-// 吸顶区占掉约 90dp 固定高度后，正文一屏只剩 6~7 条；整体收一档，但**不能一刀切**——
-// 那样主次就没了。按信息价值分层：
-//   正文 13sp（最大，仍是主角）> 辅助 11sp（时间/状态/耗时/发音人）
-// 判据：正文降 1sp 仍稳居第一；辅助一次降 1sp 是因为它们靠颜色/位置识别，不靠字号。
-// 插件日志/朗读规则日志保持 12sp —— 那是纯文本，再小就读不动了。
+// ===================== 日志字号阶梯 =====================
+// 沿革：11-11 早先为「省一屏高度」整体收过一档（正文 14→13、辅助 12→11），
+// 用户随后实报「日志字号太小了，除了吸顶区都恢复为以前的字号吧」——现恢复原值。
 //
-// ⚠️ 原还有一档 LOG_PLUGIN_NAME_SIZE = 10.5.sp（"插件名最小"），11-11 删除：
-// 它**全仓零引用**，是死常量。日志里的插件名实际并不单独设字号——它是正文
-// `<Text>` 里的一段颜色 span（SystemTtsService 拼的 `<font color=...>（插件名）</font>`），
-// 和正文同 13sp、同基线。留着这个常量会让后来者（包括我自己）误以为插件名是 10.5sp。
-private val LOG_BODY_SIZE = 13.sp
-private val LOG_AUX_SIZE = 11.sp
+// 恢复时**不能只把两个常量改大**：原来的分组比现在细。
+// 收档时把三种字号都并进了两个常量，其中：
+//   · 裸行原 13sp  ┐ 收档时同归 LOG_BODY_SIZE(13)
+//   · 正文/主行原 14sp ┘
+// 若直接把 LOG_BODY_SIZE 改成 14，裸行也会跟着变大——那不是恢复，是又改了一次
+//（10-11 用户对裸行有过明确口径：「12 还是小，提到 13，与成员行/主行前缀同档」）。
+// 故按原样拆回三档：
+private val LOG_HEAD_SIZE = 14.sp   // 正文 / 请求主行（原 14sp，收档时被压到 13）
+private val LOG_BODY_SIZE = 13.sp   // 裸行 / 成员行 / 前缀 / 声音信息（原本就是 13sp，未变）
+private val LOG_AUX_SIZE = 12.sp    // 时间 / 状态（原 12sp，收档时被压到 11）
+
+// ⚠️ 恢复时踩过的坑，写下来免得后人重犯：
+// 收档前 "13sp" 这一个数值同时被**前缀**、**声音信息**、**裸行**、**成员行**四处使用，
+// 而 "12sp" 只被**时间**、**状态**使用。收档把两者并成了一个 LOG_AUX_SIZE(11)，
+// 于是恢复时若直接把 LOG_AUX_SIZE 改回 13，会把"时间/状态"这档也一起改大（它们原本是 12）；
+// 若只改回 12，前缀/声音信息又会变小（它们原本是 13）。
+// 正确做法就是现在这样拆成三档：HEAD 14 / BODY 13 / AUX 12，各回各的原值。
 private val LOG_RAW_TEXT_SIZE = 12.sp
 
 private val MetaColorSentinel = Color(0xFFFF00FF)       // 获取成功前缀 → 石板灰
@@ -1123,8 +1131,9 @@ internal fun LogScreen(
                                         voiceColor = voiceColor,
                                         roleChipColor = roleChipColor,
                                         pluginChipColor = pluginChipColor,
-                                        fontSize = LOG_BODY_SIZE,
-                                        lineHeight = 17.sp, // 13×1.3
+                                        // 11-11 恢复：卡内正文原为 14sp（与上面主行同档），收档时被压到 13。
+                                        fontSize = LOG_HEAD_SIZE,
+                                        lineHeight = 18.2.sp, // 14×1.3（还原收档前的原值）
                                         isMatch = isMatchEntry(absorbed, searchQuery),
                                         emphasizeError = true,
                                         oldStyleFail = true,
@@ -1138,11 +1147,12 @@ internal fun LogScreen(
                                     voiceColor = voiceColor,
                                     roleChipColor = roleChipColor,
                                     pluginChipColor = pluginChipColor,
-                                    // 请求主行回 14sp（10-10 字号令纠偏：「缩到与声音信息一样」
+                                    // 请求主行 14sp（10-10 字号令纠偏：「缩到与声音信息一样」
                                     // 只指插件/规则裸行；主行恢复排版实验 1008 定版 14sp，
                                     // 内三段分层回前缀13/正文14/声音12——见 LogEntryBody isRequestHead）
-                                    fontSize = LOG_BODY_SIZE,
-                                    lineHeight = 17.sp, // 13×1.3
+                                    // 11-11 恢复：收档时这里被压到 13，现用 LOG_HEAD_SIZE 回到 14。
+                                    fontSize = LOG_HEAD_SIZE,
+                                    lineHeight = 18.2.sp, // 14×1.3（还原收档前的原值；收档时曾压到 17）
                                     isMatch = isMatchEntry(head, searchQuery),
                                     // 排版实验 1008（C）：只染"请求音频："前缀，正文回默认色
                                     isRequestHead = true,
@@ -1474,31 +1484,31 @@ private fun LogEntryBody(
                 base.spanStyles.forEach { r ->
                     var item = r.item
                     if (r.start < prefixEnd) {
-                        // 前缀：染深绿 + 13sp
+                        // 前缀：染深绿 + 13sp（原值 13，不是 12——见常量区注释）
                         item = item.copy(
                             color = if (darkTheme) RequestPrefixColorDark else RequestPrefixColorLight,
-                            fontSize = LOG_AUX_SIZE,
+                            fontSize = LOG_BODY_SIZE,
                         )
                     } else if (r.start >= metaStart && metaStart < base.text.length) {
-                        // 声音信息：哨兵色已换好目标色。字号 12→13sp（10-11 用户令
+                        // 声音信息：哨兵色已换好目标色。字号 13sp（10-11 用户令
                         // 「时间和下方声音条的字号太小」）——与裸行/成员行同档，
                         // 与正文 14sp 仍保一档差
-                        item = item.copy(fontSize = LOG_AUX_SIZE)
+                        item = item.copy(fontSize = LOG_BODY_SIZE)
                     } else if (r.item.color == roleChipColor) {
                         // 角色名（10-13 拆段后的新分支）：它现在**不再**被声音信息那段 font 罩住
                         //（服务端已把外层 font 拆成三段，见 SystemTtsService.configInfo），
                         // 所以拿不到上面那支的 13sp。此处显式补回 13sp，保住与改前同一字号；
                         // 颜色由 remapMetaColor 的 RoleChipSentinel 分支给
-                        item = item.copy(fontSize = LOG_AUX_SIZE)
+                        item = item.copy(fontSize = LOG_BODY_SIZE)
                     }
                     addStyle(item, r.start, r.end)
                 }
                 // 前缀段可能无 span 覆盖（级别色是 Text 整体 color，不是 span）：
                 // 显式补一个 13sp span
-                if (prefixEnd > 0) addStyle(SpanStyle(fontSize = LOG_AUX_SIZE), 0, prefixEnd)
+                if (prefixEnd > 0) addStyle(SpanStyle(fontSize = LOG_BODY_SIZE), 0, prefixEnd)
                 // 声音信息段若无 span 覆盖（整段哨兵色必有 span，此处兜底）：补 13sp
                 if (metaStart < base.text.length) {
-                    addStyle(SpanStyle(fontSize = LOG_AUX_SIZE), metaStart, base.text.length)
+                    addStyle(SpanStyle(fontSize = LOG_BODY_SIZE), metaStart, base.text.length)
                 }
             }
         }
@@ -1521,7 +1531,8 @@ private fun LogEntryBody(
                     // 该段原先吃调用方基础字号——组头吸收路径基础 14sp、裸行基础 13sp，
                     // 同一份源错误同屏两种正文字号。三段规格自此全局唯一：
                     // 错误串 13 / 正文 14 粗 / 发音人 13，与调用方基础字号无关。
-                    addStyle(SpanStyle(color = failRed, fontWeight = FontWeight.Bold, fontSize = LOG_BODY_SIZE), nl1 + 1, nl2)
+                    // 11-11 恢复：正文段回到 14（LOG_HEAD_SIZE），与注释里的三段规格一致。
+                    addStyle(SpanStyle(color = failRed, fontWeight = FontWeight.Bold, fontSize = LOG_HEAD_SIZE), nl1 + 1, nl2)
                     // 字号分层（10-13 用户令「源错误这一句字号忽大忽小」根修）：
                     // 错误串段 0..nl1 与发音人段 nl2.. 全 13sp（与成员行/成功行同档）
                     addStyle(SpanStyle(fontSize = LOG_BODY_SIZE), 0, nl1)
