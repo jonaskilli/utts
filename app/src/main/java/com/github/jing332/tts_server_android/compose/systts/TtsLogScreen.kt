@@ -13,12 +13,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -29,10 +27,10 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.size
 
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -76,7 +74,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -89,6 +86,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import com.github.jing332.tts_server_android.compose.theme.AppShapes
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
@@ -1054,39 +1052,39 @@ private fun PinnedLogHeader(
             .background(MaterialTheme.colorScheme.background)
     ) {
         // ① 筛选开关行
-        // 11-11 用户选方案 A：右侧加渐变淡出。
-        // 这排胶囊在 360dp 屏上放不下（DEBUG 常被切掉半颗），但硬切断看起来像"被截断"，
-        // 不像"还能滑"，用户不会想到去横滑 → 被藏起来的筛选项等于不存在。
-        // 用一层从透明到背景色的渐变盖住右缘，表达"还有内容"（系统级通用做法），
-        // 不新增控件、不占宽度、不动布局。
-        val row1Scroll = rememberScrollState()
-        Box(Modifier.fillMaxWidth()) {
+        //
+        // ⚠️ 11-11 用户令「我点开之后就要正式的界面，第一行第二行一共两行筛选，
+        // 而不是左滑之后才会出现」——这一排**不许再横滑**，五颗必须在 360dp 内全部可见。
+        //
+        // 原实现是 horizontalScroll + 每颗 widthIn(min = 62.dp)：
+        // 62×5 + 5×5 间距 + 标签 44 + 左右内衬 24 ≈ 412dp，屏只有 360dp，
+        // 于是「DEBUG」永远被切在外面，用户得横滑才看得见（他实报的那一幕）。
+        // 右缘渐隐只是"提示还能滑"，治不了"按钮不在屏幕上"。
+        //
+        // 现在：等分宽度。整排（标签 + 5 颗 + 间距）按剩余宽度平均分给 5 颗，
+        // 每颗在 360dp 屏上约 55.8dp，四字标签 44dp 文字 + 10dp 内衬 = 54dp，刚好装得下。
+        // 短标签（插件/DEBUG）随等分变宽，整排左右对齐、不再参差，也不再需要最小宽度撑齐。
+        // 屏更窄（如 320dp）时靠 weight 继续等比压缩，仍然全部可见，不会溢出。
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .horizontalScroll(row1Scroll)
                 .padding(start = 14.dp, end = 10.dp, top = 6.dp, bottom = 5.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(5.dp),
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
         ) {
             // 11-11 用户令：这排到底是什么，得有个名分。
             // 左侧「筛选」标签自带图标 + 一道竖线分隔，把「这是筛选器」讲清楚；
             // 竖线只留这一道——胶囊之间不再插分隔线（用户：「后边就不要有分隔线，
             // 不然就有点儿区分不开」：一道线是「标签｜选项」的分界，两道以上就成了装饰噪音）。
             PinnedFilterLabel()
-            PinnedChip("实时最新", autoFollow, onToggleAutoFollow)
+            PinnedChip("实时最新", autoFollow, onToggleAutoFollow, modifier = Modifier.weight(1f), horizontalPadding = 5.dp)
             // 11-11 用户令：保留红底红字（「填充色是红色，字号也是红色也行吧，要不就不改了」），
-            // 排障语义"红色=错误"维持；只改字号统一与最小宽度。
-            PinnedChip("只看错误", errorOnly, onToggleErrorOnly, error = true)
-            PinnedChip("朗读规则", showRule, onToggleRule)
-            PinnedChip("插件", showPlugin, onTogglePlugin)
-            // 11-11 用户令「所有的筛选项，字号都要一致」：DEBUG 原先 small = true（10.5sp），
-            // 其余都是 11sp，整排字号不齐。撤掉 small，与其它胶囊同字号。
-            PinnedChip("DEBUG", showDebug, onToggleDebug)
+            // 排障语义"红色=错误"维持。
+            PinnedChip("只看错误", errorOnly, onToggleErrorOnly, error = true, modifier = Modifier.weight(1f), horizontalPadding = 5.dp)
+            PinnedChip("朗读规则", showRule, onToggleRule, modifier = Modifier.weight(1f), horizontalPadding = 5.dp)
+            PinnedChip("插件", showPlugin, onTogglePlugin, modifier = Modifier.weight(1f), horizontalPadding = 5.dp)
+            PinnedChip("DEBUG", showDebug, onToggleDebug, modifier = Modifier.weight(1f), horizontalPadding = 5.dp)
         }
-        // 右缘渐变：只在"还能继续右滑"时显示；已滑到底就不显示（否则右端永远蒙一层雾）
-        ScrollEdgeFade(visible = row1Scroll.canScrollForward)
-        } // Box 结束
 
         // ===== ② 筛选 + 视野（11-11 用户定案「全部日志 + 其下方筛选」）=====
         //
@@ -1225,6 +1223,8 @@ private fun PinnedLogHeader(
                 label = "筛选书",
                 selected = filtered,
                 onClick = { onSwitchBook(scopeBook ?: viewBook.ifBlank { book }) },
+                // 第二排不是等分布局，仍按四字最小宽撑起（62dp = 四字44 + 内衬18）
+                minWidth = 62.dp,
             )
 
             // 右侧：跳到第N章（筛了书之后才出现，纯跳转）
@@ -1242,6 +1242,7 @@ private fun PinnedLogHeader(
                         label = "选章节",
                         selected = false,
                         onClick = { onSwitchChapter(scopeBook ?: book, scopeChapter ?: chapter) },
+                        minWidth = 62.dp,
                     )
                 }
             }
@@ -1309,44 +1310,6 @@ private fun shortChapterLabel(chapter: String): String {
     return if (chapter.length > 6) chapter.take(6) else chapter
 }
 
-/**
- * 横向可滚动行的右缘渐变（11-11 用户选方案 A）。
- *
- * ## 解决什么
- * 吸顶两排胶囊在 360dp 屏上放不下（DEBUG 常被切掉半颗）。硬切断看起来像"被截断"，
- * 用户不会想到去横滑，被藏起来的筛选项等于不存在。
- *
- * ## 做法
- * 盖一层从透明到背景色的渐变。**只在还能继续右滑时显示**
- * （ScrollState.canScrollForward），滑到底自动消失——否则右端永远蒙一层雾，
- * 反而像"没加载完"。
- *
- * ## 为什么这么轻
- * 不新增控件、不占宽度、不改布局；纯视觉暗示（iOS 侧边淡出、Android 横滚提示同理）。
- */
-@Composable
-private fun BoxScope.ScrollEdgeFade(visible: Boolean) {
-    if (!visible) return
-    // BoxScope 扩展函数：可以直接 align，不必让调用方写 Modifier.align。
-    // 高度用 fillMaxHeight 撑满 Box（Box 的高度由里面那排胶囊决定），
-    // 这样渐变的上下沿与胶囊行严丝合缝，不会多出一截白边。
-    //
-    // ⚠️ 触摸穿透：这个 Box **没有任何点击/手势修饰符**，Compose 不会为它注册命中测试，
-    // 手指落在渐变区域时事件直接到达下层的胶囊行。所以覆盖 34dp 宽度不会挡住右侧胶囊的点击
-    //（这也是不用 clickable/pointerInput 包裹它的原因——一旦加上就会变成"吃了一块点击"）。
-    Box(
-        Modifier
-            .align(Alignment.CenterEnd)
-            .width(34.dp)
-            .fillMaxHeight()
-            .background(
-                Brush.horizontalGradient(
-                    0f to Color.Transparent,
-                    1f to MaterialTheme.colorScheme.background,
-                )
-            )
-    )
-}
 
 /**
  * 吸顶筛选开关（11-11 用户令定稿）。
@@ -1366,6 +1329,14 @@ private fun PinnedChip(
     // 要不就不改了」）。曾经尝试把它改成和其它筛选同款的浅绿选中态，用户否掉，
     // 排障语义（"红色=错误"）保留。
     error: Boolean = false,
+    // 11-11 用户令「点开就要正式的界面，不要左滑才出现」：
+    // 第一排改为等分宽度，由调用方传 Modifier.weight(1f) 分剩余宽度，
+    // 传进来的那个 Modifier **不带** widthIn(min=62dp)——62dp 正是把这排撑到
+    // 412dp、逼出横滑的原因（62×5 就 310dp，加标签与间距超过 360dp 屏宽）。
+    // 第二排的「筛选书/选章节」不是等分的，仍靠 minWidth 撑成四字宽。
+    modifier: Modifier = Modifier,
+    minWidth: Dp = 0.dp,
+    horizontalPadding: Dp = 9.dp,
 ) {
     val cs = MaterialTheme.colorScheme
     val bg = when {
@@ -1391,13 +1362,15 @@ private fun PinnedChip(
         fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
         color = fg,
         maxLines = 1,
-        // 11-11 用户令「宽度最小也要设定一下，最少有四个字的宽度，文字不够四个字就放到胶囊中间」：
-        // 四个字宽 ≈ 11sp × 4 = 44dp，再加左右各 9dp 内衬 = **62dp** 最小值。
-        // 短标签（「插件」2 字、「DEBUG」）因此与四字标签等宽，整排胶囊宽窄一致、不再参差。
-        // 居中靠 textAlign = Center：widthIn 把盒子撑到 62dp 后，文字在盒内居中渲染。
+        // 极窄屏（320dp）等分后只剩 ~47dp，四字标签放不下；
+        // 用省略号而不是硬切，至少不出现半个字。360dp 及以上不会触发。
+        overflow = TextOverflow.Ellipsis,
+        // 等分后每颗宽度由 weight 决定（360dp 屏约 55dp），文字盒内居中。
+        // 短标签（插件/DEBUG）跟着变宽——整排左右边缘对齐、宽窄一致，不再参差。
+        // 原先用 widthIn(min = 62.dp) 撑齐，那会把整排撑出屏外，已撤。
         textAlign = TextAlign.Center,
-        modifier = Modifier
-            .widthIn(min = 62.dp)
+        modifier = modifier
+            .then(if (minWidth > 0.dp) Modifier.widthIn(min = minWidth) else Modifier)
             .clip(RoundedCornerShape(50))
             .background(bg)
             .then(
@@ -1409,7 +1382,9 @@ private fun PinnedChip(
                 else Modifier
             )
             .clickable(onClick = onClick)
-            .padding(horizontal = 9.dp, vertical = 3.5.dp),
+            // 内衬收到 5dp：等分宽度下四字标签只剩 ~2dp 余量，
+            // 9dp 内衬会把「实时最新」挤成省略/换行。5dp 仍能包住文字不贴边。
+            .padding(horizontal = horizontalPadding, vertical = 3.5.dp),
     )
 }
 
@@ -1421,17 +1396,19 @@ private fun PinnedChip(
 @Composable
 private fun PinnedFilterLabel() {
     val cs = MaterialTheme.colorScheme
+    // 11-11：内衬从 3+7 收到 2+4，右缘 7 收到 4——第一排改等分后总宽吃紧，
+    // 标签少占 7dp，五颗胶囊每颗就多分到 1.4dp（四字标签只差 2dp 余量，很关键）。
     Row(
-        modifier = Modifier.padding(end = 7.dp),
+        modifier = Modifier.padding(end = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
             Icons.Default.FilterList,
             contentDescription = null,
             tint = cs.onSurfaceVariant,
-            modifier = Modifier.size(13.dp),
+            modifier = Modifier.size(12.dp),
         )
-        Spacer(Modifier.width(3.dp))
+        Spacer(Modifier.width(2.dp))
         Text(
             text = "筛选",
             style = MaterialTheme.typography.labelSmall,
@@ -1439,7 +1416,7 @@ private fun PinnedFilterLabel() {
             color = cs.onSurfaceVariant,
             maxLines = 1,
         )
-        Spacer(Modifier.width(7.dp))
+        Spacer(Modifier.width(4.dp))
         Box(
             Modifier
                 .width(1.dp)
