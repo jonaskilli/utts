@@ -411,6 +411,42 @@ class TtsLogViewModel : ViewModel() {
         clearAuxFile(consoleFile(isPlugin = false))
     }
 
+    /**
+     * 单删一个日志文件（11-11 用户令「每一项可以单独删除」）。
+     *
+     * ## 为什么分两种处理
+     * **logback 正持着句柄的文件**（system_tts.log / debug.log / crash.log）只能截断：
+     * 一旦 delete，RollingFileAppender 的句柄失效，之后每次写都抛异常，异常又被当 ERROR
+     * 回灌日志界面 → 自激成一片红，直到重启（11-10 踩过，代价是用户以为坏了）。
+     * 其余文件（子行、console、轮转出来的备份）都是「每次现开现关」的写法，直接删掉干净利落，
+     * 不会留下 0 字节的空壳占着列表。
+     *
+     * ## 删完要重读
+     * 内存里三个缓冲是磁盘的投影，单删一个文件后立刻清空+重新 pull，
+     * 保证界面显示的就是磁盘上真实剩下的东西（而不是删了还挂在列表里）。
+     */
+    fun clearFile(f: File) {
+        if (!f.exists()) return
+        val heldByLogback = f.name == "system_tts.log" ||
+            f.name == "debug.log" ||
+            f.name == "crash.log"
+        runCatching {
+            if (heldByLogback) FileWriter(f, false).use { it.write(CharArray(0)) }
+            else f.delete()
+        }.onFailure { Log.e(TAG, "clearFile: ", it) }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                withMain {
+                    logs.clear()
+                    pluginLogs.clear()
+                    speechRuleLogs.clear()
+                }
+                pull()
+            }.onFailure { Log.e(TAG, "clearFile reload: ", it) }
+        }
+    }
+
     /** 截断一个日志文件（保留 inode，不用 delete——写入端句柄继续有效） */
     private fun clearAuxFile(f: File?) {
         if (f == null) return
