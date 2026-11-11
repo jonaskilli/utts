@@ -247,7 +247,17 @@ internal class LogGroups(
     }
 
     companion object {
-        fun build(list: List<LogEntry>): LogGroups {
+        /**
+         * @param fallbackBook / [fallbackChapter] 列表里没有带书章的条目时的回落值
+         *   （11-11：由调用方传"全量日志里最近一条带书章的条目"）。
+         *   用户实报「切换章节时有时无」——因为吸顶区只看**过滤后**的列表，
+         *   选单本书/切书时主行被滤掉，吸顶区就空掉。加回落可保证只要读过这本书就仍显示。
+         */
+        fun build(
+            list: List<LogEntry>,
+            fallbackBook: String = "",
+            fallbackChapter: String = "",
+        ): LogGroups {
             val raw = ArrayList<Item>(list.size)
             var head = -1
             var members = ArrayList<Int>()
@@ -444,10 +454,21 @@ internal class LogGroups(
                 finalItems.add(item)
             }
             // 吸顶信息：取本批日志里**第一条**带书章的条目（列表顺序 = 时间顺序，
-            // 也就是"当前正在看的这一段"所属的书/章）
+            // 也就是"当前正在看的这一段"所属的书/章）。
+            //
+            // ⚠️ 11-11 修（用户实报「切换章节时有时无，说不清原因」）：
+            // 原实现只看**列表里**有没有带书章的条目，而带书章的只有「请求音频」主行——
+            // 一旦按书过滤掉了主行（选单本书、切书），或主行滚出已加载窗口，
+            // 吸顶区就整个空掉，用户看到的就是"时有时无"。
+            // 现在两级回退：
+            //   ① 先用列表首条（最贴近"当前正在看的这一段"）；
+            //   ② 列表里没有时，回落到「当前朗读上下文」——由 VM 记住的最近一次带书章的条目。
+            // 这样即便日志被过滤光/清空，只要读过这本书，吸顶区仍显示当前书章。
             val firstWithBook = list.firstOrNull { it.bookName.isNotBlank() }
-            val pBook = firstWithBook?.bookName.orEmpty()
-            val pChapter = firstWithBook?.chapterTitle.orEmpty()
+            // 语义要分清：列表里有书章条目 ⇒ 用它（哪怕章为空，那是"这本书确实没有章"，
+            // 不能拿别的书的章来补）；列表里一条都没有 ⇒ 才回落到 fallback。
+            val pBook = if (firstWithBook != null) firstWithBook.bookName else fallbackBook
+            val pChapter = if (firstWithBook != null) firstWithBook.chapterTitle else fallbackChapter
             val pKey = pBook to pChapter
             return LogGroups(
                 items = finalItems,
