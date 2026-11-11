@@ -1075,14 +1075,28 @@ private fun PinnedLogHeader(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(5.dp),
         ) {
-            // ---- 书筛选（常驻）----
-            // 书名完整显示优先（用户：「书名是必须要显示的」），所以这一颗允许占较宽；
-            // 未筛选时显示「书：全部」，筛选后显示「《书名》」。
-            val bookLabel = if (scopeBook.isNullOrBlank()) "书：全部" else "《$scopeBook》"
+            // ---- 书：**筛选与视野合一**（11-11 用户令）----
+            // 用户原话：「筛选的书名要不要放在这个位置？他这个就相当于是一个兼具
+            // 当前日志所在的区域和一个筛选书的区域」——采纳。
+            //   · 未筛选：显示**视野书**（你滚到哪本显示哪本），空心描边 = "跟随中"；
+            //   · 已筛选：显示**筛选的那本**，绿底实心 = "已锁定"。
+            // 一颗胶囊同时承担两件事，省掉原来单独一行视野小字。
+            // ⚠️ 样式必须能区分这两种状态，否则"跟随时显示的书名"会被误读成"已筛到这本"。
+            // 未筛选时把**章号**也缀在书名后（用户：「章节可以显示，章节名就不用显示」），
+            // 这样滚动时一颗胶囊就能看出"这本的第几章"。已筛选时章由下面独立的章胶囊表达。
+            val viewChapSuffix = shortChapterLabel(viewChapter)
+                .let { if (it.isBlank()) "" else " $it" }
+            val bookLabel = when {
+                !scopeBook.isNullOrBlank() -> "《$scopeBook》"
+                viewBook.isNotBlank() -> "《$viewBook》$viewChapSuffix"
+                else -> "书：全部"
+            }
+            // 点击行为：已筛选=换书；未筛选=把当前视野这本筛起来（没有视野则从第一本开始挑）
+            val bookPickTarget = scopeBook ?: viewBook.ifBlank { book }
             PinnedChip(
                 label = bookLabel,
                 selected = !scopeBook.isNullOrBlank(),
-                onClick = { onSwitchBook(scopeBook ?: book) },
+                onClick = { onSwitchBook(bookPickTarget) },
             )
 
             // ---- 章筛选（只在选了书后出现）----
@@ -1111,46 +1125,6 @@ private fun PinnedLogHeader(
                         .clickable(onClick = onClearScope)
                         .padding(horizontal = 8.dp, vertical = 4.dp),
                 )
-            }
-        }
-
-        // ===== ③ 视野小字：跟着滚动显示"你看的是哪本哪章" =====
-        // 用户令「全部日志我划到哪就显示哪本书的信息」。
-        // 它不是按钮（点了没反应），用浅灰小字与上面的筛选胶囊区分开。
-        // 书名完整显示（user 令），章只留章号。
-        if (viewBook.isNotBlank() && scopeBook.isNullOrBlank()) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 14.dp, end = 10.dp, bottom = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = "当前：",
-                    style = MaterialTheme.typography.labelSmall,
-                    fontSize = 10.5.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    text = "《$viewBook》",
-                    style = MaterialTheme.typography.bodySmall,
-                    fontSize = 11.5.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                val vChap = shortChapterLabel(viewChapter)
-                if (vChap.isNotBlank()) {
-                    Spacer(Modifier.width(5.dp))
-                    Text(
-                        text = vChap,
-                        style = MaterialTheme.typography.labelSmall,
-                        fontSize = 10.5.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
             }
         }
 
