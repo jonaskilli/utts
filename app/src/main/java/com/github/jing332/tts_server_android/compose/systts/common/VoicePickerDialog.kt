@@ -1254,8 +1254,14 @@ fun VoicePickerDialog(
                     // 🎲 ▶ ⋮ 从第二行上移到本行右端。这样第二行才能只放「插件名 … 终值」，
                     // 真正做成两端分开（否则终值会夹在插件名和按钮之间，分不开）。
                     // 右缘与候选行的 ⋮ 对齐（候选行外层同样 fillMaxWidth、行尾无额外 padding）。
-                    // 唯一的 weight 源：把 🎲▶⋮ 推到第一行右端
-                    Spacer(Modifier.weight(1f))
+                    //
+                    // ⚠️ 11-11 用户实拍（「当前发音人明明有位置怎么没把名字显示全」）：
+                    // 这里原来还有一句 `Spacer(Modifier.weight(1f))` 推按钮——它与上面名字的
+                    // `BoxWithConstraints(Modifier.weight(1f))` **平分**剩余宽，名字只拿到一半
+                    // 就被 TruncatedAnnotatedText 按整字截断（「回访女声-超拟人(Pro)」→
+                    // 「回访女声-超拟」），右边却空着一大片被 Spacer 吃掉。
+                    // 这与 11-10 候选行「空间充裕却省略」是同一个坑。名字 weight 吃掉剩余后，
+                    // 🎲▶⋮ 自然顶到右缘，不需要这个 Spacer；它已删除，别再加回来。
                     if (isBindingMode) {
                         Text(
                             "🎲",
