@@ -386,13 +386,35 @@ class TtsLogViewModel : ViewModel() {
      * ② 滚动备份与 debug/crash 文件一律不动，交给各自的滚动策略老化
      *   （system_tts 10MB/1天、debug 10MB/2份、crash 2MB/3份，本来就会自己清理）；
      * ③ 清空本身失败不再回灌进日志列表（那会制造新的红字），只写 Logcat。
+     *
+     * ⚠️ 11-11 二次修（用户实报「我都已经全都删除了，还冒出莫名其妙的获取成功日志」）：
+     * ①只截断了主文件，但页面回读还有 **三个** 文件：
+     *   `system_tts_child.log`（获取成功子行，pullChildFile 读）、
+     *   `plugin.log` / `speech_rule.log`（pullConsoleFile 读）。
+     * 内存清了、这几份没清 ⇒ 下次进日志页（或 VM 重建、切书重载）pull() 又把旧行读回来，
+     * 表现就是"删掉的成功日志又自己冒出来"，而且**只有成功子行、没有对应的请求行**
+     *（请求行在主文件里，已被截断）——正是用户看到的那片孤立「获取成功」。
+     * ②这三份都不是 logback 持有的句柄（子行是每次 FileWriter(append) 现开现关，
+     *   console 是 persistConsole 里同款写法），因此同样用**截断**而不是 delete，
+     *   既清干净也不会让写入端句柄失效。
      */
     fun clear() {
         logs.clear()
         pluginLogs.clear()
         speechRuleLogs.clear()
+        // 主日志 + 三份回读来源一起截断：清空必须是"清空所有会被读回来的东西"，
+        // 只清主文件等于给下次进页面留了一份"复活数据"。
+        clearAuxFile(file)
+        clearAuxFile(File(file.parentFile, "system_tts_child.log"))
+        clearAuxFile(consoleFile(isPlugin = true))
+        clearAuxFile(consoleFile(isPlugin = false))
+    }
+
+    /** 截断一个日志文件（保留 inode，不用 delete——写入端句柄继续有效） */
+    private fun clearAuxFile(f: File?) {
+        if (f == null) return
         runCatching {
-            FileWriter(file, false).use { it.write(CharArray(0)) }
+            if (f.exists()) FileWriter(f, false).use { it.write(CharArray(0)) }
         }.onFailure {
             // 只进 Logcat：这里若 logs.add(ERROR)，用户会看到「清空失败」的假红字，
             // 而真正的原因（文件被占用等）他既看不懂也没法处理
