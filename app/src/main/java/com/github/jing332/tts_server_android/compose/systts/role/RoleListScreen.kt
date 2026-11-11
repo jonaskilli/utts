@@ -1431,7 +1431,11 @@ private fun RoleRow(
                                 color = previewColor,
                                 // 11-11 用户令（右侧压到极限）：显式 lineHeight = 16.sp。
                                 // titleMedium 默认行高 24dp，比标签框(22dp)还高，会把第一行撑到 24dp；
-                                // 钉成 16sp 后第一行高度交还给标签框，右侧总高从 45 → 39dp 的第一步。
+                                // 钉成 16sp 后第一行高度交还给标签框。
+                                // ⚠️ 这段注释里的 45→39dp 是旧值（当时第一行被标签框上的
+                                // minimumInteractiveComponentSize 钉在 48dp，已在 11-11 删除）。
+                                // 现在第一行 22dp、第二行 18dp，右侧总高 41dp（22+1+18）。
+                                // ▶ 自身必须低于标签框，否则又会把第一行顶高。
                                 // ▶ 与所在行（第一行）垂直居中：Row 是 CenterVertically，行高变矮后自动跟随。
                                 style = MaterialTheme.typography.titleMedium.copy(lineHeight = 16.sp),
                                 modifier = Modifier
