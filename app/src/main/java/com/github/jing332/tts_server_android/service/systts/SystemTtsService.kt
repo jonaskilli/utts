@@ -731,25 +731,24 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                 chapterTitle = mdcChapter,
             )
         )
-        // 持久化到日志文件，保证重启后仍可在日志界面读取显示。
-        // ⚠️ 11-10：这里**不能**写 system_tts.log——那是 logback RollingFileAppender 的文件，
-        // 我们自己再 append 一是不带 MDC 字段（会被解析器当成旧格式，丢掉书章/角色名），
-        // 二是与 logback 的文件指针互相打架（10-11 起这行其实已被 logback 通道取代）。
-        // 改为独立 child 文件：只承载"获取成功"这类子行，读回时按子行呈现。
+        // 持久化到**主日志** system_tts.log（11-11 用户定案：合并回去，删掉 child 文件）。
         //
-        // ⚠️ 11-11：原注释写着"读回时按子行呈现"，但**读回端一直没实现**——
-        // 全仓只有这里写、没有任何地方读，于是页面重载/切书后这行就永久消失
-        //（正是用户说的"后来就没有了"）。现在改为主日志同款格式（带 § 书章段），
-        // 由 TtsLogViewModel.pull() 合并回读，格式与 toLogEntry 的新格式完全一致。
+        // ## 为什么又合并回去
+        // 用户实问：「以前就好好的呀，以前都没有这个日志都能成功显示，而且还能长久显示」。
+        // 核对历史代码确认他说得对：1bfc2a5b 之前就是直接 append 主日志，读回来
+        // "S" → LogLevel.SUCCESS，绿色样式与永久保存都正常。
+        // 当初拆成独立文件的**真正理由是"丢书章"**——老写法只写 `time | SUCCESS | msg`，
+        // 11-10 加按书分章后这些行因无书名被过滤掉。现在那段理由已经不存在：
+        // 下面写的就是带 § 书章段的新格式，与主日志解析器完全同源。
+        //
+        // ## 为什么绕过 logback 直接 append
+        // SUCCESS 是项目自定义级别，logback 只有 TRACE/DEBUG/INFO/WARN/ERROR 五档，
+        // 走 logger 会被降成 INFO、丢掉"成功"语义与配色。直接追加是唯一能保住该级别的写法，
+        // 也是 1bfc2a5b 之前长期在用的写法（用户原话"以前就好好的"）。
+        // 每次写入只开一次文件、写完即关，不会长期占着句柄；文件滚动仍交给 logback 管。
         runCatching {
-            // 11-11：与主日志同目录（AppConst.logDir，权限不足时自动回退私有目录）
-            val logFile = File(AppConst.logDir, "system_tts_child.log")
+            val logFile = File(AppConst.logDir, "system_tts.log")
             synchronized(logFileLock) {
-                // 与主文件同样的自限：超 2MB 截半，防止长期运行无限增长
-                if (logFile.exists() && logFile.length() > 2L * 1024 * 1024) {
-                    val bytes = logFile.readBytes()
-                    logFile.writeBytes(bytes.copyOfRange(bytes.size / 2, bytes.size))
-                }
                 // 带 § 书章段的格式（与主日志一致）：time | SUCCESS | configId | roleName | §book | chapter | message
                 // configId/roleName 留空——子行不参与快捷面板定位，但字段位必须占住，
                 // 否则解析器会按"无书章的新格式"去啃，把 § 当成正文字符。

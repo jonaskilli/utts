@@ -876,7 +876,6 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                         {
                             when (it.name) {
                                 "system_tts.log" -> 0        // 朗读日志
-                                "system_tts_child.log" -> 1  // 获取结果日志
                                 "speech_rule.log" -> 2       // 朗读规则日志
                                 "plugin.log" -> 3            // 插件日志
                                 "debug.log" -> 4             // 调试日志
@@ -1238,7 +1237,6 @@ private const val PREVIEW_PAGE = 300
 private fun logFileDisplayName(fileName: String): String? = when {
     // 11-11 用户定名：朗读主日志 → 朗读日志（去掉"主"，它不跟任何东西对仗，反而像"最重要"）
     fileName == "system_tts.log" -> "朗读日志"
-    fileName == "system_tts_child.log" -> "获取结果日志"
     fileName == "plugin.log" -> "插件日志"
     fileName == "speech_rule.log" -> "朗读规则日志"
     fileName == "debug.log" -> "调试日志"
