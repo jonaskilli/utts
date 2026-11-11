@@ -705,12 +705,22 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
 
     private fun logS(msg: String, indent: Int = 0) {
         val time = LocalDateTimeUtil.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS"))
+        // ⚠️ 11-11 修（用户实报「获取成功切书就没了 / 选单本书根本不显示」）：
+        // 本行原来**不带书章字段**，于是
+        //   ① 日志页按书过滤 `filter { it.bookName == b }` 时，空书名 ≠ 任何书 ⇒ 该子行被丢弃；
+        //   ② 吸顶区的书条/章条取自「列表里第一条带书章的条目」，子行不参与 ⇒ 时有时无。
+        // 书章从 MDC 取（与 logI「请求音频」主行同源，同一个请求期间写入、结束后清理），
+        // 取不到时为空串，退化成旧行为，不会串到别的书上。
+        val mdcBook = org.slf4j.MDC.get("bookName").orEmpty()
+        val mdcChapter = org.slf4j.MDC.get("chapterTitle").orEmpty()
         SysttsLogger.log(
             LogEntry(
                 level = LogLevel.SUCCESS,
                 time = time,
                 message = msg,
-                indent = indent
+                indent = indent,
+                bookName = mdcBook,
+                chapterTitle = mdcChapter,
             )
         )
         // 持久化到日志文件，保证重启后仍可在日志界面读取显示。
@@ -718,6 +728,11 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
         // 我们自己再 append 一是不带 MDC 字段（会被解析器当成旧格式，丢掉书章/角色名），
         // 二是与 logback 的文件指针互相打架（10-11 起这行其实已被 logback 通道取代）。
         // 改为独立 child 文件：只承载"获取成功"这类子行，读回时按子行呈现。
+        //
+        // ⚠️ 11-11：原注释写着"读回时按子行呈现"，但**读回端一直没实现**——
+        // 全仓只有这里写、没有任何地方读，于是页面重载/切书后这行就永久消失
+        //（正是用户说的"后来就没有了"）。现在改为主日志同款格式（带 § 书章段），
+        // 由 TtsLogViewModel.pull() 合并回读，格式与 toLogEntry 的新格式完全一致。
         runCatching {
             val logFile = File(AppConst.externalFilesDir.parentFile, "cache/log/system_tts_child.log")
             synchronized(logFileLock) {
@@ -726,7 +741,12 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                     val bytes = logFile.readBytes()
                     logFile.writeBytes(bytes.copyOfRange(bytes.size / 2, bytes.size))
                 }
-                FileWriter(logFile, true).use { it.append("$time | SUCCESS | $msg\n") }
+                // 带 § 书章段的格式（与主日志一致）：time | SUCCESS | configId | roleName | §book | chapter | message
+                // configId/roleName 留空——子行不参与快捷面板定位，但字段位必须占住，
+                // 否则解析器会按"无书章的新格式"去啃，把 § 当成正文字符。
+                FileWriter(logFile, true).use {
+                    it.append("$time | SUCCESS |  |  | §$mdcBook | $mdcChapter | $msg\n")
+                }
             }
         }.onFailure { Log.e(TAG, "logS write file: ", it) }
     }

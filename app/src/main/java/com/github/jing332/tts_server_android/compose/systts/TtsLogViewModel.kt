@@ -522,11 +522,63 @@ class TtsLogViewModel : ViewModel() {
             Log.e(TAG, "pull: ", it)
         }
 
+        // 成功子行（「获取成功：大小 · 耗时」）回读（11-11 修，用户实报「切书后/单本书时看不到」）。
+        //
+        // ## 为什么需要这一块
+        // 子行由 SystemTtsService.logS 写入独立文件 system_tts_child.log
+        //（不写 system_tts.log，避免与 logback 抢文件指针）。但 11-10 那次改动只做了写入端，
+        // **读回端从来没实现**——全仓只有写、没有读，于是页面重载或切书后子行永久消失。
+        //
+        // ## 为什么可以并进主解析
+        // 11-11 起 logS 写的格式与主日志的新格式**完全一致**
+        //（time | SUCCESS | configId | roleName | §book | chapter | message），
+        // 所以直接用 toLogEntry 解析即可，书章字段也一并拿到，按书过滤时不会再被丢弃。
+        pullChildFile()
         // 插件 / 朗读规则日志回读（11-10 用户令「希望能够保存下来」）：
         // 这两个文件由 SysttsLogger.persistConsole 追加，格式 time | LEVEL | message
         //（无 configId/roleName，也不带 § 书章段）。单独解析成本很低，不必并进上面的主解析。
         consoleFile(isPlugin = true)?.let { pullConsoleFile(it, isPlugin = true) }
         consoleFile(isPlugin = false)?.let { pullConsoleFile(it, isPlugin = false) }
+    }
+
+    /**
+     * 回读成功子行文件（11-11 新增）。
+     *
+     * 排序：子行时间戳晚于其主行（同一请求先「请求音频」后「获取成功」），
+     * 而 [logs] 是按写入顺序追加的列表，主日志与子行分属两个文件，
+     * 直接 append 会让子行整体堆在主日志之后、与主行脱节。
+     * 这里按 (time, 原顺序) 合并排序，保证子行紧跟在对应主行后面。
+     *
+     * 只在 [pull] 首次加载时调用；实时新增走 SysttsLogger 的内存通道，不经此处。
+     */
+    private suspend fun pullChildFile() {
+        val f = runCatching { File(file.parentFile, "system_tts_child.log") }.getOrNull() ?: return
+        if (!f.exists()) return
+        runCatching {
+            val childEntries = readTailLines(f, 800).mapNotNull { line ->
+                runCatching { toLogEntry(line) }.getOrNull()
+            }
+            if (childEntries.isEmpty()) return@runCatching
+            withMain {
+                // 与已有条目按时间合并：稳定排序（Kotlin sortedBy 是稳定的），
+                // 同毫秒时保持原有先后，不会把主行/子行的相对次序打乱。
+                //
+                // ⚠️ logs 是 SnapshotStateList，直接 clear()+addAll() 会触发两次重组、
+                // 列表闪一下。这里**原地补位**：按合并后的顺序逐个比对，
+                // 已有元素就地覆盖（不触发变更通知）、缺的位置再插入。
+                // 子行数量远小于主日志（通常每条请求 1 行），插入次数很少。
+                val merged = (logs.toList() + childEntries).sortedBy { it.time }
+                merged.forEachIndexed { i, entry ->
+                    if (i < logs.size) {
+                        if (logs[i] != entry) logs[i] = entry
+                    } else {
+                        logs.add(entry)
+                    }
+                }
+            }
+        }.onFailure {
+            Log.e(TAG, "pullChildFile: ", it)
+        }
     }
 
     /** 插件 / 朗读规则日志文件路径（与 SysttsLogger.persistConsole 同址） */

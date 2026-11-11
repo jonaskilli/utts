@@ -160,9 +160,23 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
     fun currentBookInView(): String? =
         vm.logs.lastOrNull { it.bookName.isNotBlank() }?.bookName
 
+    // 吸顶区回落值（11-11 修「切换章节时有时无」）：
+    // 取**全量日志**（不受按书/按章过滤影响）里最近一条带书章的条目。
+    // displayLogs 是过滤后的视图，选单本书/切书时主行可能被滤掉 ⇒ 吸顶区会空；
+    // 用全量日志兜底，保证只要读过这本书，顶部始终显示当前书章。
+    val pinnedFallback = remember(vm.logs) {
+        vm.logs.lastOrNull { it.bookName.isNotBlank() }
+    }
+
     // 归组结果（10-06 全链卡）：与 LogScreen 共用同一实例——搜索跳转要把条目下标
     // 换算成列表项下标（一张卡=一个列表项），必须用同一份归组才不会错位
-    val logGroups = remember(displayLogs) { LogGroups.build(displayLogs) }
+    val logGroups = remember(displayLogs, pinnedFallback) {
+        LogGroups.build(
+            displayLogs,
+            fallbackBook = pinnedFallback?.bookName.orEmpty(),
+            fallbackChapter = pinnedFallback?.chapterTitle.orEmpty(),
+        )
+    }
 
     // ——「原文」定位（用户 10-08 午后拍板 甲方案）——
     // 筛选/搜索态下列表是收窄视图；点卡上的「⟲ 原文」= 清筛选回到完整流，
@@ -176,7 +190,14 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
             searchQuery.trim().isNotEmpty() || vm.selectedLevels.isNotEmpty()
         }
     }
-    val fullGroups = remember(vm.filteredLogs) { LogGroups.build(vm.filteredLogs) }
+    // 原文定位用的完整流：回落值同上（它本身就是全量视图，其实不会缺，保持口径一致即可）
+    val fullGroups = remember(vm.filteredLogs) {
+        LogGroups.build(
+            vm.filteredLogs,
+            fallbackBook = pinnedFallback?.bookName.orEmpty(),
+            fallbackChapter = pinnedFallback?.chapterTitle.orEmpty(),
+        )
+    }
     var locateHighlight by remember { mutableStateOf<LogEntry?>(null) }
 
     fun locateOriginal(entry: LogEntry) {
