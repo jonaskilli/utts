@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -153,6 +154,19 @@ private val releaseDotColors = listOf(
  * 集中成常量便于日后调，不要在调用点写散色值。
  */
 private val BOOK_NAME_COLOR = Color(0xFF333333)
+
+/**
+ * 角色行右列**第一行（显示名标签框）**的高度，11-11 单名对齐用。
+ *
+ * = 13sp 的 lineHeight 16dp + 上下内衬 3dp×2 = **22dp**。
+ * 单名角色时左列固定取这个高度并 Top 对齐，名字在其中居中 → 中线 11dp，
+ * 与标签框中线重合，实现用户要的「首行居中对齐」。
+ *
+ * ⚠️ 它必须与角色行里标签框的实际高度同步：改标签框的 `vertical = 3.dp` 或 13sp
+ * 的 lineHeight 时，**这个常量要跟着改**，否则单名会轻微偏离标签框中线。
+ * 位置见下方 RoleRow 的「第一行 = 标签框内容高 22dp」注释。
+ */
+private val TAG_ROW_HEIGHT = 22.dp
 
 /**
  * 标签/书栏/胶囊统一底色（2026-10-11 Radix 版，用户拍板「标签用 step4」）：
@@ -1198,7 +1212,16 @@ private fun RoleRow(
             //
             // ⚠️ 改这个 21 之前，先算一遍上面三行：它必须始终等于右列两行的中心差。
             // ⚠️ 沿革：曾改 Top（"第一行对齐"），但那样单名贴顶、多别名时右侧下坠。
-            verticalAlignment = Alignment.CenterVertically
+            //
+            // 11-11 用户令「当角色名是一个时，换种对齐方法，要首行居中对齐」：
+            // **单名**改走 Top + 左列固定 22dp，让名字中线对到**右列第一行（标签框）中线**；
+            // **多别名**仍用 CenterVertically（整块在右侧两行里居中）。
+            //   单名：左列 22dp、Top → 名字（21dp）在其中居中，中心 = 11dp
+            //         = 右列第一行中心（22/2 = 11dp）✓ 正是用户说的"首行居中对齐"
+            //   多别名：维持 CenterVertically，1/2/3 个都能同时对上两行
+            // ⚠️ 为什么不能一直用 Top：多别名时左列会从顶上开始排，
+            //    与右侧两行整体错开（历史踩过，注释见上）。
+            verticalAlignment = if (nameList.size == 1) Alignment.Top else Alignment.CenterVertically
         ) {
             // 名字列：照 v9 排布（主名第一行，别名逐个竖排，每行带性别色圆点）
             Column(
@@ -1206,8 +1229,21 @@ private fun RoleRow(
                 // 贴在 44dp 的顶部、居不中（外层 CenterVertically 也救不回来，因为列本身已 44dp）。
                 // 现在高度由内容决定（1 名 22dp / 2 名 44dp / 3 名 66dp），行高由下面的
                 // lineHeight = 22.dp 控制，外层 Row 负责整体居中。
-                Modifier.widthIn(max = halfRow),
-                verticalArrangement = Arrangement.Top,
+                Modifier
+                    .widthIn(max = halfRow)
+                    // ⚠️ 单名必须用 **wrapContentHeight + 固定 height**：
+                    // 外层 Row 的高度是右列两行（41dp），Column 默认会被拉伸到 41dp，
+                    // 光加 `height(22.dp)` 只能定下"下限"，实测中心仍落在 10.5dp、比标签框中线差 0.5dp。
+                    // 先 wrapContentHeight() 让它不被拉伸、再 height(22dp) 钉死，
+                    // 才会真正是 22dp 高、中心 11dp = 标签框中心。
+                    .then(
+                        if (nameList.size == 1) Modifier
+                            .wrapContentHeight(Alignment.Top)
+                            .height(TAG_ROW_HEIGHT) else Modifier
+                    ),
+                // 单名：只有一行，用 Center 在 22dp 里居中；
+                // 多别名仍 Top（各行依次排下，整体由外层 CenterVertically 居中）
+                verticalArrangement = if (nameList.size == 1) Arrangement.Center else Arrangement.Top,
             ) {
                 nameList.forEachIndexed { idx, name ->
                     // 11-11 行高 22dp（=右列两行中心差，见外层 Row 注释）。
