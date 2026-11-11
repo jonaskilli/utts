@@ -111,6 +111,26 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
     // 日志文件列表弹窗（用户 09-08：文件夹点开自由选择文件，不再直接扔给外部查看器）
     var showLogFilesDialog by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
+    // 视野书章（11-11）：吸顶区下方那行小字，跟着列表滚动变化。
+    // 「全部日志我划到哪就显示哪本书的信息」——由 LogScreen 通过 onViewChanged 回传。
+    //
+    // ⚠️ 吸顶区渲染在列表**之前**，首帧回调还没到（为空），会闪一下空白。
+    // 故初值取「全量日志最后一条带书章的条目」，与"当前正在读"一致；
+    // 之后只要用户滚动，回调就会把它覆盖成真正的视野值。
+    var viewBookChapter by remember(vm.logs) {
+        val e = vm.logs.lastOrNull { it.bookName.isNotBlank() }
+        mutableStateOf(e?.bookName.orEmpty() to e?.chapterTitle.orEmpty())
+    }
+    // 正在朗读的书章（与筛选无关）：用于"筛着 A 书却在读 B"时的跳转提示。
+    // 取全量日志里**最后一条**带书章的条目——它就是"最近一次请求"所属的书。
+    val readingBookChapter by remember(vm.logs) {
+        derivedStateOf {
+            val e = vm.logs.lastOrNull { it.bookName.isNotBlank() }
+            (e?.bookName.orEmpty()) to (e?.chapterTitle.orEmpty())
+        }
+    }
+    val readingBook = readingBookChapter.first
+    val readingChapter = readingBookChapter.second
     // 书籍切换弹窗（11-10 方案 A）：点书籍条右侧「切换书」打开，只改日志查看范围。
     // 非空=弹窗打开，值为点进来的那本书（用于高亮当前书）
     var bookPickerFor by remember { mutableStateOf<String?>(null) }
@@ -556,6 +576,16 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                     chapterCount = logGroups.pinnedChapterCount,
                     onSwitchBook = { bookPickerFor = it },
                     onSwitchChapter = { b, c -> chapterPickerFor = b to c },
+                    // 筛选条件（与"视野"分开）：null=不限
+                    scopeBook = vm.scopeBook.value,
+                    scopeChapter = vm.scopeChapter.value,
+                    // 视野：跟着滚动显示"你看的是哪本哪章"（用户：「我划到哪就显示哪本书」）
+                    viewBook = viewBookChapter.first,
+                    viewChapter = viewBookChapter.second,
+                    onClearScope = { vm.clearScope() },
+                    // 正在朗读的书（与筛选无关）：用于"筛着 A 在读 B"的跳转提示条
+                    readingBook = readingBook,
+                    readingChapter = readingChapter,
                 )
                 HorizontalDivider(
                     color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
@@ -592,6 +622,9 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
             onSwitchBook = { bookPickerFor = it },
             // 章条右侧「切换章」：弹章节列表（用户 11-11 令，与「切换书」对称）
             onSwitchChapter = { book, chapter -> chapterPickerFor = book to chapter },
+            // 视野书章回传（11-11）：吸顶区那行"当前：《书名》第N章"跟着滚动变。
+            // 只在首项所属书章变化时触发（LogScreen 内部已按 derivedStateOf 收敛）。
+            onViewChanged = { b, c -> viewBookChapter = b to c },
             // 点章节签只负责滚动到本章首条（滚动已在 LogScreen 内完成，这里不再改筛选——
             // 一改 scopeChapter 列表就重排，刚滚到的位置会立刻错位）
         )
@@ -974,6 +1007,18 @@ private fun PinnedLogHeader(
     chapterCount: Int,
     onSwitchBook: (String) -> Unit,
     onSwitchChapter: (String, String) -> Unit,
+    // 11-11 用户定案「全部日志 + 其下方筛选」：
+    //   · scopeBook / scopeChapter 是**筛选条件**（null=不限）；
+    //   · viewBook / viewChapter 是**跟随滚动的视野信息**（当前看到哪本书哪一章）。
+    // 两者必须分开：筛选决定列表范围，视野只用于"你看的是哪本"这行小字。
+    scopeBook: String? = null,
+    scopeChapter: String? = null,
+    viewBook: String = "",
+    viewChapter: String = "",
+    onClearScope: () -> Unit = {},
+    // 正在朗读的书（与筛选不同）：非空且与 scopeBook 不一致时给「切过去」提示条
+    readingBook: String = "",
+    readingChapter: String = "",
 ) {
     Column(
         Modifier
@@ -1009,8 +1054,71 @@ private fun PinnedLogHeader(
             PinnedChip("DEBUG", showDebug, onToggleDebug)
         }
 
-        // ② 书名行（无书名不显示）
-        if (book.isNotBlank()) {
+        // ===== ② 筛选 + 视野（11-11 用户定案「全部日志 + 其下方筛选」）=====
+        //
+        // 结构定案（用户逐条确认过）：
+        //   · 「全部日志」不再是"某一本书"，而是常驻标题；书名/章名降级成它下面的**筛选条件**；
+        //   · 书筛选常驻（「书：全部」/「书：《书名》」）；**章筛选只在选了书之后出现**
+        //     ——章脱离书没有可筛范围，单独摆出来只会让人困惑；
+        //   · 另有一行小字显示**视野**（跟着滚动变：你看的是哪本书哪一章），它不是按钮；
+        //   · 筛着 A 书却在读 B 时，追加一条提示条，可一键切过去（不劫持筛选）。
+        //
+        // ⚠️ 与旧版的区别：旧版把书条/章条当"切换"用（点按钮弹列表，语义是导航）；
+        // 用户指出「你现在是筛选，不是切换」——所以胶囊文案与语义都改成筛选。
+        val hasScope = !scopeBook.isNullOrBlank() || !scopeChapter.isNullOrBlank()
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(start = 14.dp, end = 10.dp, bottom = 5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
+        ) {
+            // ---- 书筛选（常驻）----
+            // 书名完整显示优先（用户：「书名是必须要显示的」），所以这一颗允许占较宽；
+            // 未筛选时显示「书：全部」，筛选后显示「《书名》」。
+            val bookLabel = if (scopeBook.isNullOrBlank()) "书：全部" else "《$scopeBook》"
+            PinnedChip(
+                label = bookLabel,
+                selected = !scopeBook.isNullOrBlank(),
+                onClick = { onSwitchBook(scopeBook ?: book) },
+            )
+
+            // ---- 章筛选（只在选了书后出现）----
+            if (!scopeBook.isNullOrBlank()) {
+                // 章只显示章号（用户：「章节可以显示，章节名就不用显示了吧」）：
+                // 从标题里抠「第N章」；抠不到就取前 6 个字兜底（不显示全名）。
+                val chapText = shortChapterLabel(scopeChapter ?: chapter)
+                if (chapText.isNotBlank()) {
+                    PinnedChip(
+                        label = chapText,
+                        selected = !scopeChapter.isNullOrBlank(),
+                        onClick = { onSwitchChapter(scopeBook ?: book, scopeChapter ?: chapter) },
+                    )
+                }
+            }
+
+            // ---- 取消筛选（有筛选时才出现）----
+            if (hasScope) {
+                Text(
+                    text = "取消筛选",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .clip(AppShapes.sm)
+                        .clickable(onClick = onClearScope)
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                )
+            }
+        }
+
+        // ===== ③ 视野小字：跟着滚动显示"你看的是哪本哪章" =====
+        // 用户令「全部日志我划到哪就显示哪本书的信息」。
+        // 它不是按钮（点了没反应），用浅灰小字与上面的筛选胶囊区分开。
+        // 书名完整显示（user 令），章只留章号。
+        if (viewBook.isNotBlank() && scopeBook.isNullOrBlank()) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1018,73 +1126,87 @@ private fun PinnedLogHeader(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "《$book》",
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontSize = 12.5.sp,
-                    color = MaterialTheme.colorScheme.primary,
+                    text = "当前：",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontSize = 10.5.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = "《$viewBook》",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontSize = 11.5.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
-                if (bookCount > 0) {
+                val vChap = shortChapterLabel(viewChapter)
+                if (vChap.isNotBlank()) {
+                    Spacer(Modifier.width(5.dp))
                     Text(
-                        text = "$bookCount 条",
+                        text = vChap,
                         style = MaterialTheme.typography.labelSmall,
-                        fontSize = 10.sp,
+                        fontSize = 10.5.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(end = 8.dp),
                     )
                 }
-                PinnedSwitchKey("切换书") { onSwitchBook(book) }
             }
         }
 
-        // ③ 章名行（无章名不显示）
-        if (chapter.isNotBlank()) {
+        // ===== ④ 跳转提示条：筛着 A 书、却在读 B =====
+        // 用户：「如果正在朗读其他的再来一个跳转」。只在"有筛选 且 正在读的不是筛选的那本"时出现。
+        val readingMismatch = !scopeBook.isNullOrBlank() &&
+            readingBook.isNotBlank() && readingBook != scopeBook
+        if (readingMismatch) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 14.dp, end = 10.dp, bottom = 6.dp),
+                    .padding(start = 12.dp, end = 12.dp, bottom = 6.dp)
+                    .clip(AppShapes.sm)
+                    .background(Color(0xFFFFF7E3))
+                    .clickable {
+                        // 一键跟到正在读的那本（换筛选，不动朗读状态）
+                        onSwitchBook(readingBook)
+                    }
+                    .padding(horizontal = 10.dp, vertical = 7.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                // 章号小牌：只取「第N章」那段；取不到就把整串当章名（不解析数字，避免不规则章号出错）
-                val idx = Regex("^第\\s*[0-9一二三四五六七八九十百千零两]+\\s*章").find(chapter)?.value
-                if (idx != null) {
-                    Text(
-                        text = idx,
-                        style = MaterialTheme.typography.labelSmall,
-                        fontSize = 10.sp,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier
-                            .clip(AppShapes.xs)
-                            .background(MaterialTheme.colorScheme.primaryContainer)
-                            .padding(horizontal = 5.dp, vertical = 0.5.dp),
-                    )
-                    Spacer(Modifier.width(6.dp))
-                }
                 Text(
-                    text = idx?.let { chapter.removePrefix(it).trim() }?.ifEmpty { chapter } ?: chapter,
-                    style = MaterialTheme.typography.bodySmall,
+                    text = "正在朗读《$readingBook》${shortChapterLabel(readingChapter).let { if (it.isBlank()) "" else " $it" }}",
+                    style = MaterialTheme.typography.labelSmall,
                     fontSize = 11.5.sp,
-                    color = MaterialTheme.colorScheme.primary,
+                    color = Color(0xFF7A5C00),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
-                if (chapterCount > 0) {
-                    Text(
-                        text = "$chapterCount 条",
-                        style = MaterialTheme.typography.labelSmall,
-                        fontSize = 10.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(end = 8.dp),
-                    )
-                }
-                PinnedSwitchKey("切换章") { onSwitchChapter(book, chapter) }
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    text = "切过去 →",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontSize = 11.5.sp,
+                    color = Color(0xFFA06A00),
+                    fontWeight = FontWeight.Bold,
+                )
             }
         }
     }
+}
+
+/**
+ * 章节标题 → 只留章号（11-11 用户令「章节可以显示，章节名就不用显示了吧」）。
+ *
+ * 例：「第6章 高山流水遇知音」→「第6章」；「第 12 章 某标题」→「第 12 章」。
+ * 抠不到「第N章」时（如「序章」「番外·少年时」），取前 6 个字兜底——
+ * 用户原话是章名不要显示，但完全不显示又丢了"在哪一章"的信息，故截短而非留空。
+ * 空串进空串出。
+ */
+private fun shortChapterLabel(chapter: String): String {
+    if (chapter.isBlank()) return ""
+    val m = Regex("^第\\s*[0-9一二三四五六七八九十百千零两]+\\s*章").find(chapter)?.value
+    if (m != null) return m
+    return if (chapter.length > 6) chapter.take(6) else chapter
 }
 
 /**
