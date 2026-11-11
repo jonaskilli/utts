@@ -1067,12 +1067,20 @@ private fun PinnedLogHeader(
         // 每颗在 360dp 屏上约 55.8dp，四字标签 44dp 文字 + 10dp 内衬 = 54dp，刚好装得下。
         // 短标签（插件/DEBUG）随等分变宽，整排左右对齐、不再参差，也不再需要最小宽度撑齐。
         // 屏更窄（如 320dp）时靠 weight 继续等比压缩，仍然全部可见，不会溢出。
+        // ⚠️ 11-11 用户令「能放下就放一屏，挤挤就是了」：
+        // 上一版按 11dp/字估宽度**估错了**——真机截图实测 11sp 汉字是 12.28dp
+        // （172px / 3.5 / 4 字），四字标签要 49.14dp，加 5dp 内衬 = 59.14dp，
+        // 而等分只剩 55.2dp ⇒「朗读规则」「DEBUG」照旧会被省略号吃掉。
+        // 现在把边距收紧（外衬 24→16、间距 3→2、内衬 5→4），每颗能分到 57.8dp，
+        // 比需要的 57.14dp 多 0.66dp，五颗才真的全部完整显示。
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 14.dp, end = 10.dp, top = 6.dp, bottom = 5.dp),
+                // 外衬 24→16：左右各收 4dp，五颗共多出 8dp（每颗 +1.6dp）
+                .padding(start = 10.dp, end = 6.dp, top = 6.dp, bottom = 5.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(3.dp),
+            // 间距 3→2：5 个缝省 5dp（每颗 +1dp）
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             // 11-11 用户令：这排到底是什么，得有个名分。
             // 左侧「筛选」标签自带图标 + 一道竖线分隔，把「这是筛选器」讲清楚；
@@ -1086,7 +1094,7 @@ private fun PinnedLogHeader(
                 selected = autoFollow,
                 onClick = onToggleAutoFollow,
                 modifier = Modifier.weight(1f),
-                horizontalPadding = 5.dp,
+                horizontalPadding = 4.dp,
             )
             // 11-11 用户令：保留红底红字（「填充色是红色，字号也是红色也行吧，要不就不改了」），
             // 排障语义"红色=错误"维持。
@@ -1098,11 +1106,11 @@ private fun PinnedLogHeader(
                 onClick = onToggleErrorOnly,
                 error = true,
                 modifier = Modifier.weight(1f),
-                horizontalPadding = 5.dp,
+                horizontalPadding = 4.dp,
             )
-            PinnedChip("朗读规则", showRule, onToggleRule, modifier = Modifier.weight(1f), horizontalPadding = 5.dp)
-            PinnedChip("插件", showPlugin, onTogglePlugin, modifier = Modifier.weight(1f), horizontalPadding = 5.dp)
-            PinnedChip("DEBUG", showDebug, onToggleDebug, modifier = Modifier.weight(1f), horizontalPadding = 5.dp)
+            PinnedChip("朗读规则", showRule, onToggleRule, modifier = Modifier.weight(1f), horizontalPadding = 4.dp)
+            PinnedChip("插件", showPlugin, onTogglePlugin, modifier = Modifier.weight(1f), horizontalPadding = 4.dp)
+            PinnedChip("DEBUG", showDebug, onToggleDebug, modifier = Modifier.weight(1f), horizontalPadding = 4.dp)
         }
 
         // ===== ② 筛选 + 视野（11-11 用户定案「全部日志 + 其下方筛选」）=====
