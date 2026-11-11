@@ -56,7 +56,13 @@ fun TruncatedAnnotatedText(
         // 直接 AnnotatedString(截断后的字符串) 会把红色 ⚠ 这类 span 丢掉，
         // 用 subSequence 才能带着样式一起裁（AnnotatedString.subSequence 保留区间内的 span）。
         val cutEnd = plain.offsetByCodePoints(0, lo)
-        text.subSequence(0, cutEnd)
+        // 11-11 用户令（实拍「度小贤 | 电台男主播 | 资讯 |」）：**截断后末尾是符号的，符号也不要留**。
+        // 宽度截断只保证"不超宽"，落点可能正好在分隔符后面（「…资讯 |」），
+        // 视觉上像名字被砍了一半、多出一根竖线。这里把结尾的分隔符/空白/未闭合左括号一起回退，
+        // 让文字停在上一个完整词上。
+        // ⚠️ 只在"确实截断了"的分支里做，未截断时原样返回（名字本身以 · 结尾等是用户数据，不动）。
+        val trimmedEnd = trimTrailingSeparators(plain, cutEnd)
+        text.subSequence(0, if (trimmedEnd > 0) trimmedEnd else cutEnd)
     }
     Text(
         text = shown,
@@ -67,4 +73,24 @@ fun TruncatedAnnotatedText(
         overflow = TextOverflow.Clip,   // 已按整字算好，这里只兜底
         modifier = modifier,
     )
+}
+
+/**
+ * 截断落点若停在分隔符/空白上，把这些尾巴退掉（11-11 用户令）。
+ *
+ * 只处理**结尾**：`"度小贤｜电台男主播｜资讯｜"` 被切在最后一个 `｜` 之后时，
+ * 结果会是「…资讯｜」——用户实拍读起来像"名字被砍半、多一根竖线"。
+ * 这里把结尾连续的分隔符/空白退出，退到上一个完整词尾。
+ *
+ * 保护：退到空串（整串都是符号）时返回原 cutEnd，宁可留符号也不能让整行变空。
+ */
+private fun trimTrailingSeparators(plain: String, cutEnd: Int): Int {
+    var end = cutEnd
+    while (end > 0) {
+        val c = plain[end - 1]
+        val isTail = c.isWhitespace() || c in "|｜·・,，、.。:：;；-—–~～/\\_*+#'\"“”‘’()（）[]【】<>《》"
+        if (!isTail) break
+        end--
+    }
+    return if (end > 0) end else cutEnd
 }
