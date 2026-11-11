@@ -1092,61 +1092,74 @@ private fun PinnedLogHeader(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(5.dp),
         ) {
-            // ===== 书/章：左侧纯文字（信息） + 右侧按钮（操作），11-11 用户定稿 =====
+            // ===== 书/章：左侧信息 + 右侧按钮（11-11 用户选 B 方案定稿）=====
             //
-            // 用户逐条确认过的口径：
-            //   · **未筛选**：左边就是普通灰字，显示"滚动到的那本书 + 第几章"，
-            //     **不加绿色**（绿色会被读成"已选中/已筛选"）；点了没反应，纯信息。
-            //   · **已筛选**：左边变成被筛的书，此时才用主色，并在末尾带 **×** 用来取消筛选。
-            //   · 右侧：一个「筛选书」入口；筛了书之后再出现「跳到第N章」（跳转，不改筛选）。
+            // ## 两种状态必须一眼分得清（用户反复强调的点）
+            //   · **未筛选**：普通灰字《书名》第N章，**无底、无绿、不可点**——纯信息；
+            //   · **已筛选**：同一位置换成**淡绿胶囊**，右端写「**取消**」两个字（不是 ×）。
             //
-            // ⚠️ 与上一版的区别：上一版把视野书做成了带绿边的胶囊，看着像"已筛到这本"；
-            // 用户指出「只是用平常的字提示，不要加绿色」——现在信息与操作分开呈现。
+            // ## 为什么是胶囊+「取消」而不是纯文字+×（用户 11-11 拍板 B）
+            // × 太像"删除/关闭"，读者会误解它删的是这本书、或只是关掉某个提示；
+            // 「取消」两个字无歧义。而胶囊底色正好承担"这条筛选正在生效"的状态表达，
+            // 与未筛选时的灰字形成天然反差——不需要额外加"已筛选"三个字。
+            // 取消仍只在这颗胶囊里，不给同一件事开第二个入口。
             val filtered = !scopeBook.isNullOrBlank()
             val shownBook = if (filtered) scopeBook.orEmpty() else viewBook
             val shownChapter = if (filtered) scopeChapter.orEmpty() else viewChapter
+            val chapLabel = shortChapterLabel(shownChapter).let { if (it.isBlank()) "" else " $it" }
 
-            // 左侧：纯文字（未筛选=灰、已筛选=主色 + ×）
             if (shownBook.isNotBlank()) {
-                Row(
-                    modifier = Modifier.weight(1f, fill = false),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
+                if (filtered) {
+                    // ---- 已筛选：淡绿胶囊 + 取消 ----
+                    Row(
+                        modifier = Modifier
+                            .weight(1f, fill = false)
+                            .clip(RoundedCornerShape(50))
+                            .background(MaterialTheme.colorScheme.secondaryContainer)
+                            .padding(start = 9.dp, end = 3.dp, top = 3.dp, bottom = 3.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "《$shownBook》$chapLabel",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                        // 「取消」与书名之间一道浅竖线分隔（视觉上表明这是两段，不是书名的一部分）
+                        Spacer(Modifier.width(6.dp))
+                        Box(
+                            Modifier
+                                .width(1.dp)
+                                .height(10.dp)
+                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.25f))
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            text = "取消",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(50))
+                                .clickable(onClick = onClearScope)
+                                .padding(horizontal = 6.dp, vertical = 2.dp),
+                        )
+                    }
+                } else {
+                    // ---- 未筛选：纯灰字（不可点）----
                     Text(
-                        text = "《$shownBook》",
+                        text = "《$shownBook》$chapLabel",
                         style = MaterialTheme.typography.bodySmall,
                         fontSize = 11.5.sp,
-                        color = if (filtered) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontWeight = if (filtered) FontWeight.Medium else FontWeight.Normal,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false),
                     )
-                    val chap = shortChapterLabel(shownChapter)
-                    if (chap.isNotBlank()) {
-                        Spacer(Modifier.width(5.dp))
-                        Text(
-                            text = chap,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontSize = 10.5.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    // × 只在已筛选时出现：取消筛选本书
-                    if (filtered) {
-                        Spacer(Modifier.width(3.dp))
-                        Text(
-                            text = "×",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontSize = 13.sp,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier
-                                .clip(AppShapes.xs)
-                                .clickable(onClick = onClearScope)
-                                .padding(horizontal = 4.dp, vertical = 1.dp),
-                        )
-                    }
                 }
             }
 
