@@ -18,12 +18,14 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -74,6 +76,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -1050,10 +1053,17 @@ private fun PinnedLogHeader(
             .background(MaterialTheme.colorScheme.background)
     ) {
         // ① 筛选开关行
+        // 11-11 用户选方案 A：右侧加渐变淡出。
+        // 这排胶囊在 360dp 屏上放不下（DEBUG 常被切掉半颗），但硬切断看起来像"被截断"，
+        // 不像"还能滑"，用户不会想到去横滑 → 被藏起来的筛选项等于不存在。
+        // 用一层从透明到背景色的渐变盖住右缘，表达"还有内容"（系统级通用做法），
+        // 不新增控件、不占宽度、不动布局。
+        val row1Scroll = rememberScrollState()
+        Box(Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
+                .horizontalScroll(row1Scroll)
                 .padding(start = 14.dp, end = 10.dp, top = 6.dp, bottom = 5.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(5.dp),
@@ -1073,6 +1083,9 @@ private fun PinnedLogHeader(
             // 其余都是 11sp，整排字号不齐。撤掉 small，与其它胶囊同字号。
             PinnedChip("DEBUG", showDebug, onToggleDebug)
         }
+        // 右缘渐变：只在"还能继续右滑"时显示；已滑到底就不显示（否则右端永远蒙一层雾）
+        ScrollEdgeFade(visible = row1Scroll.canScrollForward)
+        } // Box 结束
 
         // ===== ② 筛选 + 视野（11-11 用户定案「全部日志 + 其下方筛选」）=====
         //
@@ -1086,10 +1099,14 @@ private fun PinnedLogHeader(
         // ⚠️ 与旧版的区别：旧版把书条/章条当"切换"用（点按钮弹列表，语义是导航）；
         // 用户指出「你现在是筛选，不是切换」——所以胶囊文案与语义都改成筛选。
 
+        // 第二排同样加右缘渐变（11-11 用户选方案 A）：
+        // 筛了书之后这排有「胶囊 + 筛选书 + 选章节」，小屏也会溢出。
+        val row2Scroll = rememberScrollState()
+        Box(Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
+                .horizontalScroll(row2Scroll)
                 .padding(start = 14.dp, end = 10.dp, bottom = 5.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(5.dp),
@@ -1174,20 +1191,28 @@ private fun PinnedLogHeader(
 
             // 右侧：跳到第N章（筛了书之后才出现，纯跳转）
             if (filtered) {
+                // 这里只为判断"这本书有没有章"——有章才给选章入口；
+                // 章号本身不再拼进按钮文案（改「选章节」后由弹窗表达）。
                 val curChap = shortChapterLabel(scopeChapter ?: chapter)
                 if (curChap.isNotBlank()) {
                     PinnedChip(
-                        label = "跳到$curChap",
+                        // 11-11 用户令：文案改「选章节」。
+                        // 原来写「跳到第6章 ▾」有歧义——它显示的永远是**当前章**，
+                        // 用户读作"我在第6章，为什么还让我跳到第6章？"。
+                        // 改成"选章节"后，动作性质（从列表里挑一章跳过去）一眼就明白，
+                        // 具体跳到哪由弹窗决定，不必写在按钮上。
+                        label = "选章节",
                         selected = false,
                         onClick = { onSwitchChapter(scopeBook ?: book, scopeChapter ?: chapter) },
                     )
                 }
             }
 
-            // 注：原「取消筛选」独立文字按钮已删除（11-11 用户定稿）——
-            // 取消筛选改由左侧书名后的 × 承担（见上），一个动作一个入口，
-            // 留着两个会让同一件事有两个按钮。
+            // 注：「取消筛选」由左侧胶囊里的「取消」承担，不再单独放按钮
+            //（用户 11-11 选 B 方案：一个动作一个入口）。
         }
+        ScrollEdgeFade(visible = row2Scroll.canScrollForward)
+        } // Box 结束
 
         // ===== ④ 跳转提示条：筛着 A 书、却在读 B =====
         // 用户：「如果正在朗读其他的再来一个跳转」。只在"有筛选 且 正在读的不是筛选的那本"时出现。
@@ -1246,6 +1271,45 @@ private fun shortChapterLabel(chapter: String): String {
     val m = Regex("^第\\s*[0-9一二三四五六七八九十百千零两]+\\s*章").find(chapter)?.value
     if (m != null) return m
     return if (chapter.length > 6) chapter.take(6) else chapter
+}
+
+/**
+ * 横向可滚动行的右缘渐变（11-11 用户选方案 A）。
+ *
+ * ## 解决什么
+ * 吸顶两排胶囊在 360dp 屏上放不下（DEBUG 常被切掉半颗）。硬切断看起来像"被截断"，
+ * 用户不会想到去横滑，被藏起来的筛选项等于不存在。
+ *
+ * ## 做法
+ * 盖一层从透明到背景色的渐变。**只在还能继续右滑时显示**
+ * （ScrollState.canScrollForward），滑到底自动消失——否则右端永远蒙一层雾，
+ * 反而像"没加载完"。
+ *
+ * ## 为什么这么轻
+ * 不新增控件、不占宽度、不改布局；纯视觉暗示（iOS 侧边淡出、Android 横滚提示同理）。
+ */
+@Composable
+private fun BoxScope.ScrollEdgeFade(visible: Boolean) {
+    if (!visible) return
+    // BoxScope 扩展函数：可以直接 align，不必让调用方写 Modifier.align。
+    // 高度用 fillMaxHeight 撑满 Box（Box 的高度由里面那排胶囊决定），
+    // 这样渐变的上下沿与胶囊行严丝合缝，不会多出一截白边。
+    //
+    // ⚠️ 触摸穿透：这个 Box **没有任何点击/手势修饰符**，Compose 不会为它注册命中测试，
+    // 手指落在渐变区域时事件直接到达下层的胶囊行。所以覆盖 34dp 宽度不会挡住右侧胶囊的点击
+    //（这也是不用 clickable/pointerInput 包裹它的原因——一旦加上就会变成"吃了一块点击"）。
+    Box(
+        Modifier
+            .align(Alignment.CenterEnd)
+            .width(34.dp)
+            .fillMaxHeight()
+            .background(
+                Brush.horizontalGradient(
+                    0f to Color.Transparent,
+                    1f to MaterialTheme.colorScheme.background,
+                )
+            )
+    )
 }
 
 /**
