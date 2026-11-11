@@ -618,6 +618,9 @@ internal fun LogScreen(
     //   · 真正的查表（currentGroups.bookChapterAt）只在下标变了时才执行一次。
     // 由于 derivedStateOf 的 lambda 会被重用，这里用 remember(currentGroups) 保证
     // 换书/筛选后查的是新表。
+    // 「跳到这本」的一次性滚底请求（11-11）：true=待执行，滚完即清。
+    // 与 autoScrollToBottom（用户勾选的持续跟随）是两回事，别合并。
+    var pendingJumpToBottom by remember { mutableStateOf(false) }
     val visibleBookChapter by remember(currentGroups) {
         derivedStateOf {
             val idx = listState.firstVisibleItemIndex
@@ -731,14 +734,30 @@ internal fun LogScreen(
         }
         val hasNewBelow = list.size > lastSeenSizeAtBottom && !isAtBottom
         val showJumpToBottom = isFarFromBottom || hasNewBelow
-        // 自动滚底。key 里必须带 jumpToLiveTick：
-        // 用户点「切过去」时可能**本来就开着实时最新**，此时 list.size 未必变、
-        // autoScrollToBottom 也没变，只挂这两个 key 的话 LaunchedEffect 不会重启，
-        // 结果筛选清了但视图停在半空——正是用户会骂"点了没反应"的场景。
-        // 上层每次点「切过去」都会 tick 自增，强制复用这段滚动逻辑。
-        LaunchedEffect(list.size, autoScrollToBottom, jumpToLiveTick) {
-            if (autoScrollToBottom && currentGroups.items.isNotEmpty())
+        // ===== 自动滚底 =====
+        // 两条来源必须分开，因为语义完全不同（11-11 用户纠正）：
+        //
+        // ① **实时最新勾选**（autoScrollToBottom）：用户主动开启的**持续跟随**，
+        //    新日志一来就滚到底。未勾选时绝不自动滚——用户原话
+        //    「本来那个实时最新也不是勾选状态呀，只有我确定勾选了才启用，一般都是正常状态」。
+        //
+        // ② **一次性的跳到底**（pendingJumpToBottom）：「跳到这本」按钮触发，
+        //    只滚这一次，**不改勾选状态**。此前我错写成 `autoScrollToBottom = true`，
+        //    等于点一次按钮就把持续跟随打开了，与用户预期相反。
+        //
+        // ⚠️ pendingJumpToBottom 这个中间标志不能省：
+        // 「跳到这本」会先清筛选，列表内容**下一帧**才变。若直接在按钮处滚动，
+        // 滚的还是旧（筛选过的）列表，滚了等于没滚。
+        // 所以这里先置标志，等 list/currentGroups 变化后在有新内容的这一帧再滚，滚完清标志。
+        LaunchedEffect(jumpToLiveTick) {
+            if (jumpToLiveTick > 0) pendingJumpToBottom = true
+        }
+        LaunchedEffect(list.size, autoScrollToBottom, pendingJumpToBottom, currentGroups) {
+            val wantScroll = autoScrollToBottom || pendingJumpToBottom
+            if (wantScroll && currentGroups.items.isNotEmpty()) {
                 runCatching { listState.animateScrollToItem(currentGroups.items.lastIndex) }
+                if (pendingJumpToBottom) pendingJumpToBottom = false
+            }
         }
 
         if (list.isEmpty())
