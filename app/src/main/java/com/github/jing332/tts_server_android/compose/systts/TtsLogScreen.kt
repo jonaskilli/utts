@@ -447,7 +447,7 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                         // 搜索态不再隐藏，级别筛选/开日志目录/清空全程可达。
                         // dda939c 教训：撤 if 门控时条件与大括号必须一起动，勿留孤儿 lambda）
                         // 11-11 用户令：漏斗键删除——筛选开关已全部挪进吸顶区
-                        //（实时/错误/朗读规则/插件/DEBUG），弹窗不再需要。
+                        //（实时/错误/朗读规则/插件），弹窗不再需要。
 
                         // 文件夹按钮 - 先弹日志文件列表自由选择（用户 09-08），点击文件再用外部查看器打开
                         IconButton(onClick = { showLogFilesDialog = true }) {
@@ -573,8 +573,6 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                     onToggleRule = { vm.showSpeechRuleLogs.value = !vm.showSpeechRuleLogs.value },
                     showPlugin = vm.showPluginLogs.value,
                     onTogglePlugin = { vm.showPluginLogs.value = !vm.showPluginLogs.value },
-                    showDebug = vm.showDebugLogs.value,
-                    onToggleDebug = { vm.showDebugLogs.value = !vm.showDebugLogs.value },
                     book = logGroups.pinnedBook,
                     bookCount = logGroups.pinnedBookCount,
                     chapter = logGroups.pinnedChapter,
@@ -1000,7 +998,9 @@ private fun BookPickRow(
 
 // ===================== 日志吸顶区（11-11 用户令「书名和章节名一直置顶」）=====================
 // 三行结构，从上到下：
-//   ① 筛选开关：实时 | 错误 ‖ 朗读规则 | 插件 ‖ DEBUG
+//   ① 筛选开关：实时 | 错误 ‖ 朗读规则 | 插件
+//      （11-11 用户令删掉 DEBUG：它只在插件用 console.debug() 打点时有用，默认本就关闭，
+//       他的规则脚本与插件里 console.debug 是 0 处，整排留一颗永远不亮的键只占宽度）
 //      （11-11 用户令改短：「实时最新」→「实时」、「只看错误」→「错误」；
 //       原设计这里是竖线分档，但那道竖线早已撤掉，只剩左端标签旁的一道）
 //   ② 书/章筛选 + 视野（筛选书 / 选章节）
@@ -1018,8 +1018,6 @@ private fun PinnedLogHeader(
     onToggleRule: () -> Unit,
     showPlugin: Boolean,
     onTogglePlugin: () -> Unit,
-    showDebug: Boolean,
-    onToggleDebug: () -> Unit,
     book: String,
     bookCount: Int,
     chapter: String,
@@ -1060,27 +1058,28 @@ private fun PinnedLogHeader(
         //
         // 原实现是 horizontalScroll + 每颗 widthIn(min = 62.dp)：
         // 62×5 + 5×5 间距 + 标签 44 + 左右内衬 24 ≈ 412dp，屏只有 360dp，
-        // 于是「DEBUG」永远被切在外面，用户得横滑才看得见（他实报的那一幕）。
+        // 于是最后一颗（当时是「DEBUG」）永远被切在外面，用户得横滑才看得见（他实报的那一幕）。
         // 右缘渐隐只是"提示还能滑"，治不了"按钮不在屏幕上"。
         //
         // 现在：等分宽度。整排（标签 + 5 颗 + 间距）按剩余宽度平均分给 5 颗，
         // 每颗在 360dp 屏上约 55.8dp，四字标签 44dp 文字 + 10dp 内衬 = 54dp，刚好装得下。
-        // 短标签（插件/DEBUG）随等分变宽，整排左右对齐、不再参差，也不再需要最小宽度撑齐。
+        // 短标签（插件）随等分变宽，整排左右对齐、不再参差，也不再需要最小宽度撑齐。
         // 屏更窄（如 320dp）时靠 weight 继续等比压缩，仍然全部可见，不会溢出。
         // ⚠️ 11-11 用户令「能放下就放一屏，挤挤就是了」：
         // 上一版按 11dp/字估宽度**估错了**——真机截图实测 11sp 汉字是 12.28dp
         // （172px / 3.5 / 4 字），四字标签要 49.14dp，加 5dp 内衬 = 59.14dp，
-        // 而等分只剩 55.2dp ⇒「朗读规则」「DEBUG」照旧会被省略号吃掉。
+        // 而等分只剩 55.2dp ⇒「朗读规则」照旧会被省略号吃掉。
         // 现在把边距收紧（外衬 24→16、间距 3→2、内衬 5→4），每颗能分到 57.8dp，
         // 比需要的 57.14dp 多 0.66dp，五颗才真的全部完整显示。
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                // 外衬 24→16：左右各收 4dp，五颗共多出 8dp（每颗 +1.6dp）
+                // 外衬 24→16：左右各收 4dp（删掉 DEBUG 后每颗已很宽裕，这两处保留不动）
                 .padding(start = 10.dp, end = 6.dp, top = 6.dp, bottom = 5.dp),
             verticalAlignment = Alignment.CenterVertically,
-            // 间距 3→2：5 个缝省 5dp（每颗 +1dp）
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            // 间距回 3dp：删掉 DEBUG 只剩 4 颗，每颗分到 71.8dp（四字只需 61dp 含内衬），
+            // 不必再挤成 2dp。
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
         ) {
             // 11-11 用户令：这排到底是什么，得有个名分。
             // 左侧「筛选」标签自带图标 + 一道竖线分隔，把「这是筛选器」讲清楚；
@@ -1094,7 +1093,7 @@ private fun PinnedLogHeader(
                 selected = autoFollow,
                 onClick = onToggleAutoFollow,
                 modifier = Modifier.weight(1f),
-                horizontalPadding = 4.dp,
+                horizontalPadding = 6.dp,
             )
             // 11-11 用户令：保留红底红字（「填充色是红色，字号也是红色也行吧，要不就不改了」），
             // 排障语义"红色=错误"维持。
@@ -1106,11 +1105,10 @@ private fun PinnedLogHeader(
                 onClick = onToggleErrorOnly,
                 error = true,
                 modifier = Modifier.weight(1f),
-                horizontalPadding = 4.dp,
+                horizontalPadding = 6.dp,
             )
-            PinnedChip("朗读规则", showRule, onToggleRule, modifier = Modifier.weight(1f), horizontalPadding = 4.dp)
-            PinnedChip("插件", showPlugin, onTogglePlugin, modifier = Modifier.weight(1f), horizontalPadding = 4.dp)
-            PinnedChip("DEBUG", showDebug, onToggleDebug, modifier = Modifier.weight(1f), horizontalPadding = 4.dp)
+            PinnedChip("朗读规则", showRule, onToggleRule, modifier = Modifier.weight(1f), horizontalPadding = 6.dp)
+            PinnedChip("插件", showPlugin, onTogglePlugin, modifier = Modifier.weight(1f), horizontalPadding = 6.dp)
         }
 
         // ===== ② 筛选 + 视野（11-11 用户定案「全部日志 + 其下方筛选」）=====
@@ -1393,7 +1391,7 @@ private fun PinnedChip(
         // 用省略号而不是硬切，至少不出现半个字。360dp 及以上不会触发。
         overflow = TextOverflow.Ellipsis,
         // 等分后每颗宽度由 weight 决定（360dp 屏约 55dp），文字盒内居中。
-        // 短标签（插件/DEBUG）跟着变宽——整排左右边缘对齐、宽窄一致，不再参差。
+        // 短标签（如「插件」）跟着变宽——整排左右边缘对齐、宽窄一致，不再参差。
         // 原先用 widthIn(min = 62.dp) 撑齐，那会把整排撑出屏外，已撤。
         textAlign = TextAlign.Center,
         modifier = modifier
