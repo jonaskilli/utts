@@ -82,6 +82,7 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -121,6 +122,11 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
     // 长按顶栏图标触发的「全部清空」确认框（11-11 用户令）：
     // 长按是快捷路径，但清空不可撤销，所以先用一个确认框挡住，确认后才真清。
     var showClearAllConfirm by remember { mutableStateOf(false) }
+    // 应用内预览（11-11 用户令「这些日志文件能点开查看吗」→ 选应用内预览）：
+    // null = 没在看；非 null = 正在看这个文件。
+    var previewFile by remember { mutableStateOf<File?>(null) }
+    var previewLines by remember { mutableStateOf<List<String>>(emptyList()) }
+    var previewLoading by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     // 视野书章（11-11）：吸顶区下方那行小字，跟着列表滚动变化。
     // 「全部日志我划到哪就显示哪本书的信息」——由 LogScreen 通过 onViewChanged 回传。
@@ -457,35 +463,53 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                         // 11-11 用户令：漏斗键删除——筛选开关已全部挪进吸顶区
                         //（实时/错误/朗读规则/插件），弹窗不再需要。
 
-                        // 文件夹按钮（11-11 用户令「把文件夹入口和删除图标结合一下」）：
-                        // 顶栏只留这一个入口。原来旁边的垃圾桶（一键清空全部）也并进弹窗——
-                        // 弹窗底部有「全部清空」，每行还有单独的删除键。
+                        // ===== 日志管理入口（11-11 用户令：图标要带名称 + 右侧单独一个删除键）=====
                         //
-                        // 为什么合成一个而不是留两个：两个键管的是同一件事（日志文件），
-                        // 一个只管看、一个只管全删，反而缺了「只删某一个」；
-                        // 合并后能力只增不减，顶栏也少占一格。
-                        // 11-11 用户令「我不想用文件夹的图标」：换成「文档」图标（Description）。
-                        // 这一个键打开的是日志文件列表，文档图标比文件夹更贴合"一堆日志文件"。
+                        // ## 为什么改名 + 加文字
+                        // 用户原话：「图标加个名称，要不要加个什么日志管理什么之类的？」
+                        // 光一个文档图标，不点开根本不知道是日志文件列表；加三个字成本很低。
+                        // 「日志管理」而不是「日志文件」：它管的是**看 + 删**，不只是"文件列表"。
                         //
-                        // 11-11 用户令「加个长按图标能够触发全部清空的快捷操作」：
-                        // 单击=打开文件列表，长按=全部清空（不经弹窗，快捷路径）。
-                        // ⚠️ 长按直接清空是不可逆动作，所以走 handoff 式的二次确认：
-                        // 先弹一个确认框，确认后才真清——手指按住不放不该把日志全弄丢。
-                        Box(
-                            modifier = Modifier
-                                .size(48.dp)
-                                // 用 detectTapGestures 而不是 combinedClickable：后者是
-                                // ExperimentalFoundationApi，用在本页要再给整屏加一个 OptIn；
-                                // 本页已有 pointerInput 用法（双击标题回顶部），口径一致。
-                                .pointerInput(Unit) {
-                                    detectTapGestures(
-                                        onTap = { showLogFilesDialog = true },
-                                        onLongPress = { showClearAllConfirm = true },
-                                    )
-                                },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(Icons.Default.Description, "日志文件（长按清空全部）")
+                        // ## 为什么把垃圾桶加回来
+                        // 上一版把「全部清空」藏进了长按（用户令）。用户实报：
+                        // 「我觉得长按全清空大家不会知道」——他说得对，长按是**不可发现**的交互，
+                        // 没有视觉线索、也没有人能猜到。功能被藏起来等于不存在（同一个坑在
+                        // 11-11 的"横滑才有 DEBUG"上已经踩过一次）。
+                        // 所以：清空回到顶栏右侧的常驻图标，与「日志管理」并排、各自可发现。
+                        // 长按这一层撤掉——同一个动作不再留两个隐藏/显式入口。
+                        //
+                        // ## 两个按钮各管什么（一眼分得清）
+                        //   📄 日志管理 → 文件列表：点行看内容、行尾删单个
+                        //   🗑         → 全部清空（带确认框，不可逆动作不能一键就没）
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            // 图标 + 文字做成一个点击单元（只点文字也算点中，热区连成一片）
+                            Row(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(50))
+                                    .clickable { showLogFilesDialog = true }
+                                    .padding(start = 8.dp, end = 10.dp, top = 6.dp, bottom = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.Description,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(Modifier.width(3.dp))
+                                Text(
+                                    "日志管理",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                )
+                            }
+                            IconButton(onClick = { showClearAllConfirm = true }) {
+                                Icon(
+                                    Icons.Default.DeleteOutline,
+                                    contentDescription = "全部清空日志"
+                                )
+                            }
                         }
                     }
                 )
@@ -839,6 +863,9 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
         val logFiles = remember(showLogFilesDialog, fileCount) {
             File(vm.logDir()).listFiles()
                 ?.filter { it.isFile }
+                // 11-11 用户定：debug.log **照常列出**（先选过"隐藏"，看到会占 20MB 后改回）。
+                // 它是 logback 的「全量兜底」文件（root level=TRACE，收所有 logger 的所有级别），
+                // 日志页不读它，但列出来才能看到它涨到多大、也才能单独删掉它。
                 ?.sortedByDescending { it.lastModified() } ?: emptyList()
         }
         val timeFmt = remember {
@@ -920,9 +947,23 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                                     .weight(1f)
                                     .clip(AppShapes.sm)
                                     .clickable {
+                                        // 11-11 用户令：点开改成**应用内预览**，不跳外部查看器。
+                                        // 外部查看器不一定装、大文件还会卡在系统加载上，
+                                        // 而且它一点开就把本页弹窗关掉，看完回来要重新点图标。
                                         showLogFilesDialog = false
                                         pendingDeleteName = null
-                                        openLogFileWithViewer(context, f)
+                                        previewFile = f
+                                        previewLines = emptyList()
+                                        previewLoading = true
+                                        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                            // 只读尾部 300 行：日志动辄几 MB，
+                                            // 全量读进来会把内存和主线程一起拖住。
+                                            val lines = runCatching {
+                                                readTailLinesForPreview(f, 300)
+                                            }.getOrDefault(emptyList())
+                                            previewLines = lines
+                                            previewLoading = false
+                                        }
                                     }
                                     .padding(vertical = 6.dp),
                                 verticalAlignment = Alignment.CenterVertically
@@ -1022,6 +1063,85 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
         )
     }
 
+    // 应用内日志预览（11-11 用户令：点开文件直接在 App 里看）
+    //
+    // 为什么不交给外部查看器：手机不一定装了文本查看器；大文件在系统查看器里会卡加载；
+    // 而且它会把本页挤到后台，看完回来还得重新点图标。
+    // 这里只读**尾部 300 行**——日志是按时间追加的，出问题看最近的才有意义。
+    previewFile?.let { pf ->
+        AlertDialog(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            onDismissRequest = { previewFile = null },
+            title = {
+                Column {
+                    Text(logFileDisplayName(pf.name) ?: pf.name)
+                    // 副标题：原文件名 + 大小，排障时对得上磁盘上的文件
+                    Text(
+                        "${pf.name} · ${pf.length() / 1024} KB",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            },
+            text = {
+                Column(Modifier.heightIn(max = 420.dp)) {
+                    if (previewLoading) {
+                        Text(
+                            "读取中…",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else if (previewLines.isEmpty()) {
+                        Text(
+                            "这个文件是空的",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        Text(
+                            "最近 ${previewLines.size} 行",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(bottom = 4.dp)
+                        )
+                        Column(
+                            Modifier
+                                .weight(1f, fill = false)
+                                .verticalScroll(rememberScrollState())
+                        ) {
+                            // 等宽字体：日志按列对齐，比例字体读起来会串位
+                            Text(
+                                text = previewLines.joinToString("\n"),
+                                style = MaterialTheme.typography.bodySmall,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 10.5.sp,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                // 复制全文（尾部 300 行）——发给我排查时比截图方便
+                TextButton(
+                    enabled = previewLines.isNotEmpty(),
+                    onClick = {
+                        clipboard.setText(AnnotatedString(previewLines.joinToString("\n")))
+                    }
+                ) {
+                    Text("复制")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { previewFile = null }) {
+                    Text("关闭")
+                }
+            }
+        )
+    }
+
     // 11-11 用户令：筛选弹窗整体删除——9 个控件全部挪进吸顶区（筛选开关行）
     // 与书章切换（书条/章条的「切换书/切换章」）。弹窗里的 scopeBook/scopeChapter
     // 两个「只看本书/只看本章」也一并作废：切书后列表本来就只显示那本书。
@@ -1039,7 +1159,7 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
  */
 private fun logFileDisplayName(fileName: String): String? = when {
     fileName == "system_tts.log" -> "朗读主日志"
-    fileName == "system_tts_child.log" -> "获取成功记录"
+    fileName == "system_tts_child.log" -> "获取结果日志"
     fileName == "plugin.log" -> "插件日志"
     fileName == "speech_rule.log" -> "朗读规则日志"
     fileName == "debug.log" -> "调试日志"
@@ -1089,6 +1209,28 @@ internal fun String.toPlainText(): String = this
 
 // 用外部查看器打开文件/目录（text/plain 优先，通用类型兜底）
 // 目录必须走 */*（text/plain 会把目录 URI 丢给文本编辑器，打不开）
+/**
+ * 读日志文件尾部 N 行，供应用内预览（11-11）。
+ *
+ * 与 TtsLogViewModel.readTailLines 同思路但**不复用**：那是 private 且带日志页的解析口径，
+ * 这里只要原始文本行。实现同样只读文件尾部 1MB —— 日志单文件可达 10MB，
+ * 整个读进内存是 OOM 的经典爆点（10-11 就因 readLines 全量读崩过一次）。
+ */
+private fun readTailLinesForPreview(file: java.io.File, maxLines: Int): List<String> {
+    val len = file.length()
+    if (len <= 0) return emptyList()
+    val tailLen = minOf(len, 1_000_000L).toInt()
+    val buf = ByteArray(tailLen)
+    java.io.RandomAccessFile(file, "r").use { raf ->
+        raf.seek(len - tailLen)
+        raf.readFully(buf)
+    }
+    val lines = String(buf, Charsets.UTF_8).split('\n')
+    // 起点不在文件头时首行多半是被截断的半行，丢掉
+    val start = if (tailLen < len) 1 else 0
+    return lines.drop(start).filter { it.isNotBlank() }.takeLast(maxLines)
+}
+
 private fun openLogFileWithViewer(context: android.content.Context, file: java.io.File) {
     val mime = if (file.isDirectory) "*/*" else "text/plain"
     kotlin.runCatching {
