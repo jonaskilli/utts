@@ -63,6 +63,7 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -1347,6 +1348,11 @@ fun VoicePickerDialog(
                         },
                         deleteEnabled = topDeleteTarget != null,
                         onDelete = { topDeleteTarget?.let { deleteConfirmTarget = it } },
+                        // 换声面板档位：24dp 盒 + 20dp 图标（用户 11-11 参照图定稿）。
+                        // 本行高度由 titleMedium lineHeight 24dp 决定，盒取 24dp 正好等高，
+                        // 不会把「当前发音人」这行撑高。
+                        boxSize = 24.dp,
+                        iconSize = 20.dp,
                     )
                     } // ===== 第一行结束（显示名 + 标记 emoji，恒一行）=====
                     // ===== 第二行：插件名（左） … 终值（右）=====
@@ -1963,6 +1969,18 @@ internal fun VoiceOverflowMenu(
     onToggleMark: (String) -> Unit,
     deleteEnabled: Boolean,
     onDelete: () -> Unit,
+    // 视觉盒尺寸（11-11 用户令「三个点菜单放大」，两处档位不同，故收成参数）：
+    //   换声面板（顶部名字行 / 候选行）= 24dp 盒 + 20dp 图标
+    //   角色管理列表（第二行标注行）  = 18dp 盒 + 14dp 图标
+    // 为什么两处不一样：约束不同，不是"不统一"。
+    //   · 面板顶部行高由 titleMedium lineHeight 24dp 决定、候选行 40dp —— 24dp 盒放得下，
+    //     放大到 20dp 图标也不会把任何一行撑高；
+    //   · 角色列表第二行只有 16dp 文字高，盒必须 ≤18dp（再大就把右侧两行中心差从 21dp
+    //     推回更大，正是用户 11-11 反复反馈的「右边比左边松」）。
+    // 尺寸依据（同屏实测，1:1）：用户给的参照图 ⋮ 字形 13.1dp ≈ 20dp 图标 → 面板照此；
+    //   列表旁边是 11sp 灰标注，按比例取 14dp。
+    boxSize: Dp = 18.dp,
+    iconSize: Dp = 14.dp,
 ) {
     // 尺寸固定 32dp 视觉盒 / 20dp 字形（11-11 定稿）。
     // 沿革：11-10 为角色列表第二行引入紧凑盒（那行是纯文字标注、行高约 20dp，塞 48dp 盒会
@@ -1997,18 +2015,17 @@ internal fun VoiceOverflowMenu(
         ) {
         IconButton(
             onClick = { menuOpen = true },
-            // 11-11 用户令（角色列表「右列第一行和第二行间距太大」→ 后又令「压到极限」）：
-            // 32dp → 20dp → **16dp**。
-            // 真因不是行距——两行之间本来就只有 padding(top = 1dp)；是 ⋮ 的视觉盒把第二行
-            // （文字仅 16dp）撑高，文字下方多出空白，看着才像行距大。
-            // 收到 16dp 后与文字等高，第二行回到 16dp。三处调用共用（用户已确认一起改）。
-            modifier = Modifier.size(16.dp),
+            // 11-11 沿革：32 → 20 → 16dp（当时以为是 ⋮ 撑高了行距）→ 现在 18/24dp。
+            // ⚠️ 复盘：16dp 那轮压不动行距，真因不在 ⋮，而在角色列表标签框上的
+            //    `.minimumInteractiveComponentSize()`（已删，见 RoleListScreen:1328 注释）。
+            //    现在行高归位，⋮ 可以按旁边的字号正常放大。
+            modifier = Modifier.size(boxSize),
         ) {
             Icon(
                 Icons.Filled.MoreVert,
                 contentDescription = "更多操作",
-                // 图标 12dp 配 16dp 盒（盒内留白各 2dp，与原 20/32 的比例一致）
-                modifier = Modifier.size(12.dp),
+                // 图标与盒保持 2dp 内衬的比例（20/24、14/18）
+                modifier = Modifier.size(iconSize),
             )
         }
         }
@@ -2187,14 +2204,15 @@ private fun CandidateRow(
                 .clickable(onClick = onPreview)
                 .padding(horizontal = 8.dp),
         )
-        // 11-11 用户令「他都是一个界面，肯定要统一」：候选行原用标准 48dp 盒，
-        // ▶ 与 ⋮ 的视觉间距 8+12=20dp，比顶部那行宽 6dp，同一个面板里两种疏密。
-        // 组件现固定紧凑盒，两处统一到 14dp（触控仍是 48dp）。
+        // 与面板顶部行同档位（24dp 盒 / 20dp 图标）：同一个面板里两处 ⋮ 必须一样大。
+        // 候选行内容高 20dp + 上下内衬各 10dp = 40dp，24dp 盒远小于行高，不会撑高任何东西。
         VoiceOverflowMenu(
             marks = marks,
             onToggleMark = onToggleMark,
             deleteEnabled = deleteEnabled,
             onDelete = onDelete,
+            boxSize = 24.dp,
+            iconSize = 20.dp,
         )
     }
 }

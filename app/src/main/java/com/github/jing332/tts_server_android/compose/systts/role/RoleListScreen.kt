@@ -28,7 +28,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -1179,16 +1178,26 @@ private fun RoleRow(
                     interactionSource = remember { MutableInteractionSource() },
                 )
                 .padding(vertical = 10.dp),
-            // 11-11 用户令终稿「居中对齐」：外层 Row 改 CenterVertically，
-            // 左列名字块**始终在右侧两行的高度内垂直居中**。配合左列行高 22dp，三种情况自动成立：
-            //   1 个名字 → 中心 21.5 = 右侧两行正中间
-            //   2 个名字 → 第1行中心 11 ↔ 标签行、第2行中心 33 ↔ 注行（逐行居中对齐）
-            //   3 个名字 → 中间那行中心 33 = 两行正中间，上下各一行
-            // 前提：右列两行 = 标签行 22dp（中心 11）+ 间隔 1dp + 注行 16dp（中心 31），
-            //       两行中心差 = 20dp —— 这就是左列行高取 20sp 的原因，别改成别的值。
-            //       （11-11 压到极限前是 22dp 差，右列 45dp；现 39dp / 20dp 差）
-            // ⚠️ 沿革：曾改 Top（"第一行对齐"），但那样单名贴顶、多别名时右侧下坠；
-            // 居中 + 22dp 行高是唯一能让 1/2/3 个别名都对上的组合。
+            // 11-11 用户令终稿「居中对齐」：外层 Row 用 CenterVertically，
+            // 左列名字块**始终在右侧两行的高度内垂直居中**。配合左列行高 21dp，三种情况自动成立。
+            //
+            // ## 右列两行的真实高度（11-11 删掉标签框上的 minimumInteractiveComponentSize 后重算）
+            //   第一行 = 标签框内容高 22dp（13sp lineHeight 16 + 上下内衬 3×2）
+            //            ⚠️ 之前这个修饰符把第一行钉在 48dp，右列两行中心差 33dp，
+            //            与左列 20dp 差出一大截——这正是用户反复说的「右边比左边松」。
+            //   间隔   = 1dp
+            //   第二行 = max(文字 16dp, ⋮ 盒 18dp) = 18dp
+            //   ⇒ 右列总高 41dp，中心：第一行 11、第二行 22+1+9 = 32，**中心差 21dp**
+            //
+            // ## 于是左列行高必须 = 21sp（= 右列中心差），否则对齐会错
+            //   1 名：左 21dp，右 41dp → 行高 41，左 offset 10 → 中心 20.5 = 右块中心 20.5 ✓
+            //   2 名：左 42dp，右 41dp → 行高 42，左 offset 0、右 offset 0.5
+            //        → 左 10.5 / 31.5，右 11.5 / 32.5（**差 1dp**，肉眼不可见；
+            //          这是"左列总高必为整数倍 21、右列 41 为奇数"带来的固有 0.5dp 偏移）
+            //   3 名：左 63dp，右 41dp → 行高 63，右 offset 11 → 中间那行中心 31.5 = 右块中心 31.5 ✓
+            //
+            // ⚠️ 改这个 21 之前，先算一遍上面三行：它必须始终等于右列两行的中心差。
+            // ⚠️ 沿革：曾改 Top（"第一行对齐"），但那样单名贴顶、多别名时右侧下坠。
             verticalAlignment = Alignment.CenterVertically
         ) {
             // 名字列：照 v9 排布（主名第一行，别名逐个竖排，每行带性别色圆点）
@@ -1220,12 +1229,14 @@ private fun RoleRow(
                             // 行高显式钉 22dp（bodyLarge 默认 24dp）：这是「1/2/3 个别名
                             // 都能与右侧两行对齐」的关键值，= 右列标签行与注行的中心差。
                             // 改它之前先看外层 Row 的居中注释，别单独改。
-                            // 11-11 行高 22sp → **20sp**：右侧压到极限后总高 39dp
-                            // （标签行 22 + 间距 1 + 注行 16），两行中心差 = 20dp。
-                            // 这个 20 必须与右列中心差相等，否则 1/2/3 个别名的居中对齐会错位。
+                            // 11-11 行高 **21sp**：右列总高 41dp
+                            // （标签行 22 + 间距 1 + 注行 18，注行被 18dp 的 ⋮ 盒撑高），
+                            // 两行中心差 = 11 → 32 = 21dp。
+                            // 这个 21 必须与右列中心差相等，否则 1/2/3 个别名的居中对齐会错位
+                            // （推导见外层 Row 的注释）。
                             style = MaterialTheme.typography.bodyLarge.copy(
                                 fontSize = 16.sp,
-                                lineHeight = 20.sp,
+                                lineHeight = 21.sp,
                             ),
                             color = MaterialTheme.colorScheme.onSurface,
                             // 名字超半屏折行续排，不省略（10-12「显示完全」口径保持）
@@ -1324,8 +1335,22 @@ private fun RoleRow(
                                 //     必须补的保护，否则 Arrangement.End 下长名字会把 ▶ 顶出屏）
                                 // min 仍 96dp（短名触点）。
                                 .widthIn(min = 96.dp)
-                                .weight(1f, fill = false)
-                                .minimumInteractiveComponentSize(),
+                                .weight(1f, fill = false),
+                            // ⚠️ 11-11 删掉这里的 `.minimumInteractiveComponentSize()`（用户
+                            // 11-11 首条反馈「右侧的行间距还是远大于左侧，跟没缩前是不是差不多」
+                            // 的真根因）。它把标签框强行钉到 **48dp 高**，于是第一行永远 48dp，
+                            // 右列两行中心差变成 33dp、而左列名字只有 20dp——用户看到的就是
+                            // 「右边松、左边紧」。之前几轮一直在缩 ⋮ 的视觉盒（32→20→16dp）
+                            // 都压不动，因为行高根本不是 ⋮ 决定的，是这里钉的。
+                            // 截图实测印证：右列两行文字中心差 = 119.5px / 3.575 = 33.4dp ≈ 48+1+16 的中心差。
+                            // 删掉后第一行回到内容高 22dp（13sp lineHeight 16 + 上下 3dp），
+                            // 与代码注释里的设计意图一致（「第一行 22dp（标签框 13sp + 上下 3dp ≈ 22dp）」）。
+                            //
+                            // ⚠️ 代价：标签框的触控高度从 48dp 降到 22dp（宽度仍是 96dp 起）。
+                            //    整行另有 10dp 上下内衬 + 整行可点（点行=选中角色），
+                            //    且换声的主入口是第一行的 ⋮ 与角色列表点击，可接受。
+                            //    若日后要恢复 48dp 触控，别再用这个修饰符——它会连带把行距撑开；
+                            //    改用外层叠加触控区的写法。
                         ) {
                             // 11-10 二十五改（用户反复强调「不要省略号，超过就截断」，
                             // 且实拍「字显示不全、不是完整的汉字」）：
@@ -1546,6 +1571,11 @@ private fun RoleRow(
                                 onToggleMark = onToggleMark,
                                 deleteEnabled = hasAnchor,
                                 onDelete = onDeleteConfig,
+                                // 角色列表档位：18dp 盒 + 14dp 图标（比面板小一档）。
+                                // 本行是纯文字标注行（16dp），盒必须 ≤18dp——再大就把右侧
+                                // 两行中心差推大，回到用户反复反馈的「右边比左边松」。
+                                boxSize = 18.dp,
+                                iconSize = 14.dp,
                             )
                         }
                     }
