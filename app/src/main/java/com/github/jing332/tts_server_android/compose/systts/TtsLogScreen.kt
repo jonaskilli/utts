@@ -1042,10 +1042,21 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                     }
                 }
             },
+            // ⚠️ confirmButton 是 M3 AlertDialog 的**必填参数**（无默认值）。
+            // 删「打开整个目录」时我把它整个删了 → 编译报 "None of the following candidates
+            // is applicable"，连带后面一串 @Composable 报错（CI run 43031934592）。
+            // 现在放一个「关闭」：主按钮位不空着，取消键也还在（两处都能关）。
+            confirmButton = {
+                TextButton(onClick = {
+                    showLogFilesDialog = false
+                    pendingDeleteName = null
+                }) {
+                    Text("关闭")
+                }
+            },
             // 「打开整个目录」已删（11-11 用户令「这个选项感觉没啥用」）：
             // 日志目录现在就在 Download/chajian/log，文件管理器里能直接进，
             // 再给一个"用外部应用打开目录"的键属于重复入口，且很多文件管理器并不支持。
-            // 需要时用户自己去文件管理器点，不比这里多点一次麻烦。
             dismissButton = {
                 TextButton(onClick = {
                     showLogFilesDialog = false
