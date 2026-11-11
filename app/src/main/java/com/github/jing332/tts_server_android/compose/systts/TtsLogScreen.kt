@@ -113,6 +113,11 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
     var isSearchActive by rememberSaveable { mutableStateOf(false) }
     // 日志文件列表弹窗（用户 09-08：文件夹点开自由选择文件，不再直接扔给外部查看器）
     var showLogFilesDialog by remember { mutableStateOf(false) }
+    // 待删文件（11-11 用户令「每一项可以单独删除」）：
+    // 不弹二次确认框（弹窗套弹窗太吵），改用**点两下**——
+    // 第一次点把该行标红并提示「再点一次删除」，2 秒内不点就自动复原。
+    // 记的是文件名而不是 File：弹窗关闭重开后 File 实例会变，按名字比更稳。
+    var pendingDeleteName by remember { mutableStateOf<String?>(null) }
     var searchQuery by remember { mutableStateOf("") }
     // 视野书章（11-11）：吸顶区下方那行小字，跟着列表滚动变化。
     // 「全部日志我划到哪就显示哪本书的信息」——由 LogScreen 通过 onViewChanged 回传。
@@ -449,14 +454,15 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                         // 11-11 用户令：漏斗键删除——筛选开关已全部挪进吸顶区
                         //（实时/错误/朗读规则/插件），弹窗不再需要。
 
-                        // 文件夹按钮 - 先弹日志文件列表自由选择（用户 09-08），点击文件再用外部查看器打开
+                        // 文件夹按钮（11-11 用户令「把文件夹入口和删除图标结合一下」）：
+                        // 顶栏只留这一个入口。原来旁边的垃圾桶（一键清空全部）也并进弹窗——
+                        // 弹窗底部有「全部清空」，每行还有单独的删除键。
+                        //
+                        // 为什么合成一个而不是留两个：两个键管的是同一件事（日志文件），
+                        // 一个只管看、一个只管全删，反而缺了「只删某一个」；
+                        // 合并后能力只增不减，顶栏也少占一格。
                         IconButton(onClick = { showLogFilesDialog = true }) {
                             Icon(Icons.Default.FolderOpen, stringResource(R.string.open_log_folder))
-                        }
-
-                        // 清空按钮
-                        IconButton(onClick = { vm.clear() }) {
-                            Icon(Icons.Default.DeleteOutline, stringResource(id = R.string.clear_log))
                         }
                     }
                 )
@@ -795,9 +801,19 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
         )
     }
 
-    // 日志文件列表（用户 09-08：自由选择要打开的日志文件）
+    // 日志文件弹窗（11-11 用户令：把顶栏的「文件夹 + 垃圾桶」合成一个入口）
+    //
+    // 原来顶栏是两个键：📁 只管打开列表，🗑 只能一键全删，想删某个文件做不到。
+    // 现在只剩 📁 一个入口，能力全搬进弹窗：
+    //   · 点行 = 打开看（原样）；
+    //   · 行尾 🗑 = 删这一个文件（点两下确认，见 pendingDeleteName）；
+    //   · 底部「全部清空」= 原顶栏垃圾桶的功能（清四份回读来源，逻辑仍在 vm.clear()）；
+    //   · 「打开整个目录」保留（打开文件管理器看这个文件夹）。
     if (showLogFilesDialog) {
-        val logFiles = remember {
+        // ⚠️ 用 fileCount 当 remember 的 key：删完一个文件后必须重新 listFiles，
+        // 否则列表里还挂着已删的那行（原来只 remember 一次、无 key，等于永远不刷新）。
+        var fileCount by remember { mutableStateOf(-1) }
+        val logFiles = remember(showLogFilesDialog, fileCount) {
             File(vm.logDir()).listFiles()
                 ?.filter { it.isFile }
                 ?.sortedByDescending { it.lastModified() } ?: emptyList()
@@ -807,12 +823,15 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
         }
         AlertDialog(
             containerColor = androidx.compose.material3.MaterialTheme.colorScheme.surfaceContainerLow,
-            onDismissRequest = { showLogFilesDialog = false },
+            onDismissRequest = {
+                showLogFilesDialog = false
+                pendingDeleteName = null
+            },
             title = { Text("日志文件") },
             text = {
                 Column(
                     Modifier
-                        .heightIn(max = 360.dp)
+                        .heightIn(max = 380.dp)
                         .verticalScroll(rememberScrollState())
                 ) {
                     if (logFiles.isEmpty()) {
@@ -823,42 +842,114 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                         )
                     }
                     logFiles.forEach { f ->
+                        val armed = pendingDeleteName == f.name
+                        // 点两下确认：第一次点只是「上膛」（标红 + 文案变），2 秒后自动复原。
+                        // 不用二次确认弹窗——在文件列表里再套一层对话框会让人以为流程很重。
+                        // key 用 f.name：这个列表是 forEach 铺开的，若只按 armed 做 key，
+                        // 删除后重排会让计时状态错挂到别的行上
+                        LaunchedEffect(f.name, armed) {
+                            if (armed) {
+                                kotlinx.coroutines.delay(2000)
+                                if (pendingDeleteName == f.name) pendingDeleteName = null
+                            }
+                        }
                         Row(
                             Modifier
                                 .fillMaxWidth()
-                                .clickable {
-                                    showLogFilesDialog = false
-                                    openLogFileWithViewer(context, f)
-                                }
-                                .padding(vertical = 8.dp),
+                                .clip(AppShapes.sm)
+                                .then(
+                                    if (armed) Modifier.background(
+                                        MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)
+                                    ) else Modifier
+                                )
+                                .padding(vertical = 2.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Column(Modifier.weight(1f)) {
-                                Text(
-                                    f.name,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    maxLines = 1
-                                )
-                                Text(
-                                    "${f.length() / 1024} KB · " + timeFmt.format(f.lastModified()),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                            Row(
+                                Modifier
+                                    .weight(1f)
+                                    .clip(AppShapes.sm)
+                                    .clickable {
+                                        showLogFilesDialog = false
+                                        pendingDeleteName = null
+                                        openLogFileWithViewer(context, f)
+                                    }
+                                    .padding(vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        f.name,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        maxLines = 1,
+                                        color = if (armed) MaterialTheme.colorScheme.error
+                                        else MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        if (armed) "再点一次删除"
+                                        else "${f.length() / 1024} KB · " + timeFmt.format(f.lastModified()),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (armed) MaterialTheme.colorScheme.error
+                                        else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                // 删除键：30dp 视觉、48dp 触摸区（与全站最小可点口径一致）
+                                IconButton(
+                                    onClick = {
+                                        if (armed) {
+                                            pendingDeleteName = null
+                                            vm.clearFile(f)
+                                            fileCount = fileCount + 1   // 触发重新 listFiles
+                                        } else {
+                                            pendingDeleteName = f.name
+                                        }
+                                    },
+                                    modifier = Modifier.size(40.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.DeleteOutline,
+                                        contentDescription = "删除 ${f.name}",
+                                        tint = if (armed) MaterialTheme.colorScheme.error
+                                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
                             }
                         }
                     }
                 }
             },
             confirmButton = {
-                TextButton(onClick = {
-                    showLogFilesDialog = false
-                    openLogFileWithViewer(context, File(vm.logDir()))
-                }) {
-                    Text("打开整个目录")
+                // 两个动作并列：打开目录 | 全部清空
+                // ⚠️ 「打开整个目录」不能丢（用户 09-08 定的入口）：AlertDialog 只有 confirm/
+                // dismiss 两个按钮位，所以在 confirm 位里放一个 Row 塞两个 TextButton。
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = {
+                        showLogFilesDialog = false
+                        pendingDeleteName = null
+                        openLogFileWithViewer(context, File(vm.logDir()))
+                    }) {
+                        Text("打开目录")
+                    }
+                    // 「全部清空」= 原来顶栏那个垃圾桶做的事（清四份回读来源）
+                    TextButton(onClick = {
+                        vm.clear()
+                        showLogFilesDialog = false
+                        pendingDeleteName = null
+                        fileCount = fileCount + 1
+                    }) {
+                        Text(
+                            "全部清空",
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showLogFilesDialog = false }) {
+                TextButton(onClick = {
+                    showLogFilesDialog = false
+                    pendingDeleteName = null
+                }) {
                     Text(stringResource(R.string.cancel))
                 }
             }
