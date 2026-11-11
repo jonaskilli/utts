@@ -703,16 +703,24 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
         logger.error(msg)
     }
 
-    private fun logS(msg: String, indent: Int = 0) {
+    private fun logS(
+        msg: String,
+        indent: Int = 0,
+        // ⚠️ 11-11 修正：书章**必须由调用方显式传入**，不能在这里读 MDC。
+        // 原因（自查发现的缺陷）：logS 的调用点是 NormalEvent.ReadAllFromStream，
+        // 那是**独立事件**、在请求处理完之后才到；而 normalEvent 的 finally 早已把
+        // MDC.remove("bookName") 执行掉了 ⇒ 这里 MDC.get() 取到的必然是空串，
+        // 等于修复无效。事件自身带 request（含 bookName/chapterTitle），那才是可靠来源。
+        bookName: String = "",
+        chapterTitle: String = "",
+    ) {
         val time = LocalDateTimeUtil.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS"))
-        // ⚠️ 11-11 修（用户实报「获取成功切书就没了 / 选单本书根本不显示」）：
         // 本行原来**不带书章字段**，于是
         //   ① 日志页按书过滤 `filter { it.bookName == b }` 时，空书名 ≠ 任何书 ⇒ 该子行被丢弃；
-        //   ② 吸顶区的书条/章条取自「列表里第一条带书章的条目」，子行不参与 ⇒ 时有时无。
-        // 书章从 MDC 取（与 logI「请求音频」主行同源，同一个请求期间写入、结束后清理），
-        // 取不到时为空串，退化成旧行为，不会串到别的书上。
-        val mdcBook = org.slf4j.MDC.get("bookName").orEmpty()
-        val mdcChapter = org.slf4j.MDC.get("chapterTitle").orEmpty()
+        //   ② 吸顶区的书条/章条取自列表里带书章的条目，子行不参与 ⇒ 时有时无。
+        // 现由调用方把 request 上的书章传进来，保证与主行同属一本书。
+        val mdcBook = bookName
+        val mdcChapter = chapterTitle
         SysttsLogger.log(
             LogEntry(
                 level = LogLevel.SUCCESS,
@@ -1057,7 +1065,10 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                     logS(
                         "<font color=\"" + META_INFO_COLOR + "\">获取成功：</font>" +
                             e.size.sizeToReadable() + " · " + costText,
-                        indent = 1
+                        indent = 1,
+                        // 书章取自事件自带的 request（MDC 此时已被 finally 清掉，取不到）
+                        bookName = e.request.bookName,
+                        chapterTitle = e.request.chapterTitle,
                     )
                 }
             }
