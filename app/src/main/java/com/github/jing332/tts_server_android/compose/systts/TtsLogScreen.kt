@@ -100,6 +100,7 @@ import com.github.jing332.common.utils.toast
 import com.github.jing332.tts_server_android.R
 import com.github.jing332.compose.widgets.DenseTextField
 import com.github.jing332.tts_server_android.compose.systts.role.FlatTextAction
+import com.github.jing332.tts_server_android.compose.systts.role.softFillBarColor
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.withFrameNanos
@@ -1134,7 +1135,11 @@ private fun PinnedLogHeader(
                         modifier = Modifier
                             .weight(1f, fill = false)
                             .clip(RoundedCornerShape(50))
-                            .background(MaterialTheme.colorScheme.secondaryContainer)
+                            // 11-11 统一：改用 softFillBarColor()（= secondaryContainer 往白里混 42%，
+                            // C 档 #DAF2E2），与角色列表标签框、换声面板分段选中态同一档。
+                            // 原来用裸 secondaryContainer，比那两处浓一档——同一主题下两种绿。
+                            // 它仍是从主题色派生的（lerp secondaryContainer），换主题会跟着变。
+                            .background(softFillBarColor())
                             .padding(start = 9.dp, end = 3.dp, top = 3.dp, bottom = 3.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -1334,7 +1339,8 @@ private fun PinnedChip(
     val cs = MaterialTheme.colorScheme
     val bg = when {
         selected && error -> cs.errorContainer
-        selected -> cs.secondaryContainer
+        // 与筛选胶囊同档（softFillBarColor），保证吸顶区两排的颜色一致
+        selected -> softFillBarColor()
         else -> Color.Transparent
     }
     val fg = when {
