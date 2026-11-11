@@ -65,6 +65,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -117,6 +118,8 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
     // ⚠️ 吸顶区渲染在列表**之前**，首帧回调还没到（为空），会闪一下空白。
     // 故初值取「全量日志最后一条带书章的条目」，与"当前正在读"一致；
     // 之后只要用户滚动，回调就会把它覆盖成真正的视野值。
+    // 「切过去」触发计数（11-11）：点一次 +1，传给 LogScreen 强制重启自动滚底。
+    var jumpToLiveTick by remember { mutableIntStateOf(0) }
     var viewBookChapter by remember(vm.logs) {
         val e = vm.logs.lastOrNull { it.bookName.isNotBlank() }
         mutableStateOf(e?.bookName.orEmpty() to e?.chapterTitle.orEmpty())
@@ -583,6 +586,14 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                     viewBook = viewBookChapter.first,
                     viewChapter = viewBookChapter.second,
                     onClearScope = { vm.clearScope() },
+                    // 切过去（用户定案 A）：回到全部日志 + 实时最新。
+                    // 滚到底由 LogScreen 内部 autoScrollToBottom 的 LaunchedEffect 完成
+                    // ——打开实时最新后 list.size 变化就会自动 animateScrollToItem(lastIndex)。
+                    onJumpToLive = {
+                        vm.clearScope()
+                        vm.autoScrollToBottom.value = true
+                        jumpToLiveTick++   // 强制重启滚底（可能本来就开着实时最新）
+                    },
                     // 正在朗读的书（与筛选无关）：用于"筛着 A 在读 B"的跳转提示条
                     readingBook = readingBook,
                     readingChapter = readingChapter,
@@ -625,6 +636,8 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
             // 视野书章回传（11-11）：吸顶区那行"当前：《书名》第N章"跟着滚动变。
             // 只在首项所属书章变化时触发（LogScreen 内部已按 derivedStateOf 收敛）。
             onViewChanged = { b, c -> viewBookChapter = b to c },
+            // 切过去时强制滚底（见 LogScreen 里 autoScrollToBottom 的注释）
+            jumpToLiveTick = jumpToLiveTick,
             // 点章节签只负责滚动到本章首条（滚动已在 LogScreen 内完成，这里不再改筛选——
             // 一改 scopeChapter 列表就重排，刚滚到的位置会立刻错位）
         )
@@ -1016,6 +1029,11 @@ private fun PinnedLogHeader(
     viewBook: String = "",
     viewChapter: String = "",
     onClearScope: () -> Unit = {},
+    // 「切过去」＝回到全部日志 + 实时最新 + 滚到底（用户 11-11 定案 A）。
+    // ⚠️ 原来这里错用了 onSwitchBook(readingBook)，那只是**打开书单弹窗**，
+    // 既没清筛选也没滚到底，用户实报「你说的切过去是切到全部日志的实时最新吧」——
+    // 他说的是对的，那是正确行为；原实现是 bug。
+    onJumpToLive: () -> Unit = {},
     // 正在朗读的书（与筛选不同）：非空且与 scopeBook 不一致时给「切过去」提示条
     readingBook: String = "",
     readingChapter: String = "",
@@ -1065,7 +1083,6 @@ private fun PinnedLogHeader(
         //
         // ⚠️ 与旧版的区别：旧版把书条/章条当"切换"用（点按钮弹列表，语义是导航）；
         // 用户指出「你现在是筛选，不是切换」——所以胶囊文案与语义都改成筛选。
-        val hasScope = !scopeBook.isNullOrBlank() || !scopeChapter.isNullOrBlank()
 
         Row(
             modifier = Modifier
@@ -1075,57 +1092,86 @@ private fun PinnedLogHeader(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(5.dp),
         ) {
-            // ---- 书：**筛选与视野合一**（11-11 用户令）----
-            // 用户原话：「筛选的书名要不要放在这个位置？他这个就相当于是一个兼具
-            // 当前日志所在的区域和一个筛选书的区域」——采纳。
-            //   · 未筛选：显示**视野书**（你滚到哪本显示哪本），空心描边 = "跟随中"；
-            //   · 已筛选：显示**筛选的那本**，绿底实心 = "已锁定"。
-            // 一颗胶囊同时承担两件事，省掉原来单独一行视野小字。
-            // ⚠️ 样式必须能区分这两种状态，否则"跟随时显示的书名"会被误读成"已筛到这本"。
-            // 未筛选时把**章号**也缀在书名后（用户：「章节可以显示，章节名就不用显示」），
-            // 这样滚动时一颗胶囊就能看出"这本的第几章"。已筛选时章由下面独立的章胶囊表达。
-            val viewChapSuffix = shortChapterLabel(viewChapter)
-                .let { if (it.isBlank()) "" else " $it" }
-            val bookLabel = when {
-                !scopeBook.isNullOrBlank() -> "《$scopeBook》"
-                viewBook.isNotBlank() -> "《$viewBook》$viewChapSuffix"
-                else -> "书：全部"
+            // ===== 书/章：左侧纯文字（信息） + 右侧按钮（操作），11-11 用户定稿 =====
+            //
+            // 用户逐条确认过的口径：
+            //   · **未筛选**：左边就是普通灰字，显示"滚动到的那本书 + 第几章"，
+            //     **不加绿色**（绿色会被读成"已选中/已筛选"）；点了没反应，纯信息。
+            //   · **已筛选**：左边变成被筛的书，此时才用主色，并在末尾带 **×** 用来取消筛选。
+            //   · 右侧：一个「筛选书」入口；筛了书之后再出现「跳到第N章」（跳转，不改筛选）。
+            //
+            // ⚠️ 与上一版的区别：上一版把视野书做成了带绿边的胶囊，看着像"已筛到这本"；
+            // 用户指出「只是用平常的字提示，不要加绿色」——现在信息与操作分开呈现。
+            val filtered = !scopeBook.isNullOrBlank()
+            val shownBook = if (filtered) scopeBook.orEmpty() else viewBook
+            val shownChapter = if (filtered) scopeChapter.orEmpty() else viewChapter
+
+            // 左侧：纯文字（未筛选=灰、已筛选=主色 + ×）
+            if (shownBook.isNotBlank()) {
+                Row(
+                    modifier = Modifier.weight(1f, fill = false),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "《$shownBook》",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontSize = 11.5.sp,
+                        color = if (filtered) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontWeight = if (filtered) FontWeight.Medium else FontWeight.Normal,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    val chap = shortChapterLabel(shownChapter)
+                    if (chap.isNotBlank()) {
+                        Spacer(Modifier.width(5.dp))
+                        Text(
+                            text = chap,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontSize = 10.5.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    // × 只在已筛选时出现：取消筛选本书
+                    if (filtered) {
+                        Spacer(Modifier.width(3.dp))
+                        Text(
+                            text = "×",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .clip(AppShapes.xs)
+                                .clickable(onClick = onClearScope)
+                                .padding(horizontal = 4.dp, vertical = 1.dp),
+                        )
+                    }
+                }
             }
-            // 点击行为：已筛选=换书；未筛选=把当前视野这本筛起来（没有视野则从第一本开始挑）
-            val bookPickTarget = scopeBook ?: viewBook.ifBlank { book }
+
+            // 右侧：筛选书（常驻）
             PinnedChip(
-                label = bookLabel,
-                selected = !scopeBook.isNullOrBlank(),
-                onClick = { onSwitchBook(bookPickTarget) },
+                label = "筛选书",
+                selected = filtered,
+                onClick = { onSwitchBook(scopeBook ?: viewBook.ifBlank { book }) },
             )
 
-            // ---- 章筛选（只在选了书后出现）----
-            if (!scopeBook.isNullOrBlank()) {
-                // 章只显示章号（用户：「章节可以显示，章节名就不用显示了吧」）：
-                // 从标题里抠「第N章」；抠不到就取前 6 个字兜底（不显示全名）。
-                val chapText = shortChapterLabel(scopeChapter ?: chapter)
-                if (chapText.isNotBlank()) {
+            // 右侧：跳到第N章（筛了书之后才出现，纯跳转）
+            if (filtered) {
+                val curChap = shortChapterLabel(scopeChapter ?: chapter)
+                if (curChap.isNotBlank()) {
                     PinnedChip(
-                        label = chapText,
-                        selected = !scopeChapter.isNullOrBlank(),
+                        label = "跳到$curChap",
+                        selected = false,
                         onClick = { onSwitchChapter(scopeBook ?: book, scopeChapter ?: chapter) },
                     )
                 }
             }
 
-            // ---- 取消筛选（有筛选时才出现）----
-            if (hasScope) {
-                Text(
-                    text = "取消筛选",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier
-                        .clip(AppShapes.sm)
-                        .clickable(onClick = onClearScope)
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                )
-            }
+            // 注：原「取消筛选」独立文字按钮已删除（11-11 用户定稿）——
+            // 取消筛选改由左侧书名后的 × 承担（见上），一个动作一个入口，
+            // 留着两个会让同一件事有两个按钮。
         }
 
         // ===== ④ 跳转提示条：筛着 A 书、却在读 B =====
@@ -1140,8 +1186,10 @@ private fun PinnedLogHeader(
                     .clip(AppShapes.sm)
                     .background(Color(0xFFFFF7E3))
                     .clickable {
-                        // 一键跟到正在读的那本（换筛选，不动朗读状态）
-                        onSwitchBook(readingBook)
+                        // 定案 A（用户 11-11）：清筛选 → 回到全部日志 → 开启实时最新 → 滚到底。
+                        // 三条缺一不可：只清筛选不滚底，你看不到刚读的那几条；只滚底不清筛选，
+                        // 列表里根本没有正在读的那本（被筛掉了）。
+                        onJumpToLive()
                     }
                     .padding(horizontal = 10.dp, vertical = 7.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -1157,7 +1205,9 @@ private fun PinnedLogHeader(
                 )
                 Spacer(Modifier.width(6.dp))
                 Text(
-                    text = "切过去 →",
+                    // 11-11 用户指出：这个动作也是**跳转**（清筛选+回实时最新+滚过去），
+                    // 不会开始朗读，所以不能叫"去听"。统一跳转语义：跳到这本。
+                    text = "跳到这本 →",
                     style = MaterialTheme.typography.labelSmall,
                     fontSize = 11.5.sp,
                     color = Color(0xFFA06A00),

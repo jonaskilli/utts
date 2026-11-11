@@ -581,6 +581,10 @@ internal fun LogScreen(
     // 而列表滚动状态只在本组件内，故用回调把结果抛给上层。
     // 只在**值变化**时回调一次（内部做了比较），不会逐帧触发。
     onViewChanged: ((book: String, chapter: String) -> Unit)? = null,
+    // 「切过去」触发计数（11-11）：每次点提示条 +1，用来强制重启自动滚底的 LaunchedEffect。
+    // 见下方 autoScrollToBottom 的 LaunchedEffect 注释：只靠 list.size/autoScrollToBottom
+    // 两个 key 时，"本来就开着实时最新"的情况不会滚动。
+    jumpToLiveTick: Int = 0,
 ) {
     ControlBottomBarVisibility(listState, LocalBottomBarBehavior.current)
     val scope = rememberCoroutineScope()
@@ -727,7 +731,12 @@ internal fun LogScreen(
         }
         val hasNewBelow = list.size > lastSeenSizeAtBottom && !isAtBottom
         val showJumpToBottom = isFarFromBottom || hasNewBelow
-        LaunchedEffect(list.size) {
+        // 自动滚底。key 里必须带 jumpToLiveTick：
+        // 用户点「切过去」时可能**本来就开着实时最新**，此时 list.size 未必变、
+        // autoScrollToBottom 也没变，只挂这两个 key 的话 LaunchedEffect 不会重启，
+        // 结果筛选清了但视图停在半空——正是用户会骂"点了没反应"的场景。
+        // 上层每次点「切过去」都会 tick 自增，强制复用这段滚动逻辑。
+        LaunchedEffect(list.size, autoScrollToBottom, jumpToLiveTick) {
             if (autoScrollToBottom && currentGroups.items.isNotEmpty())
                 runCatching { listState.animateScrollToItem(currentGroups.items.lastIndex) }
         }
