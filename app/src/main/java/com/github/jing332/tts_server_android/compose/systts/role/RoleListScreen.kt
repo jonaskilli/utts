@@ -177,6 +177,22 @@ private val BOOK_NAME_COLOR = Color(0xFF333333)
 private val FIRST_ROW_HEIGHT = 26.dp
 
 /**
+ * 左列**名字行**的高度（11-11 定稿：24sp → 26dp 的行距口径）。
+ *
+ * 为什么不再用 24sp：右列相邻两行的中线距是 **26dp**
+ * （第一行盒 26 = 标签框 22 + 上下各 2dp，加 1dp 间隔、第二行 24，中心 13 → 39）。
+ * 左列原先名字行 24sp ⇒ 行距 24dp，永远比右边少 2dp——用户 11-11 实拍
+ * 「角色名之间的间距比右侧窄一点，你是不是没考虑右侧标签框」，就是这 2dp。
+ *
+ * 现在左列每行也取 26dp：行距 26 = 右列行距 26，两列节奏一致。
+ * 双名总高 52 vs 右列 51 → 整块居中只差 0.5dp（肉眼不可见）。
+ *
+ * ⚠️ 改它必须同时改 [FIRST_ROW_HEIGHT]：两者是同一个口径——「右列第一行盒的高度」。
+ * ⚠️ 不要改回 lineHeight 去凑（单行没有行距概念），这里用 Row 的高度 + 文字居中。
+ */
+private val NAME_ROW_HEIGHT = 26.dp
+
+/**
  * 标签/书栏/胶囊统一底色（2026-10-11 Radix 版，用户拍板「标签用 step4」）：
  * 取 secondaryContainer——Color2 浅色里已改为 Radix accent step4（GREEN=#D6F1DF），
  * 比卡底（surfaceContainerLow=accent step2 #F4FBF6）深两档，标签块在页底/卡上都看得见；
@@ -1172,14 +1188,11 @@ private fun RoleRow(
     // 名字列封顶半屏（沿 10-14 定稿）；右侧两行吃剩余
     val halfRow = ((LocalConfiguration.current.screenWidthDp - 2 * ListGutter.value) / 2).dp
     // 单名对齐（用户 11-11）：「角色名中线要对齐右侧**第一行**的中线」，不是整块行居中。
-    // 右列第一行统一 **26dp**（下方 Row 上挂 heightIn(min = FIRST_ROW_HEIGHT)）：
-    //   有 ▶ → ▶ 图标盒 24dp 撑不到 26，由下限补齐；
-    //   无 ▶（失效标签）→ 同样由下限撑起来。
-    // 取 26 而不是 24 的理由见 FIRST_ROW_HEIGHT：要让标签框的上下余量与 ⋮ 的 2dp 一致。
-    // 左列名字行撑到同一高度并在行内居中，中线必然重合——不靠位移凑数字。
-    // ⚠️ 用 heightIn(min=) 而不是固定 height + offset：字号调大时名字行能自然长高，
-    //    固定高度会把字压到框外（上一版 −1dp 位移在大字号下会歪正是这个原因）。
-    val firstRowHeight = FIRST_ROW_HEIGHT
+    // 两侧高度都由常量给出，同一个口径：
+    //   右列第一行 = FIRST_ROW_HEIGHT（26dp，见下方 Row 的 heightIn）
+    //   左列名字行 = NAME_ROW_HEIGHT（26dp，见名字 Row 的 heightIn）
+    // 因此：单名中线重合（都是 13dp）、多别名行距也一致（都是 26dp）——
+    // 不靠 height + offset 凑数字（字号放大时那种做法会把字压出框外）。
     // ▶ 三态色（与换声弹窗 previewLabelColor 同源）：空闲=主色 / 合成中=琥珀 / 播放中=红
     val previewColor = when {
         !previewActive -> MaterialTheme.colorScheme.primary
@@ -1210,22 +1223,23 @@ private fun RoleRow(
                     interactionSource = remember { MutableInteractionSource() },
                 )
                 // 11-11 用户令（方案 A）：「整体没那么宽松」——行上下留白 10 → 14dp。
-                // ⚠️ 这只让行更好喘气，**不解决单名行上下不等距**：那是名字只占
-                //    第一行 24dp、下面还压着第二行 24dp 造成的，与 padding 无关。
+                // ⚠️ 这只让行更好喘气；单名行「名字下方比上方空」是结构性的
+                //    （名字只占第一行 26dp、下面还压着第二行 24dp），与 padding 无关。
                 .padding(vertical = 14.dp),
             // 11-11 用户令终稿「居中对齐」：外层 Row 用 CenterVertically，
             // 左列名字块在右侧两行的高度内垂直居中（多别名）。
             //
-            // ## 右列两行高度（11-11 用 24dp ▶ 盒 / 24dp ⋮ 盒后）
+            // ## 右列两行高度（11-11 用 26dp 第一行 / 24dp ⋮ 盒后）
             //   第一行 = 26dp（标签框 22 + 上下各 2dp 余量，与第二行的 ⋮ 同余量），中线 13dp
             //   间隔   = 1dp
             //   第二行 = max(文字 16dp, ⋮ 盒 24dp) = 24dp
-            //   ⇒ 右列总高 49dp；名字行 24sp，多别名整块居中。
+            //   ⇒ 右列总高 51dp、行距 26dp；左列名字行同取 26dp（NAME_ROW_HEIGHT），
+            //     行距也是 26dp，多别名整块居中。
             //
             // 单名（用户 11-11「角色名中线要对齐右侧第一行的中线」）：外层 Top，
             // 名字行 heightIn(min = 第一行高) 并在其中垂直居中 ⇒ 中线重合
-            //（有 ▶ 时 24dp/12dp，无 ▶ 时 22dp/11dp，见 firstRowHeight）。
-            // 多别名：CenterVertically，整块在 49dp 里居中。
+            //（26dp → 13dp，见 NAME_ROW_HEIGHT / FIRST_ROW_HEIGHT）。
+            // 多别名：CenterVertically，整块在 51dp 里居中。
             // ⚠️ 为什么不能一直用 Top：多别名时左列会从顶上开始排，
             //    与右侧两行整体错开（历史踩过，注释见上）。
             // ⚠️ 沿革：曾按「右列中心差 21dp」把行高压到 21sp，那是错的前提
@@ -1240,9 +1254,9 @@ private fun RoleRow(
                 // lineHeight = 22.dp 控制，外层 Row 负责整体居中。
                 Modifier
                     .widthIn(max = halfRow)
-                    // 单名：先 wrapContentHeight 让 Column 不被外层 Row 拉伸到 49dp，
-                    // 高度再交给里面名字行的 heightIn(min = 右列第一行高) —— 两边等高，
-                    // 名字行内 CenterVertically 后中线重合（24dp 盒 → 12dp = 第一行中线）。
+                    // 单名：先 wrapContentHeight 让 Column 不被外层 Row 拉伸到右列总高，
+                    // 高度再交给里面名字行的 heightIn(min = NAME_ROW_HEIGHT) —— 两边等高，
+                    // 名字行内 CenterVertically 后中线重合（26dp 盒 → 13dp = 第一行中线）。
                     .then(
                         if (nameList.size == 1) Modifier
                             .wrapContentHeight(Alignment.Top) else Modifier
@@ -1257,11 +1271,11 @@ private fun RoleRow(
                     // 中线与右侧第一行（标签框/▶）重合；多别名不设下限。
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        // 单名：行高撑到与右列第一行等高（24dp / 无 ▶ 时 22dp），
-                        // 名字行框在其中垂直居中 ⇒ 中线 = 第一行中线。
-                        // 多别名：不设下限，各行按 24sp 紧排。
-                        modifier = if (nameList.size == 1)
-                            Modifier.heightIn(min = firstRowHeight) else Modifier,
+                        // 行高一律 NAME_ROW_HEIGHT（26dp）：单名靠它与右列第一行等高
+                        //（中线重合），多别名靠它与右列行距 26dp 对齐——
+                        // 用户 11-11「角色名之间的间距比右侧窄」就是这里少 2dp。
+                        // 文字在行内 CenterVertically，字形自己仍只占 24sp 的行框。
+                        modifier = Modifier.heightIn(min = NAME_ROW_HEIGHT),
                     ) {
                         Spacer(
                             Modifier
@@ -1292,11 +1306,10 @@ private fun RoleRow(
                             // 多别名：不逐行对齐，整块在右侧两行里垂直居中。
                             // ⚠️ 日后若要恢复逐行严格对齐，去调右列（把注行补到与标签框等高 22dp，
                             //    中心差变 22dp），**不要回来压左列行高**。
-                            // 行高统一 24sp（用户令）。
-                            // ⚠️ 2026-11-11 修正：此前令单名取 22sp 是错的——
-                            // lineHeight 对**单行**不产生任何行距，它只决定这一行的行框高度；
-                            // 拿它去凑 22dp 容器是把参数用偏了。单名若需对齐标签框，
-                            // 应当位移（见下方 offset），而不是改行高。
+                            // 行高由外层 Row 的 NAME_ROW_HEIGHT(26dp) 决定，本行只留 24sp 的
+                            // 字形行框（单行没有"行距"概念，lineHeight 在这里只定行框高度）。
+                            // ⚠️ 别再靠调 lineHeight 去凑行距——那会把行距参数用偏
+                            // （11-11 已踩：22sp/21sp 来回试都压不出想要的效果）。
                             style = MaterialTheme.typography.bodyLarge.copy(
                                 fontSize = 16.sp,
                                 lineHeight = 24.sp,
