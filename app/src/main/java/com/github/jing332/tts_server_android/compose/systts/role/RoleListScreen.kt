@@ -156,6 +156,15 @@ private val releaseDotColors = listOf(
 private val BOOK_NAME_COLOR = Color(0xFF333333)
 
 /**
+ * 角色行右侧**第一行**的高度（11-11 单名对齐定稿）。
+ *
+ * 取 24dp 而不是「由内容决定」：有 ▶ 时图标盒就是 24dp，失效标签（无 ▶）没有图标盒、
+ * 那行只有标签框 22dp —— 两种行中线会差 1dp（12 vs 11），单名对齐就对不准。
+ * 第一行钉 24dp + 左列名字行同取 24dp 下限并居中，中线恒在同一位置。
+ */
+private val FIRST_ROW_HEIGHT = 24.dp
+
+/**
  * 标签/书栏/胶囊统一底色（2026-10-11 Radix 版，用户拍板「标签用 step4」）：
  * 取 secondaryContainer——Color2 浅色里已改为 Radix accent step4（GREEN=#D6F1DF），
  * 比卡底（surfaceContainerLow=accent step2 #F4FBF6）深两档，标签块在页底/卡上都看得见；
@@ -687,7 +696,13 @@ fun RoleListScreen(
                             anchorEntity?.let { deleteConfigTarget = it }
                         },
                     )
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                    // 11-11 用户令（方案 A）：「这个分隔线是不是有点太明显了」——40% → 25%。
+                    // 40% 在浅绿页底上是肉眼可辨的一条实线，列表被切得很碎、显紧；
+                    // 25% 落到近 #EDF1EC，只当"块与块的边界"，不再抢行内容。
+                    // ⚠️ 别再往 0 调成隐形：这里没有卡片底色，纯靠留白分块时密排会串行。
+                    HorizontalDivider(
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
+                    )
                 }
             }
             // 「+ 添加角色」行（照插件：列表下方）
@@ -1145,13 +1160,14 @@ private fun RoleRow(
     // 名字列封顶半屏（沿 10-14 定稿）；右侧两行吃剩余
     val halfRow = ((LocalConfiguration.current.screenWidthDp - 2 * ListGutter.value) / 2).dp
     // 单名对齐（用户 11-11）：「角色名中线要对齐右侧**第一行**的中线」，不是整块行居中。
-    // 右列第一行高 = max(标签框 22dp, ▶ 图标盒 24dp)：
-    //   有 ▶（hasAnchor）→ 24dp，中线 12dp
-    //   无 ▶（失效标签）  → 22dp，中线 11dp
-    // 左列把名字行**撑到同一高度并居中**，中线自然重合——不再用位移去凑数字。
-    // ⚠️ 用 heightIn(min=) 而不是固定 height + 位移：字号调大时名字行可以自然长高，
-    //    固定高度会把文字压到框外（这是上一版 −1dp 位移在大字号下会歪的根因）。
-    val firstRowHeight = if (hasAnchor) 24.dp else 22.dp
+    // 右列第一行统一 **24dp**（下方 Row 上挂 heightIn(min = FIRST_ROW_HEIGHT)）：
+    //   有 ▶ → ▶ 图标盒就是 24dp；
+    //   无 ▶（失效标签）→ 由这个下限把标签框那行也撑到 24dp。
+    // 左列名字行撑到同一高度并在行内居中，中线必然重合——不靠位移凑数字，
+    // 也不会因为「有无 ▶」让两种行的中线差 1dp（22dp 中线 11、24dp 中线 12）。
+    // ⚠️ 用 heightIn(min=) 而不是固定 height + offset：字号调大时名字行能自然长高，
+    //    固定高度会把字压到框外（上一版 −1dp 位移在大字号下会歪正是这个原因）。
+    val firstRowHeight = FIRST_ROW_HEIGHT
     // ▶ 三态色（与换声弹窗 previewLabelColor 同源）：空闲=主色 / 合成中=琥珀 / 播放中=红
     val previewColor = when {
         !previewActive -> MaterialTheme.colorScheme.primary
@@ -1181,7 +1197,10 @@ private fun RoleRow(
                     indication = null,
                     interactionSource = remember { MutableInteractionSource() },
                 )
-                .padding(vertical = 10.dp),
+                // 11-11 用户令（方案 A）：「整体没那么宽松」——行上下留白 10 → 14dp。
+                // ⚠️ 这只让行更好喘气，**不解决单名行上下不等距**：那是名字只占
+                //    第一行 24dp、下面还压着第二行 24dp 造成的，与 padding 无关。
+                .padding(vertical = 14.dp),
             // 11-11 用户令终稿「居中对齐」：外层 Row 用 CenterVertically，
             // 左列名字块在右侧两行的高度内垂直居中（多别名）。
             //
@@ -1310,11 +1329,14 @@ private fun RoleRow(
                     // 字号 14sp（预览验收：16sp 放底色块里太重）；失效标签灰底+红 ⚠。
                     // 宽度封顶半屏（与预览 max-width:100% 一致），放不下 Clip 截断
                     Row(
-                        Modifier.fillMaxWidth(),
+                        // 11-11 单名对齐：第一行高度**统一 24dp**（有 ▶ 时由图标盒决定，
+                        // 无 ▶ 的失效标签由这个下限撑起来），中线恒为 12dp——左列名字行
+                        // 取同一个下限并对齐，两边中线才严格重合。
+                        Modifier.fillMaxWidth().heightIn(min = FIRST_ROW_HEIGHT),
                         horizontalArrangement = Arrangement.End,
                         // 11-11 用户令「播放键太靠上」：Top → CenterVertically。
-                        // 第一行高度由标签框（13sp + 上下 5dp ≈ 26dp）决定，而 ▶ 字形只有 16sp，
-                        // Top 对齐会让它贴上沿、悬在标签框上半部。居中后与标签框垂直对齐。
+                        // 第一行高度由标签框（13sp + 上下 3dp = 22dp）或 ▶ 盒（24dp）决定，
+                        // Top 对齐会让 ▶ 贴上沿、悬在标签框上半部。居中后与标签框垂直对齐。
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         // 显示名标签框：点=换声弹窗、长按=随机换声
