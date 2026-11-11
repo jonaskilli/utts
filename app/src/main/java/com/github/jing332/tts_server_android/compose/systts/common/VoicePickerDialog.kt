@@ -1425,8 +1425,15 @@ fun VoicePickerDialog(
                 selectedIndex = panelTab,
                 onSelect = { panelTab = it },
                 modifier = Modifier
-                    // 11-11 统一：插件名/终值（信息）→ 分段（操作）留 12dp，比同类信息行间距大一档。
-                    .padding(top = 12.dp)
+                    // 11-11 用户令（实拍圈出两处）「我标出来的行间距要再缩点」：
+                    // 这两处原来一头松一头紧——上文到分段 12dp、分段到分类行 10dp，
+                    // 再加上分段框/分类框各自的描边留白，肉眼间隙是 21dp 与 14dp，上宽下窄。
+                    // 统一收到 8dp：两处肉眼间隙都约 12~13dp，节奏拉平，也整体更紧。
+                    // ⚠️ 数值依据（同屏实测，3.5px/dp，用搜索框 196px÷56dp 标定）：
+                    //    改前 终值文字底 581 → 分段框顶 654 = 73px = 21dp
+                    //        分段框底 793 → 分类行顶 843 = 50px = 14dp
+                    //    改后预期两处各 −14px ≈ 16dp / 10dp，视觉接近等距。
+                    .padding(top = 8.dp)
                     .align(Alignment.CenterHorizontally),
                 // 11-10 用户令「更换发音人里面那个填充色统一为 C 方案」：
                 // 选中态底由官方默认 secondaryContainer（B 档 #D6F1DF）换成全站统一填充色
@@ -1477,9 +1484,10 @@ fun VoicePickerDialog(
                             )
                         }
                         Row(
-                            // 11-11 用户令「更换发音人那一行跟下方分类那一行行间距有点窄」：
-                            // 原来这里是 0（分类行直接顶在分段下沿），现补 10dp。
-                            modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                            // 沿革：最初 0（分类行直接顶在分段下沿）→ 补 10dp →
+                            // 11-11 用户圈出「要再缩点」，与分段上方的 8dp 拉平成 8dp。
+                            // 两处等距后，分段这一组才真正"夹在中间"而不是偏下。
+                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             // chip 48dp、搜索框 56dp，spacedBy 让两者间距恒 8dp 不随名长漂移
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
