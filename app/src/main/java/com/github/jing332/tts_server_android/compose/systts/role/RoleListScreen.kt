@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -52,7 +51,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
@@ -156,19 +154,6 @@ private val releaseDotColors = listOf(
  * 集中成常量便于日后调，不要在调用点写散色值。
  */
 private val BOOK_NAME_COLOR = Color(0xFF333333)
-
-/**
- * 角色行**第一行**的高度，单名对齐用。
- *
- * 11-11 用 ▶ 图标（24dp 盒）后，第一行高 = max(标签框 22dp, ▶ 盒 24dp) = **24dp**，
- * 中线 = 12dp。标签框 22dp 在 24dp 行里垂直居中，其中线同样是 12dp。
- *
- * 单名的位移在 RoleRow 里按 `12dp − 24sp/2` 计算（见 singleNameOffset）：
- * 名字行盒高 24sp，sp 随系统字号缩放，这个式子在大字号下也仍压在 12dp 中线上。
- * 沿革：曾用固定 −1dp（当时第一行 22dp、名字行 24dp）；改图标 + 字号缩放下会漂。
- * ⚠️ 改第一行构成（▶ 盒/标签框内衬）或名字 lineHeight 时，这两处要一起重算。
- */
-private val TAG_ROW_HEIGHT = 24.dp
 
 /**
  * 标签/书栏/胶囊统一底色（2026-10-11 Radix 版，用户拍板「标签用 step4」）：
@@ -1159,10 +1144,14 @@ private fun RoleRow(
         .distinctBy { it.trim() }
     // 名字列封顶半屏（沿 10-14 定稿）；右侧两行吃剩余
     val halfRow = ((LocalConfiguration.current.screenWidthDp - 2 * ListGutter.value) / 2).dp
-    // 11-11 用户令：单名要与右列第一行**中线**对齐。第一行高由 ▶ 的 24dp 图标盒决定、
-    // 中线 = 12dp；名字行盒高 = 24sp。位移按 12dp − 24sp/2 计算——sp 随系统字号缩放，
-    // 这样字号变大变小都仍压在 12dp 中线上（原先写死 −1dp 只在 1.0 倍字号下成立）。
-    val singleNameOffset = with(LocalDensity.current) { 12.dp - 24.sp.toDp() / 2 }
+    // 单名对齐（用户 11-11）：「角色名中线要对齐右侧**第一行**的中线」，不是整块行居中。
+    // 右列第一行高 = max(标签框 22dp, ▶ 图标盒 24dp)：
+    //   有 ▶（hasAnchor）→ 24dp，中线 12dp
+    //   无 ▶（失效标签）  → 22dp，中线 11dp
+    // 左列把名字行**撑到同一高度并居中**，中线自然重合——不再用位移去凑数字。
+    // ⚠️ 用 heightIn(min=) 而不是固定 height + 位移：字号调大时名字行可以自然长高，
+    //    固定高度会把文字压到框外（这是上一版 −1dp 位移在大字号下会歪的根因）。
+    val firstRowHeight = if (hasAnchor) 24.dp else 22.dp
     // ▶ 三态色（与换声弹窗 previewLabelColor 同源）：空闲=主色 / 合成中=琥珀 / 播放中=红
     val previewColor = when {
         !previewActive -> MaterialTheme.colorScheme.primary
@@ -1202,8 +1191,9 @@ private fun RoleRow(
             //   第二行 = max(文字 16dp, ⋮ 盒 24dp) = 24dp
             //   ⇒ 右列总高 49dp；名字行 24sp，多别名整块居中。
             //
-            // 单名（用户 11-11「要首行居中对齐」）：外层 Top + 左列固定 24dp，
-            // 名字行按 singleNameOffset（12dp − 24sp/2）位移，中线压在 12dp。
+            // 单名（用户 11-11「角色名中线要对齐右侧第一行的中线」）：外层 Top，
+            // 名字行 heightIn(min = 第一行高) 并在其中垂直居中 ⇒ 中线重合
+            //（有 ▶ 时 24dp/12dp，无 ▶ 时 22dp/11dp，见 firstRowHeight）。
             // 多别名：CenterVertically，整块在 49dp 里居中。
             // ⚠️ 为什么不能一直用 Top：多别名时左列会从顶上开始排，
             //    与右侧两行整体错开（历史踩过，注释见上）。
@@ -1219,31 +1209,28 @@ private fun RoleRow(
                 // lineHeight = 22.dp 控制，外层 Row 负责整体居中。
                 Modifier
                     .widthIn(max = halfRow)
-                    // ⚠️ 单名必须用 **wrapContentHeight + 固定 height**：
-                    // 外层 Row 的高度是右列两行（41dp），Column 默认会被拉伸到 41dp，
-                    // 光加 `height(22.dp)` 只能定下"下限"，实测中心仍落在 10.5dp、比标签框中线差 0.5dp。
-                    // 先 wrapContentHeight() 让它不被拉伸、再 height(22dp) 钉死，
-                    // 才会真正是 22dp 高、中心 11dp = 标签框中心。
+                    // 单名：先 wrapContentHeight 让 Column 不被外层 Row 拉伸到 49dp，
+                    // 高度再交给里面名字行的 heightIn(min = 右列第一行高) —— 两边等高，
+                    // 名字行内 CenterVertically 后中线重合（24dp 盒 → 12dp = 第一行中线）。
                     .then(
                         if (nameList.size == 1) Modifier
-                            .wrapContentHeight(Alignment.Top)
-                            .height(TAG_ROW_HEIGHT) else Modifier
+                            .wrapContentHeight(Alignment.Top) else Modifier
                     ),
-                // 单名：只有一行，Top 摆放后靠下面的 offset 精确对位（不再靠改行高凑高度）；
-                // 多别名：Top，各行依次排下，整体由外层 CenterVertically 居中
+                // 单名/多别名都 Top：单名的对位由名字行的 heightIn 下限 + 行内居中完成；
+                // 多别名各行依次排下，整块由外层 CenterVertically 居中。
                 verticalArrangement = Arrangement.Top,
             ) {
                 nameList.forEachIndexed { idx, name ->
-                    // 行高 24sp（11-11 用户令，见下方 Text 的 style）。
                     // 圆点用 CenterVertically 跟行中线（原来写死 top=9dp，行高变了会偏）。
-                    // 单名对位（11-11）：名字行框高 24dp，要让其中心落在标签框中线 11dp，
-                    // 行顶必须是 11 − 24/2 = **−1dp**，即整体上移 1dp。
-                    // ⚠️ 用位移而不是改 lineHeight：单名没有"行距"概念，改行高只是凑数，
-                    //    会把这个参数用偏（用户 11-11 指出）。
+                    // 单名对位：本行 heightIn(min = 右列第一行高)，字形在其中垂直居中，
+                    // 中线与右侧第一行（标签框/▶）重合；多别名不设下限。
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
+                        // 单名：行高撑到与右列第一行等高（24dp / 无 ▶ 时 22dp），
+                        // 名字行框在其中垂直居中 ⇒ 中线 = 第一行中线。
+                        // 多别名：不设下限，各行按 24sp 紧排。
                         modifier = if (nameList.size == 1)
-                            Modifier.offset(y = singleNameOffset) else Modifier,
+                            Modifier.heightIn(min = firstRowHeight) else Modifier,
                     ) {
                         Spacer(
                             Modifier
@@ -1269,10 +1256,9 @@ private fun RoleRow(
                             // 正解：左列按自己的字号定舒服的行高（16sp 字配 24sp 是正文常规比例），
                             // 右列去匹配它，而不是反过来。
                             //
-                            // ## 对齐关系随之变化
-                            // 单名：不受影响，仍走外层 Top + 左列固定 22dp（对齐标签框中线）。
-                            // 多别名：左列 24dp ≠ 右列中心差 21dp，不再逐行对齐，
-                            //        改为「整块在右侧两行里垂直居中」。
+                            // ## 对齐关系
+                            // 单名：外层 Top + 本行 heightIn(min = 右列第一行高)，中线重合。
+                            // 多别名：不逐行对齐，整块在右侧两行里垂直居中。
                             // ⚠️ 日后若要恢复逐行严格对齐，去调右列（把注行补到与标签框等高 22dp，
                             //    中心差变 22dp），**不要回来压左列行高**。
                             // 行高统一 24sp（用户令）。
