@@ -461,22 +461,24 @@ internal class LogGroups(
                 }
                 finalItems.add(item)
             }
-            // 吸顶信息：取本批日志里**第一条**带书章的条目（列表顺序 = 时间顺序，
-            // 也就是"当前正在看的这一段"所属的书/章）。
+            // 吸顶信息：取本批日志里**最后一条**带书章的条目。
             //
-            // ⚠️ 11-11 修（用户实报「切换章节时有时无，说不清原因」）：
-            // 原实现只看**列表里**有没有带书章的条目，而带书章的只有「请求音频」主行——
-            // 一旦按书过滤掉了主行（选单本书、切书），或主行滚出已加载窗口，
-            // 吸顶区就整个空掉，用户看到的就是"时有时无"。
-            // 现在两级回退：
-            //   ① 先用列表首条（最贴近"当前正在看的这一段"）；
-            //   ② 列表里没有时，回落到「当前朗读上下文」——由 VM 记住的最近一次带书章的条目。
-            // 这样即便日志被过滤光/清空，只要读过这本书，吸顶区仍显示当前书章。
-            val firstWithBook = list.firstOrNull { it.bookName.isNotBlank() }
+            // ⚠️⚠️ 11-11 关键修正（用户实报两件事：「都换新书读了，顶部没自动更新书」
+            //      「如果选择全部书籍，顶部竟然还用某一本书，这也不合适」）：
+            // 原实现取 `firstOrNull` —— 列表是**按时间正序**的（最早的在前、新日志追加在尾，
+            // 自动滚动也是 scrollToItem(lastIndex) 滚到底），所以 firstOrNull 拿到的是
+            // **列表里最旧**的那条书章。于是：
+            //   · 换新书之后，顶部仍然显示最早读过的那本书 ⇒ 用户看到「没自动更新」；
+            //   · 选"全部书籍"时，顶部也固定显示最旧那本 ⇒ 用户看到「竟然还是某一本书」。
+            // 这两条其实是同一个 bug，不是两个。取**最后一条**才是"当前正在读的那本"。
+            //
+            // 另外保留回落（列表里完全没有带书章的条目时用最近一次朗读上下文），
+            // 防止日志被清空/过滤光后顶部整个空掉。
+            val latestWithBook = list.lastOrNull { it.bookName.isNotBlank() }
             // 语义要分清：列表里有书章条目 ⇒ 用它（哪怕章为空，那是"这本书确实没有章"，
             // 不能拿别的书的章来补）；列表里一条都没有 ⇒ 才回落到 fallback。
-            val pBook = if (firstWithBook != null) firstWithBook.bookName else fallbackBook
-            val pChapter = if (firstWithBook != null) firstWithBook.chapterTitle else fallbackChapter
+            val pBook = if (latestWithBook != null) latestWithBook.bookName else fallbackBook
+            val pChapter = if (latestWithBook != null) latestWithBook.chapterTitle else fallbackChapter
             val pKey = pBook to pChapter
             return LogGroups(
                 items = finalItems,
