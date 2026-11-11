@@ -1259,8 +1259,11 @@ fun VoicePickerDialog(
                         )
                     }
                     // 11-11 用户令「纯显示名也得跟后面的播放键有距离」：没有标记 emoji 时
-                    // 名字与右侧按钮组之间保底 10dp；有 emoji 时 emoji 紧贴名字、不再补
-                    if (topLitMarks1.isEmpty()) Spacer(Modifier.width(10.dp))
+                    // 名字与右侧按钮组之间补间距；有 emoji 时 emoji 紧贴名字、不再补。
+                    // ⚠️ 数值与角色列表「名字 ↔ 显示名标签框」**同一口径 16dp**
+                    // （用户 11-11 追问「为什么一个 16 一个 10，为什么要有区别」）。
+                    // 别在两处各拍一个数：角色列表在 RoleListScreen 的 Spacer(width = 16.dp)。
+                    if (topLitMarks1.isEmpty()) Spacer(Modifier.width(16.dp))
                     } // ===== 名字 + 标记 emoji 的 weight(1f) 容器结束 =====
                     // 11-11 用户令「按钮就放显示名+emoji 那一行的右侧，靠右放」：
                     // 🎲 ▶ ⋮ 从第二行上移到本行右端。这样第二行才能只放「插件名 … 终值」，
@@ -2219,8 +2222,9 @@ private fun CandidateRow(
             }
         }
         // 11-11 用户令「纯显示名也得跟后面的播放键有距离，后面跟的是已用或 emoji
-        // 那可以没有距离」：三者都没有时才补 10dp。
-        if (pluginName == null && !usedBadge && marks.isEmpty()) Spacer(Modifier.width(10.dp))
+        // 那可以没有距离」：三者都没有时才补间距。
+        // ⚠️ 同 16dp 口径（与角色列表一致），别单独改成别的数。
+        if (pluginName == null && !usedBadge && marks.isEmpty()) Spacer(Modifier.width(16.dp))
         // ▶ 试听（11-11 用户令：与 ⋮ 同级，图标 20dp + 24dp 盒）。
         // 本行高度的真实构成：24dp 盒 + 外层 padding(vertical = 10dp) × 2 = 44dp（与改前一致）。
         PreviewIconButton(
