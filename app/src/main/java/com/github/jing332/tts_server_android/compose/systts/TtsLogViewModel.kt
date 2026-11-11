@@ -193,6 +193,23 @@ class TtsLogViewModel : ViewModel() {
 
     // Console 通道（插件 JS / 朗读规则 JS）的 LogEntry 不带 time，到达时补打时间戳，
     // 供勾选后与主列表按时间混排（logback 通道的日志自带时间戳，走 else 分支不覆盖）
+    /**
+     * 给 console 日志（插件/朗读规则）补书章（11-11 新增）。
+     *
+     * 这两类日志由 Console.write 产生，只有 level/message，没有书章；
+     * 日志页按书过滤时 `filter { it.bookName == b }` 会把它们全部丢掉。
+     * 这里用 SysttsLogger 记录的"当前书章"补上（规则分析阶段 MDC 里还没有书章，
+     * 所以不能从 MDC 取）。
+     *
+     * 已经是带书章的条目不覆盖（幂等）；上下文为空时保持原样，退化为旧行为。
+     */
+    private fun stampBookChapter(entry: LogEntry): LogEntry {
+        if (entry.bookName.isNotBlank()) return entry
+        val (book, chapter) = SysttsLogger.currentBookChapter()
+        if (book.isBlank()) return entry
+        return entry.copy(bookName = book, chapterTitle = chapter)
+    }
+
     @Synchronized
     private fun stampTime(entry: LogEntry): LogEntry =
         if (entry.time.isEmpty())
@@ -477,12 +494,18 @@ class TtsLogViewModel : ViewModel() {
                 }
 
                 // 插件/朗读规则日志监听器：Console 侧是**单值静态赋值**（覆盖语义），
-                // 每次重新指向当前 VM 即可，不存在累加问题
+                // 每次重新指向当前 VM 即可，不存在累加问题。
+                //
+                // ⚠️ 11-11 修（用户实报「每本书选择朗读规则和插件也不显示相关日志」）：
+                // console 日志不带书章字段，按书过滤时会被整体丢弃。这里用
+                // SysttsLogger 记的"当前书章上下文"补上，使其与主日志同属一本书。
                 Console.globalPluginLogListener = { logEntry ->
-                    runOnUI { routeEntry(logEntry) }
+                    val stamped = stampBookChapter(logEntry)
+                    runOnUI { routeEntry(stamped) }
                 }
                 Console.globalSpeechRuleLogListener = { logEntry ->
-                    runOnUI { routeEntry(logEntry) }
+                    val stamped = stampBookChapter(logEntry)
+                    runOnUI { routeEntry(stamped) }
                 }
             }
         } catch (e: Exception) {
@@ -598,16 +621,46 @@ class TtsLogViewModel : ViewModel() {
         }
     }
 
-    /** 解析 console 日志行：time | LEVEL | message（message 可含 " | "，全量重组） */
+    /**
+     * 解析 console 日志行。两种格式并存：
+     *
+     * **旧**（11-10 起）：`time | LEVEL | message`
+     * **新**（11-11 起）：`time | LEVEL | configId | roleName | §book | chapter | message`
+     *
+     * 为什么要加新格式：旧格式不带书章，重启回读后这些行 bookName 为空，
+     * 日志页按书过滤时被整体丢弃（用户实报"选择朗读规则和插件也不显示相关日志"）。
+     *
+     * 判别靠第 5 段是否以 `§` 开头——旧格式的 message 是任意文本，但
+     * `§`(U+00A7) 极少出现在日志正文开头，且新格式一定带这个固定标记，判据可靠。
+     * 两种格式都必须支持：升级后磁盘上还留着大量旧行。
+     */
     private fun toConsoleEntry(line: String, isPlugin: Boolean): LogEntry {
         val parts = line.split(" | ")
-        return LogEntry(
-            level = parts.getOrNull(1)?.toLogLevel() ?: LogLevel.INFO,
-            time = parts.getOrNull(0) ?: "",
-            message = parts.drop(2).joinToString(" | "),
-            isPluginLog = isPlugin,
-            isSpeechRuleLog = !isPlugin,
-        )
+        val level = parts.getOrNull(1)?.toLogLevel() ?: LogLevel.INFO
+        val time = parts.getOrNull(0) ?: ""
+        // 新格式：第 4 段（0-based）以 § 开头
+        val bookMarkIdx = 4
+        val hasBook = parts.size > bookMarkIdx && parts[bookMarkIdx].startsWith("§")
+        return if (hasBook) {
+            LogEntry(
+                level = level,
+                time = time,
+                bookName = parts[bookMarkIdx].removePrefix("§"),
+                chapterTitle = parts.getOrNull(5) ?: "",
+                // message 从第 6 段起，可含 " | "，全量重组
+                message = parts.drop(6).joinToString(" | "),
+                isPluginLog = isPlugin,
+                isSpeechRuleLog = !isPlugin,
+            )
+        } else {
+            LogEntry(
+                level = level,
+                time = time,
+                message = parts.drop(2).joinToString(" | "),
+                isPluginLog = isPlugin,
+                isSpeechRuleLog = !isPlugin,
+            )
+        }
     }
 
     /**

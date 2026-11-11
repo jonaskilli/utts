@@ -744,8 +744,12 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                 // 带 § 书章段的格式（与主日志一致）：time | SUCCESS | configId | roleName | §book | chapter | message
                 // configId/roleName 留空——子行不参与快捷面板定位，但字段位必须占住，
                 // 否则解析器会按"无书章的新格式"去啃，把 § 当成正文字符。
+                // 分隔符防护（同 SysttsLogger.persistConsole）：书名/章名若含 " | " 或 "§"
+                // 会让回读解析串位。正文是最后一段、可含 " | "，保持原样。
+                val safeBook = mdcBook.replace("§", "Ｓ").replace("|", "｜")
+                val safeChapter = mdcChapter.replace("§", "Ｓ").replace("|", "｜")
                 FileWriter(logFile, true).use {
-                    it.append("$time | SUCCESS |  |  | §$mdcBook | $mdcChapter | $msg\n")
+                    it.append("$time | SUCCESS |  |  | §$safeBook | $safeChapter | $msg\n")
                 }
             }
         }.onFailure { Log.e(TAG, "logS write file: ", it) }

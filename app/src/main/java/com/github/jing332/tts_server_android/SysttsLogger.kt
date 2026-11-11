@@ -25,7 +25,30 @@ object SysttsLogger {
     private val recentReasons = ArrayDeque<ReasonEntry>(REASON_CAP)
     private val consoleHooked = AtomicBoolean(false)
 
+    // ===== 当前书章上下文（11-11 新增）=====
+    // 用户实报「每本书我选择朗读规则和插件也不显示相关日志」：
+    // 插件 / 朗读规则的 console 日志**不带书章字段**（Console.write 只填 level/message），
+    // 于是日志页按书过滤 `filter { it.bookName == b }` 时全被丢弃——选单本书时一条都看不到。
+    //
+    // 为什么不从 MDC 取：console 日志产生在 JS 引擎线程，且规则分析阶段**早于**请求合成，
+    // 那时 normalEvent 还没把书章写进 MDC，取到的必然是空。
+    //
+    // 解法：这里记住"最近一次见过的书章"（任何带书章的日志经过都会更新它），
+    // console 日志到达时用它补上。空串表示还没读到过任何书章，保持旧行为。
+    @Volatile
+    private var currentBook: String = ""
+    @Volatile
+    private var currentChapter: String = ""
+
+    /** 供 console 日志补书章用：返回 (book, chapter)，未读到过时两项均为空串 */
+    fun currentBookChapter(): Pair<String, String> = currentBook to currentChapter
+
     fun log(entry: LogEntry) {
+        // 更新书章上下文：任何带书名的条目都会刷新（主行与子行都算）
+        if (entry.bookName.isNotBlank()) {
+            currentBook = entry.bookName
+            currentChapter = entry.chapterTitle
+        }
         // 超时看门狗监测点：所有进入日志界面的日志都经过这里，
         // 在此通知看门狗（无锁、非阻塞），用于检测"超时后卡死"并自动重启。
         // 仅 WARN 级别（黄色）且含"超时"二字才触发计时，精确匹配真正的超时日志。
@@ -77,8 +100,19 @@ object SysttsLogger {
                 val time = entry.time.ifEmpty {
                     java.time.LocalDateTime.now().format(consoleTimeFmt)
                 }
+                // ⚠️ 11-11：落盘也补书章。此前只写 `time | LEVEL | message`，
+                // 重启回读后这些行没有书章 ⇒ 按书过滤时被丢弃（用户实报"不显示"）。
+                // 格式与主日志统一：time | LEVEL | configId | roleName | §book | chapter | message
+                // configId/roleName 留空占位，避免解析器把 § 当正文字符。
+                val (bk, ch) = currentBookChapter()
+                // ⚠️ 分隔符防护：书名/章名若含 " | " 或 "§"，写盘后会串位、回读解析错乱。
+                // 文件名本身能包含这些字符（用户的书名是任意文本），故写入前替换掉。
+                // 双竖线用全角｜替代（显示上几乎无差别），§ 同理。message 是最后一段、
+                // 可含 " | "（解析时全量重组），保持原样。
+                val safeBook = bk.replace("§", "Ｓ").replace("|", "｜")
+                val safeChapter = ch.replace("§", "Ｓ").replace("|", "｜")
                 FileWriter(f, true).use { w ->
-                    w.append("$time | $level | ${entry.message}\n")
+                    w.append("$time | $level |  |  | §$safeBook | $safeChapter | ${entry.message}\n")
                 }
             }.onFailure { android.util.Log.w("SysttsLogger", "persistConsole: ", it) }
         }
