@@ -39,7 +39,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.FilterList
-import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Search
@@ -118,6 +118,9 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
     // 第一次点把该行标红并提示「再点一次删除」，2 秒内不点就自动复原。
     // 记的是文件名而不是 File：弹窗关闭重开后 File 实例会变，按名字比更稳。
     var pendingDeleteName by remember { mutableStateOf<String?>(null) }
+    // 长按顶栏图标触发的「全部清空」确认框（11-11 用户令）：
+    // 长按是快捷路径，但清空不可撤销，所以先用一个确认框挡住，确认后才真清。
+    var showClearAllConfirm by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     // 视野书章（11-11）：吸顶区下方那行小字，跟着列表滚动变化。
     // 「全部日志我划到哪就显示哪本书的信息」——由 LogScreen 通过 onViewChanged 回传。
@@ -461,8 +464,28 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                         // 为什么合成一个而不是留两个：两个键管的是同一件事（日志文件），
                         // 一个只管看、一个只管全删，反而缺了「只删某一个」；
                         // 合并后能力只增不减，顶栏也少占一格。
-                        IconButton(onClick = { showLogFilesDialog = true }) {
-                            Icon(Icons.Default.FolderOpen, stringResource(R.string.open_log_folder))
+                        // 11-11 用户令「我不想用文件夹的图标」：换成「文档」图标（Description）。
+                        // 这一个键打开的是日志文件列表，文档图标比文件夹更贴合"一堆日志文件"。
+                        //
+                        // 11-11 用户令「加个长按图标能够触发全部清空的快捷操作」：
+                        // 单击=打开文件列表，长按=全部清空（不经弹窗，快捷路径）。
+                        // ⚠️ 长按直接清空是不可逆动作，所以走 handoff 式的二次确认：
+                        // 先弹一个确认框，确认后才真清——手指按住不放不该把日志全弄丢。
+                        Box(
+                            modifier = Modifier
+                                .size(48.dp)
+                                // 用 detectTapGestures 而不是 combinedClickable：后者是
+                                // ExperimentalFoundationApi，用在本页要再给整屏加一个 OptIn；
+                                // 本页已有 pointerInput 用法（双击标题回顶部），口径一致。
+                                .pointerInput(Unit) {
+                                    detectTapGestures(
+                                        onTap = { showLogFilesDialog = true },
+                                        onLongPress = { showClearAllConfirm = true },
+                                    )
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.Description, "日志文件（长按清空全部）")
                         }
                     }
                 )
@@ -807,8 +830,8 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
     // 现在只剩 📁 一个入口，能力全搬进弹窗：
     //   · 点行 = 打开看（原样）；
     //   · 行尾 🗑 = 删这一个文件（点两下确认，见 pendingDeleteName）；
-    //   · 底部「全部清空」= 原顶栏垃圾桶的功能（清四份回读来源，逻辑仍在 vm.clear()）；
-    //   · 「打开整个目录」保留（打开文件管理器看这个文件夹）。
+    //   · 标题行右上角「全部清空」= 原顶栏垃圾桶的功能（清四份回读来源，逻辑仍在 vm.clear()）；
+    //   · 底部「打开目录」保留（打开文件管理器看这个文件夹）。
     if (showLogFilesDialog) {
         // ⚠️ 用 fileCount 当 remember 的 key：删完一个文件后必须重新 listFiles，
         // 否则列表里还挂着已删的那行（原来只 remember 一次、无 key，等于永远不刷新）。
@@ -827,7 +850,34 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                 showLogFilesDialog = false
                 pendingDeleteName = null
             },
-            title = { Text("日志文件") },
+            title = {
+                // 11-11 用户令「全部清空，应该放右上角」：
+                // 标题行做成一整行——左边标题、右边「全部清空」。
+                // 为什么挪上去：清空是这一页的**主操作**，放底部按钮区会和「取消」
+                // 抢同一条视线；右上角是全站放"整页级动作"的固定位置。
+                // 另有快捷路径：长按顶栏文档图标也能清空（带确认框）。
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "日志文件",
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        "全部清空",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(50))
+                            .clickable {
+                                vm.clear()
+                                fileCount = fileCount + 1
+                            }
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+            },
             text = {
                 Column(
                     Modifier
@@ -878,19 +928,28 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Column(Modifier.weight(1f)) {
+                                    // 主标题用中文名（11-11 用户令）；磁盘文件名作为副信息保留——
+                                    // 排障时两边要对得上，只说"朗读主日志"他不知道是哪个文件。
+                                    val cn = logFileDisplayName(f.name)
                                     Text(
-                                        f.name,
+                                        text = cn ?: f.name,
                                         style = MaterialTheme.typography.bodyMedium,
                                         maxLines = 1,
                                         color = if (armed) MaterialTheme.colorScheme.error
                                         else MaterialTheme.colorScheme.onSurface
                                     )
                                     Text(
-                                        if (armed) "再点一次删除"
-                                        else "${f.length() / 1024} KB · " + timeFmt.format(f.lastModified()),
+                                        text = if (armed) "再点一次删除"
+                                        else buildString {
+                                            append("${f.length() / 1024} KB · ")
+                                            append(timeFmt.format(f.lastModified()))
+                                            if (cn != null) append(" · ${f.name}")
+                                        },
                                         style = MaterialTheme.typography.labelSmall,
                                         color = if (armed) MaterialTheme.colorScheme.error
-                                        else MaterialTheme.colorScheme.onSurfaceVariant
+                                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
                                     )
                                 }
                                 // 删除键：30dp 视觉、48dp 触摸区（与全站最小可点口径一致）
@@ -919,32 +978,10 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                     }
                 }
             },
-            confirmButton = {
-                // 两个动作并列：打开目录 | 全部清空
-                // ⚠️ 「打开整个目录」不能丢（用户 09-08 定的入口）：AlertDialog 只有 confirm/
-                // dismiss 两个按钮位，所以在 confirm 位里放一个 Row 塞两个 TextButton。
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = {
-                        showLogFilesDialog = false
-                        pendingDeleteName = null
-                        openLogFileWithViewer(context, File(vm.logDir()))
-                    }) {
-                        Text("打开目录")
-                    }
-                    // 「全部清空」= 原来顶栏那个垃圾桶做的事（清四份回读来源）
-                    TextButton(onClick = {
-                        vm.clear()
-                        showLogFilesDialog = false
-                        pendingDeleteName = null
-                        fileCount = fileCount + 1
-                    }) {
-                        Text(
-                            "全部清空",
-                            color = MaterialTheme.colorScheme.error
-                        )
-                    }
-                }
-            },
+            // 「打开整个目录」已删（11-11 用户令「这个选项感觉没啥用」）：
+            // 日志目录现在就在 Download/chajian/log，文件管理器里能直接进，
+            // 再给一个"用外部应用打开目录"的键属于重复入口，且很多文件管理器并不支持。
+            // 需要时用户自己去文件管理器点，不比这里多点一次麻烦。
             dismissButton = {
                 TextButton(onClick = {
                     showLogFilesDialog = false
@@ -956,10 +993,62 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
         )
     }
 
+    // 长按顶栏图标 → 全部清空的确认框（11-11 用户令）
+    if (showClearAllConfirm) {
+        AlertDialog(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            onDismissRequest = { showClearAllConfirm = false },
+            title = { Text("清空全部日志？") },
+            text = {
+                Text(
+                    "会清掉主日志、获取成功子行、插件日志、朗读规则日志四份。" +
+                        "清空后不可恢复。",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.clear()
+                    showClearAllConfirm = false
+                }) {
+                    Text("清空", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearAllConfirm = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        )
+    }
+
     // 11-11 用户令：筛选弹窗整体删除——9 个控件全部挪进吸顶区（筛选开关行）
     // 与书章切换（书条/章条的「切换书/切换章」）。弹窗里的 scopeBook/scopeChapter
     // 两个「只看本书/只看本章」也一并作废：切书后列表本来就只显示那本书。
 
+}
+
+/**
+ * 日志文件的中文名（11-11 用户令「这些日志能不能用中文名」）。
+ *
+ * 只做**显示层**映射：磁盘上的文件名一个字都不改——logback.xml、子行写入、
+ * console 落盘、清空逻辑全都按英文名找文件，改名等于把整条链路拆了。
+ *
+ * 不认识的文件（如轮转出来的 system_tts_2026-11-11.0.log）不进这张表，
+ * 调用方回退显示原文件名，不会因为新增文件就显示空白。
+ */
+private fun logFileDisplayName(fileName: String): String? = when {
+    fileName == "system_tts.log" -> "朗读主日志"
+    fileName == "system_tts_child.log" -> "获取成功记录"
+    fileName == "plugin.log" -> "插件日志"
+    fileName == "speech_rule.log" -> "朗读规则日志"
+    fileName == "debug.log" -> "调试日志"
+    fileName == "crash.log" -> "崩溃日志"
+    // 轮转备份：system_tts_2026-11-11.0.log / debug_2026-11-11.0.log 之类
+    fileName.startsWith("system_tts_") -> "朗读主日志（旧）"
+    fileName.startsWith("debug_") -> "调试日志（旧）"
+    fileName.startsWith("crash_") -> "崩溃日志（旧）"
+    else -> null
 }
 
 @Composable
