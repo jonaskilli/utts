@@ -447,7 +447,7 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                         // 搜索态不再隐藏，级别筛选/开日志目录/清空全程可达。
                         // dda939c 教训：撤 if 门控时条件与大括号必须一起动，勿留孤儿 lambda）
                         // 11-11 用户令：漏斗键删除——筛选开关已全部挪进吸顶区
-                        //（实时最新/只看错误/朗读规则/插件/DEBUG），弹窗不再需要。
+                        //（实时/错误/朗读规则/插件/DEBUG），弹窗不再需要。
 
                         // 文件夹按钮 - 先弹日志文件列表自由选择（用户 09-08），点击文件再用外部查看器打开
                         IconButton(onClick = { showLogFilesDialog = true }) {
@@ -1000,11 +1000,13 @@ private fun BookPickRow(
 
 // ===================== 日志吸顶区（11-11 用户令「书名和章节名一直置顶」）=====================
 // 三行结构，从上到下：
-//   ① 筛选开关：实时最新 | 只看错误 ‖ 朗读规则 | 插件 ‖ DEBUG（竖线分三档，按用户给的优先级排）
-//   ② 书名 + 切换书
-//   ③ 章名 + 切换章
-// 书章两行只在有数据时显示（老规则/单语音模式下整块隐藏，不出现空条）。
-// 字号按主次：书名 12.5sp 半粗 > 章名 11.5sp > 筛选 11sp > DEBUG 10.5sp。
+//   ① 筛选开关：实时 | 错误 ‖ 朗读规则 | 插件 ‖ DEBUG
+//      （11-11 用户令改短：「实时最新」→「实时」、「只看错误」→「错误」；
+//       原设计这里是竖线分档，但那道竖线早已撤掉，只剩左端标签旁的一道）
+//   ② 书/章筛选 + 视野（筛选书 / 选章节）
+//
+// 书章行只在有数据时显示（老规则/单语音模式下整块隐藏，不出现空条）。
+// 字号按主次：书名 12.5sp 半粗 > 章名 11.5sp > 筛选 11sp（11-11 用户令全排统一）。
 // 关键判据：书名字号略小于日志正文，避免吸顶抢内容的视觉重心——它只是路标。
 @Composable
 private fun PinnedLogHeader(
@@ -1077,10 +1079,27 @@ private fun PinnedLogHeader(
             // 竖线只留这一道——胶囊之间不再插分隔线（用户：「后边就不要有分隔线，
             // 不然就有点儿区分不开」：一道线是「标签｜选项」的分界，两道以上就成了装饰噪音）。
             PinnedFilterLabel()
-            PinnedChip("实时最新", autoFollow, onToggleAutoFollow, modifier = Modifier.weight(1f), horizontalPadding = 5.dp)
+            // 11-11 用户令「写得更省略一点，第一个就写实时」：文案「实时最新」→「实时」。
+            // 等分宽度下两颗四字标签最吃紧，缩成两字后余量充足，也不会再被省略号吃掉。
+            PinnedChip(
+                label = "实时",
+                selected = autoFollow,
+                onClick = onToggleAutoFollow,
+                modifier = Modifier.weight(1f),
+                horizontalPadding = 5.dp,
+            )
             // 11-11 用户令：保留红底红字（「填充色是红色，字号也是红色也行吧，要不就不改了」），
             // 排障语义"红色=错误"维持。
-            PinnedChip("只看错误", errorOnly, onToggleErrorOnly, error = true, modifier = Modifier.weight(1f), horizontalPadding = 5.dp)
+            // 11-11 用户令「第二个就写错误」：文案「只看错误」→「错误」。
+            // 红色语义不变（选中=淡红底+红字），缩短后仍能一眼认出这是排障开关。
+            PinnedChip(
+                label = "错误",
+                selected = errorOnly,
+                onClick = onToggleErrorOnly,
+                error = true,
+                modifier = Modifier.weight(1f),
+                horizontalPadding = 5.dp,
+            )
             PinnedChip("朗读规则", showRule, onToggleRule, modifier = Modifier.weight(1f), horizontalPadding = 5.dp)
             PinnedChip("插件", showPlugin, onTogglePlugin, modifier = Modifier.weight(1f), horizontalPadding = 5.dp)
             PinnedChip("DEBUG", showDebug, onToggleDebug, modifier = Modifier.weight(1f), horizontalPadding = 5.dp)
