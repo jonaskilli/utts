@@ -409,6 +409,36 @@ class TtsLogViewModel : ViewModel() {
         clearAuxFile(File(file.parentFile, "system_tts_child.log"))
         clearAuxFile(consoleFile(isPlugin = true))
         clearAuxFile(consoleFile(isPlugin = false))
+        // ⚠️ 11-11 复盘补漏：弹窗里还列着「调试日志」「崩溃日志」和一堆轮转旧文件，
+        // 但清空**从来没碰过它们**——用户在弹窗里看得见、点全部清空却清不掉，
+        // 正是「清空只清一半」这个毛病的又一次。这里把目录里其余文件也一并处理。
+        clearOtherLogFiles(
+            liveNames = listOf(
+                file.name, "system_tts_child.log", "plugin.log", "speech_rule.log"
+            )
+        )
+    }
+
+    /**
+     * 清掉日志目录里除 [liveNames] 以外的文件（11-11 复盘补漏）。
+     *
+     * 分两种：logback 正持句柄的（debug.log / crash.log）**截断**；其余（轮转出来的
+     * *_日期.log 备份）**直接删**——它们已经是"另一个文件"，logback 早切换过去了，
+     * 留着只是占地方。
+     */
+    private fun clearOtherLogFiles(liveNames: List<String>) {
+        val dir = file.parentFile ?: return
+        val live = liveNames.toSet()
+        val heldByLogback = setOf("debug.log", "crash.log")
+        runCatching {
+            dir.listFiles()?.forEach { f ->
+                if (!f.isFile || f.name in live) return@forEach
+                runCatching {
+                    if (f.name in heldByLogback) FileWriter(f, false).use { it.write(CharArray(0)) }
+                    else f.delete()
+                }
+            }
+        }.onFailure { Log.e(TAG, "clearOtherLogFiles: ", it) }
     }
 
     /**

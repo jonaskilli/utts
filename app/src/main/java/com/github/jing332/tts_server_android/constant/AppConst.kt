@@ -74,6 +74,81 @@ object AppConst {
         }
     }
 
+    // ===================== 日志总量治理（11-11 用户令）=====================
+    //
+    // ## 为什么需要这一层
+    // logback 那三个文件各自有 maxFileSize/maxHistory，Kotlin 写的三份各自"超限截半"，
+    // 但它们**互不知道彼此**：朗读日志 30MB + 调试 20MB + 崩溃 5MB + 其余 10MB = 最多约 65MB。
+    // 更要紧的是"定期"这一环根本不存在——全靠文件大小触发；朗读停用后日志不再增长，
+    // 旧文件就永远躺在那儿。用户实报「日志文件不是又增加了吗，看看之前的设定要不要改」。
+    //
+    // ## 口径
+    // · **单个文件**仍由各自的滚动/截半管（不动，避免双头治理打架）；
+    // · **目录总量**由这里兜底：超过 40MB 就从最旧的文件开始删，直到回到上限以内；
+    // · **定期**：启动时清一次，顺手删掉 7 天前的旧文件。
+    // 40MB 的来由：正常一轮朗读一天约 1~3MB，40MB 够放两周左右的历史，
+    // 而手机存储上它只占很小一块。要更省可以调小这个数，逻辑不用动。
+
+    /** 日志目录总占用上限（字节）：超过就从最旧的文件开始删 */
+    private const val LOG_DIR_TOTAL_CAP = 40L * 1024 * 1024
+
+    /** 启动清理时顺带删掉多少天以前的旧文件（按最后修改时间） */
+    private const val LOG_KEEP_DAYS = 7L
+
+    /** 当前日志文件的总大小与总上限，供日志文件弹窗显示（用户 11-11 问过会不会涨到几兆） */
+    fun logDirUsage(): Pair<Long, Long> {
+        val total = runCatching {
+            logDir.listFiles()?.filter { it.isFile }?.sumOf { it.length() } ?: 0L
+        }.getOrDefault(0L)
+        return total to LOG_DIR_TOTAL_CAP
+    }
+
+    /**
+     * 日志目录清理（11-11 新增）：
+     * ① 删 LOG_KEEP_DAYS 天以前的文件（"定期"这一环，原来完全缺失）；
+     * ② 总量超 LOG_DIR_TOTAL_CAP 时，按最后修改时间从旧到新删，直到降回上限以内。
+     *
+     * ⚠️ 不碰**logback 正在写的三个文件**（system_tts.log / debug.log / crash.log）：
+     * 删掉它们会让 RollingFileAppender 的句柄失效，之后每次写都抛异常并回灌日志界面，
+     * 自激成一片红直到重启（11-10 踩过）。轮转出来的备份（带日期后缀）可以放心删——
+     * 那已经是另一个文件，logback 早已切换过去。
+     *
+     * 在 IO 线程调用（App 启动时的协程里），失败静默：清理失败不该影响启动。
+     */
+    fun pruneLogs() {
+        runCatching {
+            val dir = logDir
+            if (!dir.isDirectory) return
+            val now = System.currentTimeMillis()
+            val cutoff = now - LOG_KEEP_DAYS * 24L * 60L * 60L * 1000L
+            // 正在写的那三个，无论多大都不删（见上面注释）
+            val liveNames = setOf("system_tts.log", "debug.log", "crash.log")
+
+            val files = dir.listFiles()?.filter { it.isFile }?.toMutableList() ?: return
+
+            // ① 先按时间清旧
+            files.removeAll { f ->
+                if (f.name in liveNames) return@removeAll false
+                val stale = f.lastModified() < cutoff
+                if (stale) runCatching { f.delete() }
+                stale
+            }
+
+            // ② 再看总量
+            var total = files.sumOf { it.length() }
+            if (total <= LOG_DIR_TOTAL_CAP) return
+            // 从最旧的开始删；liveNames 里的三个跳过（它们的体积由 logback 自己滚）
+            val candidates = files
+                .filter { it.name !in liveNames }
+                .sortedBy { it.lastModified() }
+            for (f in candidates) {
+                if (total <= LOG_DIR_TOTAL_CAP) break
+                val len = f.length()
+                if (runCatching { f.delete() }.getOrDefault(false)) total -= len
+            }
+        }
+    }
+
     var isSysTtsLogEnabled = true
     var isServerLogEnabled = false
 
