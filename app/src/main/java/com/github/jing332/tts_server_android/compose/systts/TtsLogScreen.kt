@@ -1100,14 +1100,23 @@ private fun PinnedLogHeader(
         // ⚠️ 与旧版的区别：旧版把书条/章条当"切换"用（点按钮弹列表，语义是导航）；
         // 用户指出「你现在是筛选，不是切换」——所以胶囊文案与语义都改成筛选。
 
-        // 第二排同样加右缘渐变（11-11 用户选方案 A）：
-        // 筛了书之后这排有「胶囊 + 筛选书 + 选章节」，小屏也会溢出。
-        val row2Scroll = rememberScrollState()
-        Box(Modifier.fillMaxWidth()) {
+        // 第二排：书/章信息 + 行尾两个动作。**这一排不横滚**（11-11 用户实报后改）。
+        //
+        // ⚠️ 根因（别再套回 horizontalScroll）：
+        // 原实现给这排套了 horizontalScroll，书名又用 weight(1f, fill=false)。
+        // 横滚行给子项的宽度上界是**无限**，weight 分到的剩余空间也是无限，
+        // 于是 fill=false 的文本按**原始宽度**铺开、永远不省略——书名有多长，这排就多宽，
+        // 行尾的「筛选书」「选章节」被一路推出屏幕，用户只能横滑到最右才看得见
+        //（原话：「筛选书出现的位置不太对，我需要在筛选里面滑到最右才显示」）。
+        //
+        // 现在用普通 Row（宽度受父约束）+ 左侧信息槽 weight(1f)：
+        //   · 槽先让出右侧按钮的位置，按钮永远贴在行尾，不需要横滑；
+        //   · 槽内书名超长时省略号，**章名固定宽度不让位**（「第N章」是用户要的信息，
+        //     不能被书名挤掉）；筛选态胶囊同理，「取消」始终在胶囊右端可见；
+        //   · 这排不再滚动，右缘渐隐随之撤掉（只有第一排还需要）。
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .horizontalScroll(row2Scroll)
                 .padding(start = 14.dp, end = 10.dp, bottom = 5.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(5.dp),
@@ -1128,62 +1137,86 @@ private fun PinnedLogHeader(
             val shownChapter = if (filtered) scopeChapter.orEmpty() else viewChapter
             val chapLabel = shortChapterLabel(shownChapter).let { if (it.isBlank()) "" else " $it" }
 
-            if (shownBook.isNotBlank()) {
-                if (filtered) {
-                    // ---- 已筛选：淡绿胶囊 + 取消 ----
-                    Row(
-                        modifier = Modifier
-                            .weight(1f, fill = false)
-                            .clip(RoundedCornerShape(50))
-                            // 11-11 统一：改用 softFillBarColor()（= secondaryContainer 往白里混 42%，
-                            // C 档 #DAF2E2），与角色列表标签框、换声面板分段选中态同一档。
-                            // 原来用裸 secondaryContainer，比那两处浓一档——同一主题下两种绿。
-                            // 它仍是从主题色派生的（lerp secondaryContainer），换主题会跟着变。
-                            .background(softFillBarColor())
-                            .padding(start = 9.dp, end = 3.dp, top = 3.dp, bottom = 3.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = "《$shownBook》$chapLabel",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.Medium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f, fill = false),
-                        )
-                        // 「取消」与书名之间一道浅竖线分隔（视觉上表明这是两段，不是书名的一部分）
-                        Spacer(Modifier.width(6.dp))
-                        Box(
-                            Modifier
-                                .width(1.dp)
-                                .height(10.dp)
-                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.25f))
-                        )
-                        Spacer(Modifier.width(4.dp))
-                        Text(
-                            text = "取消",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.primary,
+            // 左侧信息槽：占满行内剩余宽度，右侧两个按钮先量、先占位。
+            // 槽内书名可省略，章名不让位——长书名不能把「第N章」或右侧按钮挤没。
+            Box(Modifier.weight(1f)) {
+                if (shownBook.isNotBlank()) {
+                    if (filtered) {
+                        // ---- 已筛选：淡绿胶囊 + 取消 ----
+                        Row(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(50))
-                                .clickable(onClick = onClearScope)
-                                .padding(horizontal = 6.dp, vertical = 2.dp),
-                        )
+                                // 11-11 统一：改用 softFillBarColor()（= secondaryContainer 往白里混 42%，
+                                // C 档 #DAF2E2），与角色列表标签框、换声面板分段选中态同一档。
+                                // 原来用裸 secondaryContainer，比那两处浓一档——同一主题下两种绿。
+                                // 它仍是从主题色派生的（lerp secondaryContainer），换主题会跟着变。
+                                .background(softFillBarColor())
+                                .padding(start = 9.dp, end = 3.dp, top = 3.dp, bottom = 3.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = "《$shownBook》",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false),
+                            )
+                            if (chapLabel.isNotBlank()) {
+                                Text(
+                                    text = chapLabel,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Medium,
+                                    maxLines = 1,
+                                )
+                            }
+                            // 「取消」与书名之间一道浅竖线分隔（视觉上表明这是两段，不是书名的一部分）
+                            Spacer(Modifier.width(6.dp))
+                            Box(
+                                Modifier
+                                    .width(1.dp)
+                                    .height(10.dp)
+                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.25f))
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                text = "取消",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(50))
+                                    .clickable(onClick = onClearScope)
+                                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                            )
+                        }
+                    } else {
+                        // ---- 未筛选：纯灰字（不可点）----
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "《$shownBook》",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontSize = 11.5.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false),
+                            )
+                            if (chapLabel.isNotBlank()) {
+                                Text(
+                                    text = chapLabel,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontSize = 11.5.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                )
+                            }
+                        }
                     }
-                } else {
-                    // ---- 未筛选：纯灰字（不可点）----
-                    Text(
-                        text = "《$shownBook》$chapLabel",
-                        style = MaterialTheme.typography.bodySmall,
-                        fontSize = 11.5.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false),
-                    )
                 }
             }
 
@@ -1216,8 +1249,6 @@ private fun PinnedLogHeader(
             // 注：「取消筛选」由左侧胶囊里的「取消」承担，不再单独放按钮
             //（用户 11-11 选 B 方案：一个动作一个入口）。
         }
-        ScrollEdgeFade(visible = row2Scroll.canScrollForward)
-        } // Box 结束
 
         // ===== ④ 跳转提示条：筛着 A 书、却在读 B =====
         // 用户：「如果正在朗读其他的再来一个跳转」。只在"有筛选 且 正在读的不是筛选的那本"时出现。
