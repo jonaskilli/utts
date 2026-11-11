@@ -127,6 +127,10 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
     var previewFile by remember { mutableStateOf<File?>(null) }
     var previewLines by remember { mutableStateOf<List<String>>(emptyList()) }
     var previewLoading by remember { mutableStateOf(false) }
+    // 预览已加载的行数（11-11 用户要「加载更多」）：每次 +300，直到顶到文件能读的范围
+    var previewWantLines by remember { mutableStateOf(PREVIEW_PAGE) }
+    // 是否还有更多可加载：读取结果少于请求数就说明已经到文件开头了
+    var previewHasMore by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     // 视野书章（11-11）：吸顶区下方那行小字，跟着列表滚动变化。
     // 「全部日志我划到哪就显示哪本书的信息」——由 LogScreen 通过 onViewChanged 回传。
@@ -971,14 +975,17 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                                         pendingDeleteName = null
                                         previewFile = f
                                         previewLines = emptyList()
+                                        previewWantLines = PREVIEW_PAGE
                                         previewLoading = true
                                         scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                                            // 只读尾部 300 行：日志动辄几 MB，
-                                            // 全量读进来会把内存和主线程一起拖住。
+                                            // 先给尾部 PREVIEW_PAGE 行；不够再点「加载更多」往回要。
+                                            // 单次读取上限 1MB（见 readTailLinesForPreview），
+                                            // 所以无论点多少次都不会一次性把大文件整个读进内存。
                                             val lines = runCatching {
-                                                readTailLinesForPreview(f, 300)
+                                                readTailLinesForPreview(f, PREVIEW_PAGE)
                                             }.getOrDefault(emptyList())
                                             previewLines = lines
+                                            previewHasMore = lines.size >= PREVIEW_PAGE
                                             previewLoading = false
                                         }
                                     }
@@ -1088,7 +1095,11 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
     previewFile?.let { pf ->
         AlertDialog(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-            onDismissRequest = { previewFile = null },
+            onDismissRequest = {
+                previewFile = null
+                previewWantLines = PREVIEW_PAGE
+                previewHasMore = false
+            },
             title = {
                 Column {
                     Text(logFileDisplayName(pf.name) ?: pf.name)
@@ -1117,12 +1128,43 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     } else {
-                        Text(
-                            "最近 ${previewLines.size} 行",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(bottom = 4.dp)
-                        )
+                        // 头部：行数 + 「加载更多」（11-11 用户令）
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "最近 ${previewLines.size} 行",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.weight(1f)
+                            )
+                            if (previewHasMore) {
+                                Text(
+                                    if (previewLoading) "读取中…" else "加载更多",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = if (previewLoading) MaterialTheme.colorScheme.onSurfaceVariant
+                                    else MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(50))
+                                        .clickable(enabled = !previewLoading) {
+                                            // 每次往回多要一页；读到文件开头后 hasMore 转 false，按钮消失
+                                            val want = previewWantLines + PREVIEW_PAGE
+                                            previewWantLines = want
+                                            previewLoading = true
+                                            scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                                val more = runCatching {
+                                                    readTailLinesForPreview(pf, want)
+                                                }.getOrDefault(emptyList())
+                                                previewLines = more
+                                                previewHasMore = more.size >= want
+                                                previewLoading = false
+                                            }
+                                        }
+                                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
                         Column(
                             Modifier
                                 .weight(1f, fill = false)
@@ -1152,7 +1194,13 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                 }
             },
             dismissButton = {
-                TextButton(onClick = { previewFile = null }) {
+                TextButton(onClick = {
+                    previewFile = null
+                    // 重置分页：下次点开的文件要重新从一页开始，
+                    // 否则会带着上次"加载了 1500 行"的状态直接读一大坨
+                    previewWantLines = PREVIEW_PAGE
+                    previewHasMore = false
+                }) {
                     Text("关闭")
                 }
             }
@@ -1174,6 +1222,9 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
  * 不认识的文件（如轮转出来的 system_tts_2026-11-11.0.log）不进这张表，
  * 调用方回退显示原文件名，不会因为新增文件就显示空白。
  */
+/** 预览每次加载的行数（11-11 用户定：先给 300 行，不够点「加载更多」往回要） */
+private const val PREVIEW_PAGE = 300
+
 private fun logFileDisplayName(fileName: String): String? = when {
     // 11-11 用户定名：朗读主日志 → 朗读日志（去掉"主"，它不跟任何东西对仗，反而像"最重要"）
     fileName == "system_tts.log" -> "朗读日志"
@@ -1237,7 +1288,11 @@ internal fun String.toPlainText(): String = this
 private fun readTailLinesForPreview(file: java.io.File, maxLines: Int): List<String> {
     val len = file.length()
     if (len <= 0) return emptyList()
-    val tailLen = minOf(len, 1_000_000L).toInt()
+    // 读多少字节：想要的行数越多读得越多，但**单次永远不超过 2MB**——
+    // 就算用户反复点「加载更多」，内存占用也是有界的（日志平均一行 ~200 字节，
+    // 2MB 约一万行，足够覆盖任何一次实际排查）。
+    val wantBytes = (maxLines.toLong() * 220L).coerceAtMost(2L * 1024 * 1024)
+    val tailLen = minOf(len, wantBytes).toInt()
     val buf = ByteArray(tailLen)
     java.io.RandomAccessFile(file, "r").use { raf ->
         raf.seek(len - tailLen)
