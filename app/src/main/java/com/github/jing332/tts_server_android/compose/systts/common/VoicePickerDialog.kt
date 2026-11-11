@@ -1214,7 +1214,14 @@ fun VoicePickerDialog(
                     // 「超过就直接截断，不要省略号」，且截断必须是**完整字符**
                     // （TextOverflow.Clip 按像素裁会切出半个汉字）。
                     // 改为 TruncatedAnnotatedText：weight(1f) 吃剩余宽，emoji 仍钉在右侧。
-                    BoxWithConstraints(Modifier.weight(1f)) {
+                    // 11-11 修回归（删掉后面那个 Spacer(weight) 之后暴露的问题）：
+                    // 名字+emoji 一起包进 weight(1f) 的 Row；名字自己用 **weight(1f, fill = false)**。
+                    //  · 外层的 weight 负责"吃掉剩余宽"，把 🎲▶⋮ 顶到右端；
+                    //  · 内层的 fill = false 保证名字**只占内容宽**、不强行撑开，
+                    //    否则 emoji 会被推到最右边（紧贴 🎲），离名字老远，读成"标记不属于这个名字"。
+                    //  · 长名字时名字仍能吃到内层全部可用宽并按整字截断，不会重现"空间充裕却省略"。
+                    Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                    BoxWithConstraints(Modifier.weight(1f, fill = false)) {
                         TruncatedAnnotatedText(
                             text = AnnotatedString(currentVoiceName),
                             style = MaterialTheme.typography.titleMedium.copy(
@@ -1251,6 +1258,7 @@ fun VoicePickerDialog(
                                 .padding(vertical = 1.dp),
                         )
                     }
+                    } // ===== 名字 + 标记 emoji 的 weight(1f) 容器结束 =====
                     // 11-11 用户令「按钮就放显示名+emoji 那一行的右侧，靠右放」：
                     // 🎲 ▶ ⋮ 从第二行上移到本行右端。这样第二行才能只放「插件名 … 终值」，
                     // 真正做成两端分开（否则终值会夹在插件名和按钮之间，分不开）。
