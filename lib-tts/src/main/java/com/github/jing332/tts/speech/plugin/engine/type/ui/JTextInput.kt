@@ -97,7 +97,11 @@ class JTextInput(context: Context, hint: CharSequence? = null) : FrameLayout(con
     }
 
     inner class MyEditable() : Editable {
-        override val length = mText.length
+        // 必须每次读取都取当前文本长度：写成 `val length = mText.length` 只在
+        // MyEditable 构造时求值一次，之后 setText/append 改动了文本，length 仍是旧值，
+        // 插件脚本按 length 做 subSequence/循环时会越界或读不到新内容。
+        override val length: Int
+            get() = mText.length
 
         override fun get(index: Int): Char {
             return mText[index]
@@ -108,39 +112,42 @@ class JTextInput(context: Context, hint: CharSequence? = null) : FrameLayout(con
         }
 
         override fun subSequence(startIndex: Int, endIndex: Int): CharSequence {
-            TODO("Not yet implemented")
+            return mText.subSequence(startIndex, endIndex)
         }
 
         override fun getChars(start: Int, end: Int, dest: CharArray?, destoff: Int) {
-            TODO("Not yet implemented")
+            // 与 String.getChars 同语义：把 [start, end) 复制到 dest。
+            // dest 为 null 在 Android 契约里本就非法，这里静默返回而不是 NPE/抛异常，
+            // 避免插件脚本传错参数时直接中断。
+            if (dest == null) return
+            mText.toCharArray(dest, destoff, start, end)
         }
 
+        /*
+         * 富文本（span）能力未实现：本类只是插件 JS 读写的纯文本包装，
+         * 不承载样式信息。这里一律返回安全的空值而不是抛异常——
+         * 插件脚本里常有「顺手设个颜色/样式」的写法，抛异常会直接中断插件运行，
+         * 静默忽略对纯文本输入框而言是可接受且更稳妥的行为。
+         */
         override fun <T : Any?> getSpans(start: Int, end: Int, type: Class<T>?): Array<T> {
-            TODO("Not yet implemented")
+            @Suppress("UNCHECKED_CAST")
+            return emptyArray<T>()
         }
 
-        override fun getSpanStart(tag: Any?): Int {
-            TODO("Not yet implemented")
-        }
+        override fun getSpanStart(tag: Any?): Int = -1
 
-        override fun getSpanEnd(tag: Any?): Int {
-            TODO("Not yet implemented")
-        }
+        override fun getSpanEnd(tag: Any?): Int = -1
 
-        override fun getSpanFlags(tag: Any?): Int {
-            TODO("Not yet implemented")
-        }
+        override fun getSpanFlags(tag: Any?): Int = 0
 
-        override fun nextSpanTransition(start: Int, limit: Int, type: Class<*>?): Int {
-            TODO("Not yet implemented")
-        }
+        override fun nextSpanTransition(start: Int, limit: Int, type: Class<*>?): Int = limit
 
         override fun setSpan(what: Any?, start: Int, end: Int, flags: Int) {
-            TODO("Not yet implemented")
+            // 无样式存储，忽略
         }
 
         override fun removeSpan(what: Any?) {
-            TODO("Not yet implemented")
+            // 无样式存储，忽略
         }
 
         override fun append(text: CharSequence?): Editable {
@@ -149,7 +156,8 @@ class JTextInput(context: Context, hint: CharSequence? = null) : FrameLayout(con
         }
 
         override fun append(text: CharSequence?, start: Int, end: Int): Editable {
-            TODO("Not yet implemented")
+            mText += text?.subSequence(start, end) ?: ""
+            return this
         }
 
         override fun append(text: Char): Editable {
@@ -164,23 +172,33 @@ class JTextInput(context: Context, hint: CharSequence? = null) : FrameLayout(con
             start: Int,
             end: Int,
         ): Editable {
-            TODO("Not yet implemented")
+            return replace(st, en, source?.subSequence(start, end))
         }
 
         override fun replace(st: Int, en: Int, text: CharSequence?): Editable {
-            TODO("Not yet implemented")
+            val from = st.coerceIn(0, mText.length)
+            val to = en.coerceIn(from, mText.length)
+            mText = mText.replaceRange(from, to, text?.toString() ?: "")
+            return this
         }
 
         override fun insert(where: Int, text: CharSequence?, start: Int, end: Int): Editable {
-            TODO("Not yet implemented")
+            return insert(where, text?.subSequence(start, end))
         }
 
         override fun insert(where: Int, text: CharSequence?): Editable {
-            TODO("Not yet implemented")
+            // 越界钳制：插件脚本常按字符偏移直接插入，偏移超长时不应崩。
+            val at = where.coerceIn(0, mText.length)
+            mText = mText.substring(0, at) + (text?.toString() ?: "") + mText.substring(at)
+            return this
         }
 
         override fun delete(st: Int, en: Int): Editable {
-            TODO("Not yet implemented")
+            // 同上，起止顺序颠倒或越界时钳制到合法区间
+            val from = st.coerceIn(0, mText.length)
+            val to = en.coerceIn(from, mText.length)
+            mText = mText.removeRange(from, to)
+            return this
         }
 
         override fun clear() {
@@ -188,15 +206,20 @@ class JTextInput(context: Context, hint: CharSequence? = null) : FrameLayout(con
         }
 
         override fun clearSpans() {
-            TODO("Not yet implemented")
+            // 无样式存储，忽略
         }
 
+        // 输入过滤对以 JS 直接改文本的路径不生效，保存下来以便插件查询/回写，
+        // 至少保证 setFilters/getFilters 对称，不会因调用而崩溃。
+        private var mFilters: Array<out InputFilter> = emptyArray()
+
         override fun setFilters(filters: Array<out InputFilter>?) {
-            TODO("Not yet implemented")
+            mFilters = filters ?: emptyArray()
         }
 
         override fun getFilters(): Array<InputFilter> {
-            TODO("Not yet implemented")
+            @Suppress("UNCHECKED_CAST")
+            return mFilters as Array<InputFilter>
         }
 
     }
