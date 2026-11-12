@@ -512,12 +512,10 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                                 Icon(
                                     Icons.Default.DeleteOutline,
                                     contentDescription = "全部清空日志",
-                                    // 11-13：删除=危险动作，全 App 惯例用 error 色
-                                    // （GroupItem DeleteForever / OtherSettings DeleteSweep /
-                                    //  ConfigDeleteDialog / 本文件行尾🗑 全是 error 色），
-                                    // 顶栏这个不能例外。同排「日志管理」入口保持中性色，
-                                    // 一灰一红，危险级别一眼可分。
-                                    tint = MaterialTheme.colorScheme.error
+                                    // 11-13 用户令：「这个删除图标感觉不太对，还是改为黑色默认垃圾桶」。
+                                    // 顶栏这一枚改回默认 onSurface（中性色）；危险级别由点按后的
+                                    // 确认弹窗承担，不再靠红色预警。其余入口（GroupItem 删除、
+                                    // 日志管理行尾删单个）维持原 error 色，用户未要求改动。
                                 )
                             }
                         }
