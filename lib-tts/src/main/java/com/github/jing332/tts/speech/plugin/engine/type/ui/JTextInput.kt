@@ -130,8 +130,11 @@ class JTextInput(context: Context, hint: CharSequence? = null) : FrameLayout(con
          * 静默忽略对纯文本输入框而言是可接受且更稳妥的行为。
          */
         override fun <T : Any?> getSpans(start: Int, end: Int, type: Class<T>?): Array<T> {
+            // emptyArray<T>() 要求 reified 泛型，此处 T 是方法级类型参数不可用；
+            // 用反射按调用方传入的 Class 构造零长数组，类型与签名严格一致。
             @Suppress("UNCHECKED_CAST")
-            return emptyArray<T>()
+            val arr = java.lang.reflect.Array.newInstance(type ?: Any::class.java, 0) as Array<T>
+            return arr
         }
 
         override fun getSpanStart(tag: Any?): Int = -1
