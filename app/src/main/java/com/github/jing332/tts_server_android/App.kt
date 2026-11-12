@@ -87,6 +87,14 @@ class App : Application() {
         // 沿用原策略：过滤 Compose 的 LeftCompositionCancellationException，避免页面快速切换时崩溃
         CrashCapture.install()
 
+        // 11-13 排障基础设施（第二轮，对照参考版 TTS Server 移植）：
+        // ① 崩溃记录增量转发：把上次闪退的 crash_last.txt 追加到 logDir/crash_forward.log
+        //    （Download/chajian/log 下文件管理器直接可见；SHA-256 幂等，不重复追加）
+        CrashForwarder.forward()
+        // ② 主线程卡死看门狗：心跳停 8s 判定卡死，把全线程栈写进 logDir/stall.log（只记录不杀进程，
+        //    重启兜底仍归 TtsTimeoutWatchdog，两套判定独立不叠加）
+        MainThreadWatchdog.start()
+
         // 🛠️ 拔掉引线：暂时关闭 CrashHandler，它会触发崩溃的日志初始化
         // CrashHandler(this) 
 
