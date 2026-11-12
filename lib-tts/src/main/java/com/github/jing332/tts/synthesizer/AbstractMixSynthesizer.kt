@@ -25,8 +25,8 @@ import io.github.oshai.kotlinlogging.KLogger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.TimeoutCancellationException
@@ -377,9 +377,10 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
         val indexCh = Channel<Int>(capacity = concurrency)
         // 每段独立产物信箱：fetcher 的成品只进 box[i]，谁先完成都不影响顺序
         val boxes = List(list.size) { Channel<ChannelPayload?>(capacity = Channel.UNLIMITED) }
-        val scope = CoroutineScope(coroutineContext + SupervisorJob(coroutineContext[Job]))
+        // 独立 scope：fetcher 失败不传染回填循环（SupervisorJob），随 finally 一并取消
+        val fetcherScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
         val fetchers = List(concurrency) { worker ->
-            scope.launch(CoroutineName("SynthPrefetch #$worker")) {
+            fetcherScope.launch(CoroutineName("SynthPrefetch #$worker")) {
                 for (index in indexCh) { // 领号
                     val segment = list[index]
                     val box = boxes[index]
@@ -408,7 +409,7 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
             }
         }
         // 发号
-        scope.launch(CoroutineName("SynthPrefetch #feeder")) {
+        val feeder = fetcherScope.launch(CoroutineName("SynthPrefetch #feeder")) {
             try {
                 for (index in list.indices) indexCh.send(index)
                 indexCh.close()
@@ -426,17 +427,18 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
                             // 文本处理等致命错误：终止一切并交由 executeSynthesis 返回 Err
                             throw PayloadErrorException(payload.err)
                         }
-                        else -> channel.send(payload)
+                        else -> channel.send(requireNotNull(payload))
                     }
                 }
                 // 该段直接播放（EmptyInputStream 无 Bytes 产物）时信箱为空，停顿照插
                 insertSegmentPause(channel, index, list.size)
             }
             fetchers.forEach { it.join() }
+            feeder.join()
         } finally {
             // 无论正常收尾、致命错误还是外部取消（onStop 破窗），都掐掉 fetcher 与发号
             indexCh.close()
-            scope.cancel()
+            fetcherScope.cancel()
         }
     }
 
