@@ -375,6 +375,20 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
 
         // 领号通道：按序发 0,1,2…；fetcher 领到号才能处理对应段 → 并发上限=并发数
         val indexCh = Channel<Int>(capacity = concurrency)
+        // 同插件并发门（11-13）：WS/攒发型插件（豆包、猫箱等）的桥接流在 invoke 返回后
+        // 仍由 JS 异步填充，同插件的下一笔请求会重置其 WS/忙标志 → 「请等待当前请求完成」
+        // 「Broken pipe」。规则：同一插件在本批内按段序串行——第 i 段须等它之前最近一个
+        // 同插件段「消费完」才能发请求；不同插件仍并行（Fish 等 V1 流式收益不受影响）。
+        val samePluginPrev = arrayOfNulls<Int>(list.size)
+        run {
+            val lastByPlugin = HashMap<String, Int>()
+            list.forEachIndexed { i, seg ->
+                val pid = (seg.tts.source as? PluginTtsSource)?.pluginId ?: return@forEachIndexed
+                lastByPlugin[pid]?.let { samePluginPrev[i] = it }
+                lastByPlugin[pid] = i
+            }
+        }
+        val consumed = List(list.size) { CompletableDeferred<Unit>() }
         // 每段独立产物信箱：fetcher 的成品只进 box[i]，谁先完成都不影响顺序
         val boxes = List(list.size) { Channel<ChannelPayload?>(capacity = Channel.UNLIMITED) }
         // 独立 scope：fetcher 失败不传染回填循环（SupervisorJob），随 finally 一并取消
@@ -384,6 +398,10 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
                 for (index in indexCh) { // 领号
                     val segment = list[index]
                     val box = boxes[index]
+                    // 同插件串行门：等前一个同插件段消费完再发请求
+                    samePluginPrev[index]?.let { prev ->
+                        runCatching { consumed[prev].await() }
+                    }
                     val collector = PayloadCollector()
                     try {
                         requestAndProcess(
@@ -432,6 +450,8 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
                 }
                 // 该段直接播放（EmptyInputStream 无 Bytes 产物）时信箱为空，停顿照插
                 insertSegmentPause(channel, index, list.size)
+                // 通知同插件门：本段已消费完，可放行下一个同插件段
+                consumed[index].complete(Unit)
             }
             fetchers.forEach { it.join() }
             feeder.join()
