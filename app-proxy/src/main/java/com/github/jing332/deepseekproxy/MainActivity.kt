@@ -69,6 +69,18 @@ class MainActivity : ComponentActivity() {
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         setContent { App(vm) }
     }
+
+    override fun onStart() {
+        super.onStart()
+        // 11-13 用户令：「上次启动了、关 APP 后下次打开应该还是启动态」。
+        // App.onCreate 里已尝试自动恢复，但 Android 12+ 会拦「后台启前台服务」——
+        // Application.onCreate 时进程还不算前台，startForegroundService 可能被拒。
+        // 这里在界面真正进入前台（onStart）后再兜底一次：上次保存为运行态、
+        // 而服务实际没起来（进程被杀/启动被拦），就按保存的配置重新拉起。
+        if (ProxyService.isSavedRunning(this) && !ProxyService.isRunning) {
+            runCatching { vm.startServer() }
+        }
+    }
 }
 
 // ── 紧凑 UI 尺寸：减小按钮高宽与内边距，降低整体占用空间 ──

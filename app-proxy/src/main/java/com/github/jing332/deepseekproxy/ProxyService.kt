@@ -28,6 +28,13 @@ class ProxyService : android.app.Service() {
         const val EXTRA_QWEN_COOKIES = "qwen_cookies"
         const val EXTRA_STREAM = "stream"
 
+        /** 服务当前是否真的在运行（onStartCommand 置 true，onDestroy 置 false）。
+         *  与 [isSavedRunning] 区分：后者是「用户希望它运行」的持久化意图，
+         *  进程被杀后仍为 true，需要在界面进入前台时重新拉起。 */
+        @Volatile
+        var isRunning: Boolean = false
+            private set
+
         /** 混元太极是否处于「已开启」状态（供 App 重启后自动恢复判断）。 */
         fun isSavedRunning(context: Context): Boolean =
             context.getSharedPreferences("ds_proxy", Context.MODE_PRIVATE)
@@ -128,11 +135,13 @@ class ProxyService : android.app.Service() {
             port, { "" },
             { doubaoCookies }, { kimiCookies }, { qwenCookies }, cacheDir
         )
+        isRunning = true
         LogStore.i("Proxy", "▶ 前台服务已启动，端口 $port，流式=$stream")
         return START_STICKY
     }
 
     override fun onDestroy() {
+        isRunning = false
         ProxyServer.stop()
         DeepSeekPowWebView.destroy()
         stopForeground(true)
