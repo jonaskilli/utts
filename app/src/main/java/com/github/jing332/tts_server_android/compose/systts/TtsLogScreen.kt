@@ -662,6 +662,7 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                     // 正在朗读的书（与筛选无关）：用于"筛着 A 在读 B"的跳转提示条
                     readingBook = readingBook,
                     readingChapter = readingChapter,
+                )
                 if (vm.logs.isNotEmpty())
                 HorizontalDivider(
                     color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
