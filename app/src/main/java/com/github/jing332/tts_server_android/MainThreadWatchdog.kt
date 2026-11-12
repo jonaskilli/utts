@@ -73,7 +73,9 @@ object MainThreadWatchdog {
                 try {
                     Thread.sleep(POLL_MS)
                 } catch (_: InterruptedException) {
-                    return
+                    // SAM 转 Runnable 的 lambda 里不许非局部 return，用中断+break 退出
+                    Thread.currentThread().interrupt()
+                    break
                 }
                 val stalled = SystemClock.elapsedRealtime() - lastTick
                 if (stalled >= STALL_MS) {
