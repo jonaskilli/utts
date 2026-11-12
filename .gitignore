@@ -62,3 +62,6 @@ newapk/
 # AI 助手工作区规则(本地文件, 镜像自 E:\TTS\AGENTS.md, 不随公开仓库分发)
 /AGENTS.md
 
+
+# 本机 IDE 配置（含个人绝对路径，不入公开仓）
+.vscode/
