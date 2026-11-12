@@ -522,11 +522,9 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                     }
                 )
 
-                // 顶栏与列表之间的分隔线（10-06）：滚动的日志/卡片贴到顶栏时有了"底"，
-                // 不再像 UI 被拦腰截断
-                HorizontalDivider(
-                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                )
+                // 11-13 用户令「上面下面的分隔线都有必要留吗」：删掉标题/搜索行与筛选区之间这条。
+                // 筛选区属于同一头部区块，兄弟之间不该有分割线；真正需要的「头部↔滚动列表」
+                // 分隔线在筛选区之后（见下方 if (vm.logs.isNotEmpty()) 的那条）。
 
                 // 搜索控制行：匹配数 + 上一处/下一处跳转。
                 // ⚠️ 漏斗键本行撤（10-10）：恢复「四键常驻」后顶栏已有级别筛选键，
