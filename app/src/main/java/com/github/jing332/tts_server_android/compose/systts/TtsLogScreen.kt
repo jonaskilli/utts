@@ -493,24 +493,31 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                                     .padding(start = 8.dp, end = 10.dp, top = 6.dp, bottom = 6.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
+                                // 11-13：去掉 onSurfaceVariant 灰——同排顶栏动作键
+                                //（搜索/文件夹 IconButton）都是默认 onSurface，
+                                // 一个入口键不该比邻居浅一档（用户比对截图指出）。
                                 Icon(
                                     Icons.Default.Description,
                                     contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.size(18.dp)
                                 )
                                 Spacer(Modifier.width(3.dp))
                                 Text(
                                     "日志管理",
                                     style = MaterialTheme.typography.labelLarge,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1,
                                 )
                             }
                             IconButton(onClick = { showClearAllConfirm = true }) {
                                 Icon(
                                     Icons.Default.DeleteOutline,
-                                    contentDescription = "全部清空日志"
+                                    contentDescription = "全部清空日志",
+                                    // 11-13：删除=危险动作，全 App 惯例用 error 色
+                                    // （GroupItem DeleteForever / OtherSettings DeleteSweep /
+                                    //  ConfigDeleteDialog / 本文件行尾🗑 全是 error 色），
+                                    // 顶栏这个不能例外。同排「日志管理」入口保持中性色，
+                                    // 一灰一红，危险级别一眼可分。
+                                    tint = MaterialTheme.colorScheme.error
                                 )
                             }
                         }
@@ -1101,7 +1108,8 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
             title = { Text("清空全部日志？") },
             text = {
                 Text(
-                    "会清掉主日志、获取成功子行、插件日志、朗读规则日志四份。" +
+                    "会清空日志目录里的全部文件：系统TTS、调试（debug）、崩溃（crash）、" +
+                        "插件、朗读规则五类，以及各轮转备份。" +
                         "清空后不可恢复。",
                     style = MaterialTheme.typography.bodyMedium
                 )

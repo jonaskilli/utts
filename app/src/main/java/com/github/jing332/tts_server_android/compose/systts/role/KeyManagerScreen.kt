@@ -118,7 +118,6 @@ import org.json.JSONArray
 import org.json.JSONObject
 import com.github.jing332.tts_server_android.compose.theme.AppTypeScale
 import com.github.jing332.tts_server_android.compose.theme.AppShapes
-import com.github.jing332.tts_server_android.compose.theme.keyGroupHeaderColor
 import com.github.jing332.tts_server_android.compose.theme.neutralCardColor
 import com.github.jing332.common.ACCENT_GREEN
 import com.github.jing332.tts_server_android.R
@@ -127,6 +126,7 @@ import com.github.jing332.tts_server_android.service.systts.help.CharacterRecord
 import com.github.jing332.tts_server_android.service.systts.help.KeyListFile
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import com.github.jing332.tts_server_android.compose.theme.keyGroupHeaderColor
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
@@ -135,6 +135,7 @@ import kotlinx.coroutines.sync.withPermit
 // ===================== 11-11 密钥页配色（用户令，两次反馈后定稿）=====================
 // ⚠️ 这里**不再有写死的色值**，两枚色都抽到 theme/Theme.kt，随主题走：
 //   · keyGroupHeaderColor()  组头色带：浅 lerp(secondaryContainer, background, 0.55)
+//     （11-13 曾试 softFillBarColor 同源，用户实测偏深撤回）
 //   · neutralCardColor()     模型区/条目行：直接取主题 surfaceContainerLow（以前那个中性灰）
 // 历史坑（别重犯）：
 //   ①11-11 曾写死 #E4F7E8 当「以前的绿」——那是 11-10 03:30 的中间产物，只活了 1 小时 9 分，
@@ -740,7 +741,9 @@ private fun GroupHeaderBlock(
             // 定稿 B 档 surfaceContainer（#EAF7EF，比页底深约 8 级、比卡底深 3 级），两页同口径。
             // 卡片本体（ElevatedCard surfaceContainerLow）不动——结构（组头）与内容（模型区）分层。
             // 11-11 用户令两连：先「恢复以前那个绿」，再「也得根据主题色来变化，不能都只是绿」。
-            // 现走 keyGroupHeaderColor()——绿主题落回真·老绿 #EAF7EF，其余主题各取自己的浅色。
+            // 11-13 曾试改 softFillBarColor() 同源（用户实测反馈「非常浅的都被改深了」，
+            // 该公式 luminance 0.896 比老绿 0.903 深约 1.2 点）——撤回，
+            // 恢复 keyGroupHeaderColor()：绿主题落回真·老绿 #EAF7EF（lerp(sc, bg, 0.55)）。
             keyGroupHeaderColor()
         )
     ) {
@@ -1590,11 +1593,12 @@ fun KeyManagerScreen(tagRuleId: String, onBack: () -> Unit) {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues),
-            // 11-08 用户令「密钥卡左缘与主界面卡一样」：容器 start 12→4，容器 4 + 组卡 4 =
-            // 卡缘 8dp，对齐主界面配置卡（行内 horizontal 8）。10-07 的 16dp 口径因主界面卡
-            // 后来落到 8dp 而悬空，本笔归一。end 保持 8（右线不动：条目图标右缘对卡右缘、
-            // 组头图标区右缘同列的校准全在行内相对值里，卡左移不影响）
-            contentPadding = PaddingValues(start = 4.dp, end = 8.dp, top = 4.dp, bottom = 12.dp)
+            // 11-08 用户令「密钥卡左缘与主界面卡一样」：容器 start 12→4，卡缘 8dp。
+            // 11-13 用户实机反馈「以前太宽(16)、现在太窄(8)」，居中折中定 12dp：
+            // 容器 start 4→8（容器 8 + 组卡 4 = 卡缘 12），M3 medium gutter 档。
+            // end 保持 8（右线不动：条目图标右缘对卡右缘、组头图标区右缘同列的校准
+            // 全在行内相对值里，左移不影响右线）
+            contentPadding = PaddingValues(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 12.dp)
         ) {
             item(key = "ops") {
                     // 操作行三键（10-08 用户拍板乙案）：键宽内容自适应（0919 weight 均分折行坑
