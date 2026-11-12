@@ -1,0 +1,31 @@
+#!/bin/bash
+# 拦截 AI 工作平台写入的共同作者尾注。
+# 背景：Trae、Claude Code 等工具提交时会自动附加
+#   Co-Authored-By: traeagent <traeagent@users.noreply.github.com>
+#   Co-Authored-By: Claude Code <noreply@anthropic.com>
+# GitHub 会把这些尾注中的账号计入 Contributors，导致仓库贡献者列表出现 AI。
+# 用户明确要求：仓库贡献者只能有人类维护者。
+MSG_FILE="$1"
+HITS=$(grep -inE '^[[:space:]]*co-authored-by:.*(trae|cursor|claude|copilot|codeium|windsurf|aider|devin|openai|anthropic|gemini|glm|deepseek|chatgpt)' "$MSG_FILE")
+if [ -n "$HITS" ]; then
+  echo ""
+  echo "✗ 提交被拒绝：检测到 AI 工具的共同作者尾注"
+  echo "----------------------------------------------"
+  echo "$HITS"
+  echo "----------------------------------------------"
+  echo "这些尾注会让 AI 出现在 GitHub 贡献者列表里。"
+  echo "删除对应的 Co-Authored-By 行后重新提交。"
+  echo ""
+  exit 1
+fi
+# 同时拦一种更隐蔽的：任何 co-authored-by 指向 noreply 的机器人账号
+HITS2=$(grep -inE '^[[:space:]]*co-authored-by:.*(users\.noreply\.github\.com|anthropic\.com|@bot)' "$MSG_FILE")
+if [ -n "$HITS2" ]; then
+  echo ""
+  echo "⚠️ 警告：提交包含疑似机器人的 Co-Authored-By 尾注"
+  echo "$HITS2"
+  echo "如确认是人类协作者可忽略；否则请删除该行。"
+  echo "（此条仅警告，不阻止提交）"
+  echo ""
+fi
+exit 0

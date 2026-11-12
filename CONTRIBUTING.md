@@ -68,15 +68,20 @@ Trae、Claude Code、Cursor 这类 AI 工作平台生成的尾注，会让 AI �
 
 ### 已配置的防护
 
-仓库安装了 `commit-msg` 钩子（`.git/hooks/commit-msg`），提交时自动拦截
+仓库自带 `commit-msg` 钩子（`scripts/hooks/commit-msg`），提交时自动拦截
 含 `trae|cursor|claude|copilot|codeium|windsurf|aider|devin|openai|anthropic|gemini|glm|deepseek|chatgpt`
 等关键词的 `Co-Authored-By` 行，命中即拒绝提交。
 
-**钩子不会随仓库分发**（`.git/hooks/` 不受版本控制），换机器或重新克隆后需重装：
+钩子本体在仓库内 `scripts/hooks/commit-msg`，随仓库分发、有提交记录可追溯。
+Git 出于安全不会在克隆后自动执行钩子，**换机器或重新克隆后需启用一次**：
 
 ```bash
-cp /path/to/commit-msg .git/hooks/commit-msg && chmod +x .git/hooks/commit-msg
+bash scripts/install-hooks.sh
 ```
+
+该脚本会设置 `core.hooksPath=scripts/hooks`，之后该目录下所有钩子自动生效，
+无需逐个拷贝文件。验证：提交一条带 `Co-Authored-By: traeagent` 尾注的信息，
+应被拒绝并提示删除尾注。
 
 ### 已经混入历史的尾注怎么处理
 
