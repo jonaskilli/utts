@@ -1,3 +1,22 @@
+U·TTS Server —— Android 平台的系统级 TTS 应用（基于 TTS Server 的深度定制版）
+Copyright (C) 2026 jonaskilli (U·TTS Server 的维护者)
+
+本程序基于 jing332 的 tts-server-android（MIT License，Copyright (C) jing332）
+修改而来；在接力过程中参考了 Ktouls（TTS_Server_Android2）、命无言/mingwuyan
+（TTS_Server_Android）两个衍生版本的实现，以及 GPL-3.0 许可的
+阅读 Sigma（Rimchars/legado）与 JRead-VoiceEngine（墨听）。
+
+本程序为自由软件：您可以根据自由软件基金会发布的 GNU 通用公共许可证
+（第 3 版或更高版本）重新分发和/或修改它。
+
+本程序希望有用，但不提供任何担保；不提供适销性或特定用途适用性的暗示担保。
+详情见 GNU 通用公共许可证。
+
+您应该已经随本程序收到一份 GNU 通用公共许可证的副本；如果没有，
+请访问 <https://www.gnu.org/licenses/>。
+
+==============================================================================
+
                     GNU GENERAL PUBLIC LICENSE
                        Version 3, 29 June 2007
 
@@ -672,4 +691,3 @@ may consider it more useful to permit linking proprietary applications with
 the library.  If this is what you want to do, use the GNU Lesser General
 Public License instead of this License.  But first, please read
 <https://www.gnu.org/licenses/why-not-lgpl.html>.
-
