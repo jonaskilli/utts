@@ -199,6 +199,8 @@ internal class LogGroups(
     val pinnedChapter: String = "",
     val pinnedChapterCount: Int = 0,
     val pinnedBookCount: Int = 0,
+    /** 本份日志里出现过的不同书数（筛选书只在 ≥2 本时有意义）。 */
+    val bookTotal: Int = 0,
     // 11-11「吸顶区跟随滚动」：每个**列表项下标** → 该项所属的 (书, 章)。
     // 用户令「全部日志我划到哪就显示哪本书的信息」——吸顶区不再是"最新一条"，
     // 而是"当前视口首项所属"。
@@ -529,6 +531,7 @@ internal class LogGroups(
                 pinnedChapter = pChapter,
                 pinnedChapterCount = if (pChapter.isBlank()) 0 else (chapterCount[pKey] ?: 0),
                 pinnedBookCount = if (pBook.isBlank()) 0 else (bookCount[pBook] ?: 0),
+                bookTotal = bookStart.size,
                 itemBook = itemBookArr,
                 itemChapter = itemChapterArr,
             )

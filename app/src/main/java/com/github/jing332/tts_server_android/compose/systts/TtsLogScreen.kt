@@ -621,6 +621,9 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                 // 只在有书章时显示书章两行；筛选行始终显示（它是日常操作）。
                 // ⚠️ 放在 topBar 里而不是列表 stickyHeader：topBar 天然不随列表滚动，
                 // 且与搜索行/分隔线同属一个固定区，不会出现「sticky 与 topBar 抢层级」。
+                // 11-13 用户令：「日志空白页不应该显示这些，得有能筛选的东西才显示」。
+                // 没有任何日志时不渲染筛选区（含下方分隔线），空页只剩标题与搜索。
+                if (vm.logs.isNotEmpty())
                 PinnedLogHeader(
                     autoFollow = vm.autoScrollToBottom.value,
                     onToggleAutoFollow = {
@@ -636,6 +639,7 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                     onTogglePlugin = { vm.showPluginLogs.value = !vm.showPluginLogs.value },
                     book = logGroups.pinnedBook,
                     bookCount = logGroups.pinnedBookCount,
+                    bookTotal = logGroups.bookTotal,
                     chapter = logGroups.pinnedChapter,
                     chapterCount = logGroups.pinnedChapterCount,
                     onSwitchBook = { bookPickerFor = it },
@@ -660,7 +664,7 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                     // 正在朗读的书（与筛选无关）：用于"筛着 A 在读 B"的跳转提示条
                     readingBook = readingBook,
                     readingChapter = readingChapter,
-                )
+                if (vm.logs.isNotEmpty())
                 HorizontalDivider(
                     color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
                 )
@@ -1424,6 +1428,8 @@ private fun PinnedLogHeader(
     onTogglePlugin: () -> Unit,
     book: String,
     bookCount: Int,
+    /** 不同书数：<2 时「筛选书」没有可筛对象，不显示（用户 11-13 口径）。 */
+    bookTotal: Int = 0,
     chapter: String,
     chapterCount: Int,
     onSwitchBook: (String) -> Unit,
@@ -1647,7 +1653,8 @@ private fun PinnedLogHeader(
                 }
             }
 
-            // 右侧：筛选书（常驻）
+            // 右侧：筛选书——11-13 用户令「得出现两本才能筛吧」：只有 ≥2 本书才显示
+            if (bookTotal >= 2) {
             PinnedChip(
                 label = "筛选书",
                 selected = filtered,
@@ -1655,6 +1662,7 @@ private fun PinnedLogHeader(
                 // 第二排不是等分布局，仍按四字最小宽撑起（62dp = 四字44 + 内衬18）
                 minWidth = 62.dp,
             )
+            }
 
             // 右侧：跳到第N章（筛了书之后才出现，纯跳转）
             if (filtered) {
