@@ -1,8 +1,4 @@
-name: 编译验证
-
-# 运行记录标题：显示触发编译的提交信息，避免只看到「编译验证 #1 #2」。
-# GitHub 表达式无 split，无法只取首行；运行列表按单行截断，完整内容在详情页。
-run-name: 编译验证 · ${{ github.event.head_commit.message || github.sha }}
+name: Compile Check
 
 on:
   push:

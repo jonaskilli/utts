@@ -1,6 +1,4 @@
-name: 调试包
-
-# 命名口径与其余工作流一致：动作+对象，纯中文，不用英文动词开头。
+name: Build Debug
 
 on:
   # 手动触发，需要 debug 包时在 Actions 页面运行
