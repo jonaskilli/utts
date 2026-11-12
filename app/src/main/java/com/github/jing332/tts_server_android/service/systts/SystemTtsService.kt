@@ -229,7 +229,8 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                         )
                     },
                     loudnessMaxGain = { SysTtsConfig.loudnessMaxGain },
-                    segmentPauseMs = { SysTtsConfig.segmentPauseMs }
+                    segmentPauseMs = { SysTtsConfig.segmentPauseMs },
+                    prefetchConcurrency = { SysTtsConfig.prefetchConcurrency }
                 )
                 textProcessor = mTextProcessor
             }

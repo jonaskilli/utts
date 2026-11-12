@@ -3,6 +3,7 @@ package com.github.jing332.tts_server_android.compose.settings
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccessTime
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.Groups
@@ -125,6 +126,24 @@ internal fun ColumnScope.SysttsSettingsScreen(
             buttonLongSteps = 100f,
             icon = { Icon(Icons.Default.AccessTime, null) },
             label = segmentPauseLabel,
+        )
+    }
+
+    var prefetchConcurrency by remember { SystemTtsConfig.prefetchConcurrency }
+    val prefetchLabel = "${prefetchConcurrency}路"
+    SettingItem(search, "预取", "并发", "concurrency", "prefetch") {
+        SliderPreference(
+            title = { Text(stringResource(id = R.string.prefetch_concurrency)) },
+            subTitle = { Text(stringResource(id = R.string.prefetch_concurrency_summary)) },
+            value = prefetchConcurrency.toFloat(),
+            // LabelSlider 内部 Slider 是连续的，整数步进靠这里吸附实现
+            onValueChange = { prefetchConcurrency = it.fastRoundToInt() },
+            valueRange = 1f..8f,
+            steps = 6,
+            buttonSteps = 1f,
+            buttonLongSteps = 2f,
+            icon = { Icon(Icons.Default.Speed, null) },
+            label = prefetchLabel,
         )
     }
 

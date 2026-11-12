@@ -24,17 +24,20 @@ import com.github.michaelbull.result.onSuccess
 import io.github.oshai.kotlinlogging.KLogger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineName
-import kotlinx.coroutines.Deferred
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.async
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.SendChannel
 import kotlinx.coroutines.channels.produce
 import kotlinx.coroutines.channels.trySendBlocking
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -71,8 +74,19 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
     private val logger: KLogger
         get() = context.logger
 
-    // 预取结果：流 + 请求段耗时(用于获取成功日志的耗时合计)
-    private data class PrefetchResult(val stream: InputStream?, val costMs: Long)
+    /**
+     * 产物收集器：并发管线里 fetcher 的成品先进这里，由按序回填协程统一交给播放通道。
+     */
+    private class PayloadCollector : PayloadSink {
+        val payloads = mutableListOf<ChannelPayload>()
+        override suspend fun send(payload: ChannelPayload) {
+            payloads.add(payload)
+        }
+
+        override fun trySendBlocking(payload: ChannelPayload) {
+            payloads.add(payload)
+        }
+    }
 
 
     abstract val context: SynthesizerContext
@@ -167,8 +181,28 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
     }
 
 
+    /** 分句阶段致命错误的内部载体：穿过 produceSegments 抛给 executeSynthesis 转为合成错误。 */
+    private class PayloadErrorException(val err: SynthesisError) : Exception(err.toString())
+
+    /**
+     * 产物出口的最小接口：把 [requestAndProcess] 从 SendChannel 解耦——
+     * 基线路径直接对接播放通道；并发管线对接 PayloadCollector（先收集后按序回填）。
+     */
+    private interface PayloadSink {
+        suspend fun send(payload: ChannelPayload)
+        fun trySendBlocking(payload: ChannelPayload)
+    }
+
+    /** 播放通道适配器：行为与旧「requestAndProcess 直写 channel」完全一致。 */
+    private class ChannelSink(private val channel: SendChannel<ChannelPayload>) : PayloadSink {
+        override suspend fun send(payload: ChannelPayload) = channel.send(payload)
+        override fun trySendBlocking(payload: ChannelPayload) {
+            channel.trySendBlocking(payload)
+        }
+    }
+
     private suspend fun requestAndProcess(
-        channel: SendChannel<ChannelPayload>,
+        sink: PayloadSink,
         params: SystemParams,
         config: TtsConfiguration,
         retries: Int = 0,
@@ -204,7 +238,7 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
                 // 带上「从哪个标签转来」：切换后的请求已被上面一条日志说明了来路，
                 // 服务层不能再把它当成「规则分析失败降级」重复报一次。
                 requestAndProcess(
-                    channel, params, config.standbyConfig, 0, maxRetries,
+                    sink, params, config.standbyConfig, 0, maxRetries,
                     roleName = roleName, failoverFromTag = fromTag,
                     bookName = bookName, chapterTitle = chapterTitle,
                 )
@@ -220,7 +254,7 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
                     params
                 }
                 requestAndProcess(
-                    channel, retryParams, config, next, maxRetries,
+                    sink, retryParams, config, next, maxRetries,
                     roleName = roleName, failoverFromTag = failoverFromTag,
                     bookName = bookName, chapterTitle = chapterTitle,
                 )
@@ -245,13 +279,13 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
                 }
                 2 -> { // 生成空音频后重启
                     val silentAudio = createSilentPcmAudio(maxSampleRate, durationMs = 100)
-                    channel.trySendBlocking(ChannelPayload.Bytes(silentAudio))
+                    sink.trySendBlocking(ChannelPayload.Bytes(silentAudio))
                     logger.warn { "max retries exceeded, restarting app after empty audio..." }
                     Runtime.getRuntime().exit(0)
                 }
                 else -> { // 0 = 关闭，生成空音频但不重启
                     val silentAudio = createSilentPcmAudio(maxSampleRate, durationMs = 100)
-                    channel.trySendBlocking(ChannelPayload.Bytes(silentAudio))
+                    sink.trySendBlocking(ChannelPayload.Bytes(silentAudio))
                 }
             }
             return
@@ -266,7 +300,7 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
         val reqStart = SystemClock.elapsedRealtime()
         val stream = prefetchedStream ?: requestInternal(request, playCallback = {
                 logger.debug { "send direct play callback..." }
-                channel.send(ChannelPayload.DirectPlayCallback(request, it))
+                sink.send(ChannelPayload.DirectPlayCallback(request, it))
             })
         val requestCostMs = if (prefetchedStream != null)
             prefetchedCostMs
@@ -286,7 +320,7 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
                     ins = stream,
                     request = request,
                     targetSampleRate = maxSampleRate,
-                    callback = { pcm -> channel.trySendBlocking(ChannelPayload.Bytes(pcm.toByteArray())) },
+                    callback = { pcm -> sink.trySendBlocking(ChannelPayload.Bytes(pcm.toByteArray())) },
                     requestCostMs = requestCostMs,
                 )
             }
@@ -304,6 +338,127 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
         }
     }
 
+    /**
+     * 预取并发数（2026-11-13，任务书-UTTS预取并发数）：
+     * 请求内分句后，N 个 fetcher 协程「领号」并发请求/解码，产物按序回填到播放通道。
+     * 保序铁律：payload 只在下面的按序回填循环里进播放通道，fetcher 之间互不越位；
+     * 前一句未回填完，后一句的成品也排队等着，绝不跳（a2866a5 教训）。
+     *
+     * 并发安全模型（无需按插件设门，源码核实 2026-11-13）：
+     * - 同插件请求在 TtsPluginEngineV2.getAudio 的引擎级 mMutex 串行执行 JS——
+     *   Rhino 单脚本引擎 + 每次调用独立桥接流/连接，不存在跨请求共享传输状态，不会串音；
+     *   整包型插件（豆包/千问 ByteArray）因此无并行收益（但安全）；
+     * - HTTP 流式插件（Fish 等 V1 getAudio 返回 BufferedInputStream）：JS 调用与
+     *   连接建立在锁内完成，下载消费在锁外 —— 并发窗口真实存在，收益目标即此类。
+     * - 不同插件（不同引擎实例/不同 CachedEngineManager key）天然互不相干。
+     */
+    private suspend fun produceSegments(
+        channel: SendChannel<ChannelPayload>,
+        params: SystemParams,
+        list: List<TextSegment>,
+    ) {
+        val concurrency = context.cfg.prefetchConcurrency().coerceIn(1, 8)
+        // N=1：保持与旧「串行 for」完全一致的基线路径（验收第2条），直写播放通道
+        if (concurrency <= 1 || list.size <= 1) {
+            val sink = ChannelSink(channel)
+            for ((index, segment) in list.withIndex()) {
+                requestAndProcess(
+                    sink, params.copy(text = segment.text), segment.tts,
+                    roleName = segment.roleName,
+                    bookName = segment.bookName,
+                    chapterTitle = segment.chapterTitle,
+                )
+                insertSegmentPause(channel, index, list.size)
+            }
+            return
+        }
+
+        // 领号通道：按序发 0,1,2…；fetcher 领到号才能处理对应段 → 并发上限=并发数
+        val indexCh = Channel<Int>(capacity = concurrency)
+        // 每段独立产物信箱：fetcher 的成品只进 box[i]，谁先完成都不影响顺序
+        val boxes = List(list.size) { Channel<ChannelPayload?>(capacity = Channel.UNLIMITED) }
+        val scope = CoroutineScope(coroutineContext + SupervisorJob(coroutineContext[Job]))
+        val fetchers = List(concurrency) { worker ->
+            scope.launch(CoroutineName("SynthPrefetch #$worker")) {
+                for (index in indexCh) { // 领号
+                    val segment = list[index]
+                    val box = boxes[index]
+                    val collector = PayloadCollector()
+                    try {
+                        requestAndProcess(
+                            collector, params.copy(text = segment.text), segment.tts,
+                            roleName = segment.roleName,
+                            bookName = segment.bookName,
+                            chapterTitle = segment.chapterTitle,
+                        )
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        // requestAndProcess 内部已含重试/兜底/静音占位收尾，这里只挡异常逃逸
+                        logger.error(e) { "prefetch worker #$worker segment #$index failed" }
+                    }
+                    if (collector.payloads.isEmpty()) {
+                        // 无产物（该段直接播放/被破窗清掉）：信箱保持明确终态，按序回填不空等
+                        box.close()
+                    } else {
+                        collector.payloads.forEach { box.trySend(it) }
+                        box.close()
+                    }
+                }
+            }
+        }
+        // 发号
+        scope.launch(CoroutineName("SynthPrefetch #feeder")) {
+            try {
+                for (index in list.indices) indexCh.send(index)
+                indexCh.close()
+            } catch (e: Exception) {
+                indexCh.close(e)
+            }
+        }
+
+        // 按序回填：逐段消费信箱，段间停顿在此插入（保持批尾气口语义）
+        try {
+            for ((index, box) in boxes.withIndex()) {
+                for (payload in box) {
+                    when (payload) {
+                        is ChannelPayload.Error -> {
+                            // 文本处理等致命错误：终止一切并交由 executeSynthesis 返回 Err
+                            throw PayloadErrorException(payload.err)
+                        }
+                        else -> channel.send(payload)
+                    }
+                }
+                // 该段直接播放（EmptyInputStream 无 Bytes 产物）时信箱为空，停顿照插
+                insertSegmentPause(channel, index, list.size)
+            }
+            fetchers.forEach { it.join() }
+        } finally {
+            // 无论正常收尾、致命错误还是外部取消（onStop 破窗），都掐掉 fetcher 与发号
+            indexCh.close()
+            scope.cancel()
+        }
+    }
+
+    private suspend fun insertSegmentPause(
+        channel: SendChannel<ChannelPayload>, index: Int, total: Int,
+    ) {
+        // 段间停顿：每段音频之后插入固定时长静音PCM(含批次最后一段)
+        // 直写通道，不经过Sonic变速/静音跳过管线，停顿=设置的固定墙钟时长
+        // 末段也插：阅读App常按句投喂、纯旁白段整段一个角色，批内往往只有
+        // 1段，仅在批内多段间插入会永远不触发；段尾停顿充当批间气口，
+        // 下一批到达时本批被强制收尾(onStop破窗)，停顿自然截断不叠加
+        val pauseMs = context.cfg.segmentPauseMs()
+        if (pauseMs > 0) {
+            logger.info { "segment pause: insert ${pauseMs}ms after segment ${index + 1}/$total" }
+            channel.trySendBlocking(
+                ChannelPayload.Bytes(
+                    createSilentPcmAudio(maxSampleRate, durationMs = pauseMs)
+                )
+            )
+        }
+    }
+
     @OptIn(ExperimentalCoroutinesApi::class)
     private suspend fun executeSynthesis(
         params: SystemParams, callback: SynthesisCallback, presetConfigId: Long?,
@@ -316,69 +471,13 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
             produce<ChannelPayload>(CoroutineName("Synthesis producer"), PROCUDE_CAPACITY) {
                 textProcess(params, presetConfigId)
                     .onSuccess { list ->
-                        // 预取：段N处理流时并发请求段N+1，消除段间网络等待
-                        var prefetchJob: Deferred<PrefetchResult>? = null
-
-                        for ((index, segment) in list.withIndex()) {
-                            val segParams = params.copy(text = segment.text)
-
-                            // 等待预取结果（首段为null，走正常请求路径）
-                            val prefetched = prefetchJob?.await()
-                            prefetchJob = null
-
-                            if (prefetched?.stream != null) {
-                                // 预取成功，直接用预取的流处理
-                                requestAndProcess(
-                                    channel, segParams, segment.tts,
-                                    prefetchedStream = prefetched.stream,
-                                    prefetchedCostMs = prefetched.costMs,
-                                    roleName = segment.roleName,
-                                    bookName = segment.bookName,
-                                    chapterTitle = segment.chapterTitle,
-                                )
-                            } else {
-                                // 无预取（首段/预取失败），正常请求
-                                requestAndProcess(
-                                    channel, segParams, segment.tts,
-                                    roleName = segment.roleName,
-                                    bookName = segment.bookName,
-                                    chapterTitle = segment.chapterTitle,
-                                )
-                            }
-
-                            // 启动下一段的预取请求（与当前段的处理并行执行）
-                            if (index + 1 < list.size) {
-                                val nextSeg = list[index + 1]
-                                val nextRequest = RequestPayload(
-                                    params.copy(text = nextSeg.text), nextSeg.tts, nextSeg.roleName,
-                                    bookName = nextSeg.bookName, chapterTitle = nextSeg.chapterTitle,
-                                )
-                                prefetchJob = async(Dispatchers.IO) {
-                                    val start = SystemClock.elapsedRealtime()
-                                    val s = runCatching {
-                                        requestInternal(nextRequest, playCallback = {
-                                            channel.send(ChannelPayload.DirectPlayCallback(nextRequest, it))
-                                        })
-                                    }.getOrNull()
-                                    PrefetchResult(s, SystemClock.elapsedRealtime() - start)
-                                }
-                            }
-
-                            // 段间停顿：每段音频之后插入固定时长静音PCM(含批次最后一段)
-                            // 直写通道，不经过Sonic变速/静音跳过管线，停顿=设置的固定墙钟时长
-                            // 末段也插：阅读App常按句投喂、纯旁白段整段一个角色，批内往往只有
-                            // 1段，仅在批内多段间插入会永远不触发；段尾停顿充当批间气口，
-                            // 下一批到达时本批被强制收尾(onStop破窗)，停顿自然截断不叠加
-                            val pauseMs = context.cfg.segmentPauseMs()
-                            if (pauseMs > 0) {
-                                logger.info { "segment pause: insert ${pauseMs}ms after segment ${index + 1}/${list.size}" }
-                                channel.trySendBlocking(
-                                    ChannelPayload.Bytes(
-                                        createSilentPcmAudio(maxSampleRate, durationMs = pauseMs)
-                                    )
-                                )
-                            }
+                        try {
+                            produceSegments(channel, params, list)
+                        } catch (e: PayloadErrorException) {
+                            // 分句阶段致命错误（如文本处理器报错）：作为合成错误交给消费端
+                            channel.send(ChannelPayload.Error(e.err))
                         }
+                        // 其它异常照常向外抛：produce 协程失败会被消费循环重抛
                     }
                     .onFailure {
                         channel.send(ChannelPayload.Error(it))

@@ -122,6 +122,13 @@ object SysTtsConfig {
             SystemTtsConfig.segmentPauseMs.value = value
         }
 
+    /** 预取并发数：请求内同时向语音服务请求/解码的句子数，1=串行（默认），上限8 */
+    var prefetchConcurrency: Int
+        get() = SystemTtsConfig.prefetchConcurrency.value
+        set(value) {
+            SystemTtsConfig.prefetchConcurrency.value = value
+        }
+
     // ========== 响度均衡配置 ==========
 
     var loudnessMaxGain: Float

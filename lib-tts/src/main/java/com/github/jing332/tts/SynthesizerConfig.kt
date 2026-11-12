@@ -26,6 +26,12 @@ data class SynthesizerConfig(
     // 段间停顿毫秒数，0=关闭；合成器在两段之间插入等时长静音PCM（直写通道，不受变速/静音跳过影响）
     var segmentPauseMs: ValueProvider<Int> = { 0 },
 
+    // 预取并发数：同一请求内并发「请求/解码」的句子数，1=串行（与旧单发预取路径完全一致）。
+    // 上限 8：过高可能触发服务端限流（mrwang 参考版同口径，他默认4，这里保守默认1由设置页调）。
+    // 注意收益边界：同插件请求在 TtsPluginEngineV2.mMutex 处串行执行 JS，
+    // 整包型插件(豆包/千问 ByteArray)无加速但安全；HTTP 流式插件(Fish等)下载在锁外，真并行。
+    var prefetchConcurrency: ValueProvider<Int> = { 1 },
+
     // 响度均衡：始终开启，无需用户配置
     var loudnessMaxGain: ValueProvider<Float> = { 1.35f },
 )

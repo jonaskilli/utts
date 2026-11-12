@@ -159,6 +159,13 @@ object SystemTtsConfig {
         initialValue = 0
     )
 
+    /** 预取并发数：请求内同时请求/解码的句子数。1=串行（默认保守值），范围1-8，过高可能触发服务端限流 */
+    val prefetchConcurrency = mutableDataSaverStateOf(
+        dataSaverInterface = dataSaverPref,
+        key = "prefetchConcurrency",
+        initialValue = 1
+    )
+
     // ========== 响度均衡配置 ==========
 
     /** 响度均衡总开关，默认开启 */

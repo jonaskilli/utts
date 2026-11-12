@@ -204,7 +204,7 @@ internal class BackupPayloadFactory(
                 "isWakeLockEnabled", "isForegroundServiceEnabled", "isReplaceEnabled", "isSplitEnabled",
                 "requestTimeout", "maxRetryCount", "standbyTriggeredRetryIndex", "maxEmptyAudioRetryCount",
                 "isSkipSilentText", "isStreamPlayModeEnabled", "isExoDecoderEnabled", "isSilenceSkipAudio",
-                "segmentPauseMs", "isLoudnessEnabled", "loudnessMaxGain", "isKeepAliveEnabled",
+                "segmentPauseMs", "prefetchConcurrency", "isLoudnessEnabled", "loudnessMaxGain", "isKeepAliveEnabled",
                 "isAccessibilityKeepAliveEnabled", "isNotificationKeepAliveEnabled", "isAlarmKeepAliveEnabled",
                 "isAutoStartEnabled", "isNetworkKeepAliveEnabled", "isPixelKeepAliveEnabled",
                 "restartOnMaxRetryMode", "timeoutWatchdogSeconds",
