@@ -51,3 +51,48 @@ feat(read)!: 翻页手势改为可配置
 - 引用用户决定时写明日期，例如 `（用户定案 11-12）`。
 - 引用 CI 时写明运行编号，例如 `（CI 43031934592）`。
 - 脚注采用 `令牌: 值` 形式，如 `Refs: #123`。
+
+## 禁止 AI 工具署名
+
+提交信息中**禁止**出现指向 AI 工作平台的 `Co-Authored-By` 尾注：
+
+```
+Co-Authored-By: traeagent <traeagent@users.noreply.github.com>    ❌
+Co-Authored-By: Claude Code <noreply@anthropic.com>              ❌
+Co-Authored-By: Cursor Agent <...>                              ❌
+```
+
+**原因**：GitHub 会把 `Co-Authored-By` 中的账号计入仓库 Contributors。
+Trae、Claude Code、Cursor 这类 AI 工作平台生成的尾注，会让 AI 以「贡献者」身份
+出现在仓库首页——本项目不是 AI 的作品，贡献者只应是人类维护者。
+
+### 已配置的防护
+
+仓库安装了 `commit-msg` 钩子（`.git/hooks/commit-msg`），提交时自动拦截
+含 `trae|cursor|claude|copilot|codeium|windsurf|aider|devin|openai|anthropic|gemini|glm|deepseek|chatgpt`
+等关键词的 `Co-Authored-By` 行，命中即拒绝提交。
+
+**钩子不会随仓库分发**（`.git/hooks/` 不受版本控制），换机器或重新克隆后需重装：
+
+```bash
+cp /path/to/commit-msg .git/hooks/commit-msg && chmod +x .git/hooks/commit-msg
+```
+
+### 已经混入历史的尾注怎么处理
+
+若发现 Contributors 列表出现 AI 账号，说明历史里已有此类尾注。处理方式：
+
+```bash
+git branch backup-before-ai-trailer-removal   # 先备份
+git filter-branch -f --msg-filter '<删尾注的脚本>' <最早受影响提交>^..HEAD
+```
+
+⚠️ 改写会使之后所有提交的 hash 变化，**若有发布标签指向这些提交，必须一并重指**并强制推送：
+
+```bash
+git tag -f <标签名> <新提交sha>
+git push --force origin <分支>
+git push --force origin <标签1> <标签2> ...
+```
+
+处理完用 `curl` 或 API 查 `repos/<owner>/<repo>/contributors` 确认只剩人类账号。
