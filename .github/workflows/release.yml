@@ -1,8 +1,5 @@
 name: Build Release
 
-# 运行记录标题：手动触发显示触发者与是否正式版，标签触发显示标签名。
-run-name: Build Release · ${{ github.event_name == 'workflow_dispatch' && format('手动 by {0}{1}', github.actor, inputs.is_official && ' · 正式版' || '') || github.ref_name }}
-
 on:
   # 推送 1.26.* 格式 tag 自动打包正式版 (只打 app, 不含 dev)
   push:
