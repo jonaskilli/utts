@@ -643,7 +643,7 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                 }
 
                 // ===================== 吸顶区（11-11 用户令）=====================
-                // 三行：①筛选开关 ②书名+切换书 ③章名+切换章。
+                // 三行：①筛选开关 ②书名（点=切书）+章名（点=跳章）+进度行。
                 // 只在有书章时显示书章两行；筛选行始终显示（它是日常操作）。
                 // ⚠️ 放在 topBar 里而不是列表 stickyHeader：topBar 天然不随列表滚动，
                 // 且与搜索行/分隔线同属一个固定区，不会出现「sticky 与 topBar 抢层级」。
@@ -1442,7 +1442,7 @@ private fun BookPickRow(
 //       他的规则脚本与插件里 console.debug 是 0 处，整排留一颗永远不亮的键只占宽度）
 //      （11-11 用户令改短：「实时最新」→「实时」、「只看错误」→「错误」；
 //       原设计这里是竖线分档，但那道竖线早已撤掉，只剩左端标签旁的一道）
-//   ② 书/章筛选 + 视野（筛选书 / 切换章）
+//   ② 书/章行（书名点=切书弹窗，章名点=跳章弹窗）+ 后台合成进度行
 //
 // 书章行只在有数据时显示（老规则/单语音模式下整块隐藏，不出现空条）。
 // 字号按主次：书名 12.5sp 半粗 > 章名 11.5sp > 筛选 11sp（11-11 用户令全排统一）。
@@ -1644,6 +1644,9 @@ private fun PinnedLogHeader(
                                 .padding(start = 9.dp, end = 3.dp, top = 3.dp, bottom = 3.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
+                            // 11-14 用户令「书名和章节名做成能跳转的形式，别加筛选书和跳章节了」：
+                            // 书名点击=开书籍弹窗（原「筛选书」键职责）；章名点击=开章节弹窗
+                            //（原「跳到第x章」键职责）。样式与原胶囊字一致（淡绿 11sp），加 clickable。
                             Text(
                                 text = "《$shownBook》",
                                 style = MaterialTheme.typography.labelSmall,
@@ -1652,7 +1655,10 @@ private fun PinnedLogHeader(
                                 fontWeight = FontWeight.Medium,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f, fill = false),
+                                modifier = Modifier
+                                    .weight(1f, fill = false)
+                                    .clip(RoundedCornerShape(50))
+                                    .clickable { onSwitchBook(shownBook) },
                             )
                             if (chapLabel.isNotBlank()) {
                                 Text(
@@ -1662,6 +1668,11 @@ private fun PinnedLogHeader(
                                     color = MaterialTheme.colorScheme.primary,
                                     fontWeight = FontWeight.Medium,
                                     maxLines = 1,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(50))
+                                        .clickable {
+                                            onSwitchChapter(shownBook, shownChapter)
+                                        },
                                 )
                             }
                             // 「取消」与书名之间一道浅竖线分隔（视觉上表明这是两段，不是书名的一部分）
@@ -1685,7 +1696,7 @@ private fun PinnedLogHeader(
                             )
                         }
                     } else {
-                        // ---- 未筛选：纯灰字（不可点）----
+                        // ---- 未筛选：纯灰字（11-14 用户令：也可点击开弹窗，颜色不变）----
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
                                 text = "《$shownBook》",
@@ -1694,7 +1705,10 @@ private fun PinnedLogHeader(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f, fill = false),
+                                modifier = Modifier
+                                    .weight(1f, fill = false)
+                                    .clip(RoundedCornerShape(50))
+                                    .clickable { onSwitchBook(shownBook) },
                             )
                             if (chapLabel.isNotBlank()) {
                                 Text(
@@ -1703,6 +1717,11 @@ private fun PinnedLogHeader(
                                     fontSize = 11.5.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(50))
+                                        .clickable {
+                                            onSwitchChapter(shownBook, shownChapter)
+                                        },
                                 )
                             }
                         }
@@ -1710,45 +1729,11 @@ private fun PinnedLogHeader(
                 }
             }
 
-            // 右侧：筛选书——11-13 用户令「得出现两本才能筛吧」：只有 ≥2 本书才显示
-            if (bookTotal >= 2) {
-            PinnedChip(
-                label = "筛选书",
-                selected = filtered,
-                onClick = { onSwitchBook(scopeBook ?: viewBook.ifBlank { book }) },
-                // 第二排不是等分布局，仍按四字最小宽撑起（62dp = 四字44 + 内衬18）
-                minWidth = 62.dp,
-            )
-            }
-
-            // 右侧：切换章（纯跳转）
+            // 11-14 用户令「别加筛选书和跳章节了，书名和章节名做成能跳转的形式」：
+            // 原「筛选书」「切换章」两颗 PinnedChip 整撤——开弹窗的职责移到
+            // 书名/章名文字的点击上（见上方两分支）。弹窗本体、行为、筛选逻辑零改动。
             //
-            // 11-13 晚用户令「如果只有一本书，那个章节跳转我也想要加上」：
-            // 旧门槛是 `if (filtered)`——必须先筛书才给选章入口，而只有一本书时
-            // 「筛选书」按钮本身就不显示（bookTotal<2），于是单书场景永远进不了筛选态，
-            // 选章入口跟着一起消失。现改为：**只要看得到章**就给入口，与是否筛书无关。
-            // 书名取当前视野的书（没筛书时就是正在读的那本）。
-            //
-            // ⚠️ 11-13 晚用户追问「单书的切换章我还没看到，它跟多书的那个切换章名字和
-            // UI 应该保持一致吧」——我上一版把文案写成「选章节」，与书条/章条上的
-            // 「切换章」不一致，同一个动作两个名。现统一回「切换章」：
-            //   · 文案：切换章（与 ChapterBarRow 右侧键、吸顶多书态完全同字）
-            //   · 样式：PinnedChip（吸顶区所有键同款胶囊）——多书时「筛选书」也是
-            //     PinnedChip，两者并排时同高同圆角，读得出是同级入口
-            //   · 门槛：只看「看得到章」，单书/多书一律显示
-            run {
-                val curChap = shortChapterLabel(scopeChapter ?: chapter)
-                val jumpBook = scopeBook ?: viewBook.ifBlank { book }
-                if (curChap.isNotBlank() && jumpBook.isNotBlank()) {
-                    PinnedChip(
-                        label = "切换章",
-                        selected = false,
-                        onClick = { onSwitchChapter(jumpBook, scopeChapter ?: chapter) },
-                        minWidth = 62.dp,
-                    )
-                }
-            }
-
+            // 「取消筛选」仍由已筛选态书名旁的「取消」承担（11-11 选 B 方案：一个动作一个入口）。
             // 注：「取消筛选」由左侧胶囊里的「取消」承担，不再单独放按钮
             //（用户 11-11 选 B 方案：一个动作一个入口）。
         }
