@@ -1663,12 +1663,17 @@ private fun PinnedLogHeader(
             )
             }
 
-            // 右侧：跳到第N章（筛了书之后才出现，纯跳转）
-            if (filtered) {
-                // 这里只为判断"这本书有没有章"——有章才给选章入口；
-                // 章号本身不再拼进按钮文案（改「选章节」后由弹窗表达）。
+            // 右侧：选章节（纯跳转）
+            //
+            // 11-13 晚用户令「如果只有一本书，那个章节跳转我也想要加上」：
+            // 旧门槛是 `if (filtered)`——必须先筛书才给选章入口，而只有一本书时
+            // 「筛选书」按钮本身就不显示（bookTotal<2），于是单书场景永远进不了筛选态，
+            // 选章节跟着一起消失。现改为：**只要看得到章**就给入口，与是否筛书无关。
+            // 书名取当前视野的书（没筛书时就是正在读的那本）。
+            run {
                 val curChap = shortChapterLabel(scopeChapter ?: chapter)
-                if (curChap.isNotBlank()) {
+                val jumpBook = scopeBook ?: viewBook.ifBlank { book }
+                if (curChap.isNotBlank() && jumpBook.isNotBlank()) {
                     PinnedChip(
                         // 11-11 用户令：文案改「选章节」。
                         // 原来写「跳到第6章 ▾」有歧义——它显示的永远是**当前章**，
@@ -1677,7 +1682,7 @@ private fun PinnedLogHeader(
                         // 具体跳到哪由弹窗决定，不必写在按钮上。
                         label = "选章节",
                         selected = false,
-                        onClick = { onSwitchChapter(scopeBook ?: book, scopeChapter ?: chapter) },
+                        onClick = { onSwitchChapter(jumpBook, scopeChapter ?: chapter) },
                         minWidth = 62.dp,
                     )
                 }

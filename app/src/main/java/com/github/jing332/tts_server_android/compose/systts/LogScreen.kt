@@ -301,16 +301,33 @@ internal class LogGroups(
                 firstAt.getOrPut(e.reqId) { i }
                 buckets.getOrPut(e.reqId) { ArrayList() }.add(e)
             }
-            // 已经是「首条紧随其后就是全部成员」的常见情形：跳过重排，避免无谓开销
+            // 已经是「同一请求的各行聚在一起」的常见情形：跳过重排，避免无谓开销。
+            //
+            // ⚠️ 11-13 晚修（用户图证实报「两条一模一样的日志，第一个没获取成功，第二个成功了」）：
+            // 旧判据是「窗口 idx..idx+n+8 内能数到 n 条就算排好」，它**放过了交叉排布**——
+            // 并发两笔同毫秒开卡时落盘顺序是 REQ_A、REQ_B、SUCCESS_A、SUCCESS_B，
+            // A 的成员确实都在自己 idx 后 8 条窗口里（数得到 2 条），于是判成"无需重排"，
+            // 函数恒等返回，分组仍按交叉顺序跑：B 开卡把 A 的卡挤关，SUCCESS_A 挂到 B 上，
+            // SUCCESS_B 到时 head=-1 只能落成孤立裸行（真机 system_tts.log 18:43:41.643
+            // 两笔同毫秒 + 18:43:43.110/.557 两条成功行就是这一幕）。
+            //
+            // 新判据＝**只看请求 id 的游程**：按顺序扫过带 reqId 的行，同一个 id 必须只出现
+            // 在一段连续游程里（A A A B B B 合法；A B A B 就要重排）。
+            // ⚠️ 不能要求「下标严格连续」：规则日志/插件日志/系统消息这些**无 reqId 的行**
+            // 天然夹在请求与结果之间（真机里大量存在），严格连续会把它们全判成需重排，
+            // 继而每次 build 都跑一遍重排、并把那些行挪到结果之后——既费工又打乱阅读顺序。
+            // 无 reqId 的行对重排透明，这里直接忽略。
             var needReorder = false
-            for ((id, idx) in firstAt) {
-                val n = buckets[id]?.size ?: 0
-                if (n <= 1) continue
-                var seen = 0
-                for (j in idx until minOf(idx + n + 8, list.size)) {
-                    if (list[j].reqId == id) seen++
+            run {
+                val seenIds = HashSet<String>()
+                var lastId = ""
+                for (e in list) {
+                    if (e.reqId.isEmpty()) continue
+                    if (e.reqId != lastId) {
+                        if (!seenIds.add(e.reqId)) { needReorder = true; break }
+                        lastId = e.reqId
+                    }
                 }
-                if (seen < n) { needReorder = true; break }
             }
             if (!needReorder) return list
 
@@ -484,6 +501,80 @@ internal class LogGroups(
                 }
             }
             closeCard()
+
+            // ===== 11-13 晚：无结局的孤儿卡、且同文随后重发成功 → 按取消丢弃 =====
+            //
+            // 用户图证实报：「有两个一模一样的日志，只不过是第一个没有获取成功，第二个成功了」。
+            // 根因在服务端时序，不在渲染：取消（U阅 stop / 翻页 / 破窗）插在
+            // 「请求行落盘之前」时（真机 system_tts.log 18:48:15~21「你怎么知道……」），
+            // 那一刻 currentReqId 还是空串，logCanceled() 静默返回，取消标记无处可挂；
+            // 等这笔被掐掉的合成 2 秒后终于写出请求行，它已经永远等不到结局行。
+            // 于是日志里并排出现两张同文卡：前一张无结局、后一张成功。
+            //
+            // 为什么在渲染侧修而不是服务端补标：服务端补标只能挂到「下一笔落盘的请求行」，
+            // 并发或时间窗没拿准时会把**后面那笔成功的**误标成取消，而取消组是整组丢弃的
+            // ——那句话会彻底从日志消失，比现在更糟。渲染侧只做"删掉冗余的那张"，
+            // 最坏情况是没删掉（退化成现状），不会吞掉真实信息，也能顺带修好已有旧日志。
+            //
+            // 判据三条同时成立才丢：①孤儿卡（无成功子行、无失败证据）
+            // ②后面存在同文且有成功子行的卡 ③两者相隔不超过 30 秒（超窗视为不同事件）
+            if (raw.size > 1) {
+                val drop = BooleanArray(raw.size)
+                for (i in raw.indices) {
+                    val g = raw[i] as? Item.Group ?: continue
+                    if (g.absorbError >= 0) continue
+                    if (failedHeads.contains(g.head)) continue
+                    val t = requestTextOf(list[g.head])
+                    if (t.isEmpty()) continue
+                    if (g.members.any { groupHasSuccessSub(list[it]) }) continue
+                    var matched = false
+                    for (j in i + 1 until raw.size) {
+                        val g2 = raw[j] as? Item.Group ?: continue
+                        if (requestTextOf(list[g2.head]) != t) continue
+                        if (!g2.members.any { groupHasSuccessSub(list[it]) }) continue
+                        if (!withinSeconds(list[g.head].time, list[g2.head].time, 30)) continue
+                        matched = true
+                        break
+                    }
+                    if (matched) drop[i] = true
+                }
+                // 补充判据：连续同文孤儿（都被掐、都没等到结局）只留最后一张。
+                // 用户在 18:46:14/21/23/25 与 18:48:17/19/21/27 连续看到同一句出现两三次，
+                // 每次都是取消先于请求行落盘那套机制。后一张代表"这句话最近一次的真实状态"，
+                // 更早的重复对排查零信息，留着只会让人误以为重复朗读了。
+                // 注意：**单张**孤儿不丢——它仍可能是真的卡住/在途，排障时要看得见。
+                for (i in raw.indices) {
+                    if (drop[i]) continue
+                    val g = raw[i] as? Item.Group ?: continue
+                    if (g.absorbError >= 0) continue
+                    if (failedHeads.contains(g.head)) continue
+                    if (g.members.any { groupHasSuccessSub(list[it]) }) continue
+                    val t = requestTextOf(list[g.head])
+                    if (t.isEmpty()) continue
+                    for (j in i + 1 until raw.size) {
+                        val g2 = raw[j] as? Item.Group ?: continue
+                        if (requestTextOf(list[g2.head]) != t) continue
+                        if (!groupHasSuccessSub(list[g2.head]) &&
+                            g2.members.none { groupHasSuccessSub(list[it]) } &&
+                            !failedHeads.contains(g2.head) && g2.absorbError < 0
+                        ) {
+                            // 后面还有一张同文孤儿 → 本张是重复
+                            if (withinSeconds(list[g.head].time, list[g2.head].time, 30)) {
+                                drop[i] = true
+                            }
+                            break
+                        }
+                        // 后面这张有结局（成功/失败）：交给上面的"同文成功"判据处理，这里不动
+                        break
+                    }
+                }
+                if (drop.any { it }) {
+                    val kept = ArrayList<Item>(raw.size)
+                    raw.forEachIndexed { idx, it -> if (!drop[idx]) kept.add(it) }
+                    raw.clear()
+                    raw.addAll(kept)
+                }
+            }
 
             // 插书条/章节签/日期签 + 建条目→列表项映射
             //
@@ -693,8 +784,25 @@ internal fun LogScreen(
     var pendingJumpToBottom by remember { mutableStateOf(false) }
     val visibleBookChapter by remember(currentGroups) {
         derivedStateOf {
-            val idx = listState.firstVisibleItemIndex
-            currentGroups.bookChapterAt(idx)
+            val vis = listState.layoutInfo.visibleItemsInfo
+            val firstIdx = listState.firstVisibleItemIndex
+            if (vis.isEmpty()) return@derivedStateOf currentGroups.bookChapterAt(firstIdx)
+            // ===== 11-13 晚（用户实报「必须等第2章正文跑到最顶上才变」）=====
+            // 旧口径只看 firstVisibleItemIndex：章标题已滚进屏幕顶部、但顶格那条还是上一章
+            // 的最后一句时，吸顶仍报上一章，看起来像"章名要等到正文顶格才动"。
+            // 现口径＝**章边界一进视口就切**（用户选定）：从视口首项往后扫，
+            // 遇到第一个章不同于基准的项就采用它的章——眼睛看到章标题，吸顶立刻跟上。
+            // 代价：标题刚露在屏幕最下沿时就会提前切，属用户明确接受的取舍。
+            val base = currentGroups.bookChapterAt(firstIdx)
+            val baseChapter = base.second
+            for (v in vis) {
+                val bc = currentGroups.bookChapterAt(v.index)
+                // 没有书章的行（日期签/插件行/旧日志）不参与判定
+                if (bc.first.isBlank()) continue
+                if (bc.second.isBlank()) continue
+                if (bc.second != baseChapter) return@derivedStateOf bc
+            }
+            base
         }
     }
     // 把视野书章抛给上层（吸顶区渲染在 LogScreen 外面）。
@@ -1496,6 +1604,21 @@ private fun groupTimeText(startEntry: LogEntry, endEntry: LogEntry?): String {
     val end = endRaw.drop(11).dropLast(4)
     return if (end != start) "$start→$end" else start
 }
+
+/** 请求行正文（去掉「请求音频：」前缀与 HTML 标签）：判「同文重复卡」用 */
+private fun requestTextOf(e: LogEntry): String =
+    e.message.replace(Regex("<[^>]*>"), "")
+        .substringAfter("请求音频：", "").trim()
+
+/**
+ * 某条日志是不是「成功的获取结果子行」。
+ * 取消子行也是 SUCCESS 级别（logS 唯一出口），必须按前缀排除，
+ * 否则一张「已取消」的卡会被当成成功卡，孤儿判据全失效。
+ */
+private fun groupHasSuccessSub(e: LogEntry): Boolean =
+    e.indent > 0 &&
+        e.level == LogLevel.SUCCESS &&
+        !e.message.replace(Regex("<[^>]*>"), "").startsWith(CANCEL_MARKER)
 
 /** 两个日志时间是否相隔不超过 seconds 秒（重试挂「上一张失败组」的身份校验用；格式 yyyy-MM-dd HH:mm:ss.SSS） */
 private fun withinSeconds(a: String, b: String, seconds: Int): Boolean {
