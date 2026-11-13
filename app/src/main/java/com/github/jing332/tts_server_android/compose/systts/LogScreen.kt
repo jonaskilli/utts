@@ -36,7 +36,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckBox
 import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.KeyboardDoubleArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
@@ -1751,7 +1751,7 @@ internal fun LogScreen(
                             }
                         } else {
                             Icon(
-                                Icons.Default.KeyboardDoubleArrowDown,
+                                Icons.Default.KeyboardArrowDown,
                                 stringResource(id = R.string.move_to_bottom),
                                 modifier = Modifier.size(20.dp),
                                 tint = MaterialTheme.colorScheme.onSecondaryContainer,
