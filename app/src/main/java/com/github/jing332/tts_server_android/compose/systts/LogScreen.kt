@@ -356,7 +356,13 @@ internal class LogGroups(
             var retryCount = 0
 
             fun closeCard() {
-                if (head >= 0) {
+                // 11-13 用户令（不显示档）：被用户掐断的请求**整组丢弃**——
+                // 请求行本身都不进列表。取消是主动操作，日志里留着只会占屏；
+                // 真正要排查的失败/成功都在。判据=成员里有取消子行。
+                val canceledGroup = head >= 0 && members.any {
+                    list[it].message.replace(Regex("<[^>]*>"), "").startsWith(CANCEL_MARKER)
+                }
+                if (head >= 0 && !canceledGroup) {
                     if (groupFailed) {
                         failedHeads.add(head)
                         raw.add(Item.Group(head, members.toList(), absorbError = errMemberIdx, retryCount = retryCount))
@@ -406,10 +412,15 @@ internal class LogGroups(
                     }
                     // 结果/子行：有卡归卡（SUCCESS 顺带收卡）；无卡=头部被筛掉的孤儿 → 裸行
                     e.indent > 0 -> {
+                        // 11-13「不显示」档：取消子行永不渲染。有卡时先挂进去让
+                        // closeCard 把整组丢弃；无卡（组已关/头被筛掉）也直接跳过，
+                        // 否则会退化成一条显示「〖已取消〗」的裸行
+                        val isCancelRow = e.message.replace(Regex("<[^>]*>"), "")
+                            .startsWith(CANCEL_MARKER)
                         if (head >= 0) {
                             members.add(i)
                             if (e.level == LogLevel.SUCCESS) closeCard()
-                        } else raw.add(Item.Bare(i))
+                        } else if (!isCancelRow) raw.add(Item.Bare(i))
                     }
                     // 规则日志一律落裸行（10-10 用户令：不进卡）。原「卡外悬置→下一张卡
                     // 做前置区」的机制整拆：搜索/筛选时收窄列表里经常没有跟得上的请求行，
@@ -1144,21 +1155,14 @@ internal fun LogScreen(
                             // failedHeads 也没记，旧兜底 `?: LogPill(FAIL,"失败")` 把空窗误画成红丸。
                             // 改为没有失败证据就不出丸（结果到了由 SUCCESS/failedHeads/源错误
                             // 接管），等待期行头只有时间，与「过程未知」的语义一致
-                            // 取消子行也用 SUCCESS 级别落盘（logS 唯一出口），必须排除，
-                            // 否则它会被当成「成功」，绿丸盖过灰丸
-                            val isCancelRow = { e: LogEntry ->
-                                e.message.replace(Regex("<[^>]*>"), "").startsWith(CANCEL_MARKER)
-                            }
+                            // 取消子行也是 SUCCESS 级别（logS 唯一出口），排除掉更稳
                             val successMember = memberEntries.firstOrNull {
-                                it.level == LogLevel.SUCCESS && !isCancelRow(it)
+                                it.level == LogLevel.SUCCESS &&
+                                    !it.message.replace(Regex("<[^>]*>"), "").startsWith(CANCEL_MARKER)
                             }
                             val pill = remember(item.head, successMember, absorbed, currentGroups) {
                                 when {
                                     successMember != null -> LogPill(LogPillKind.OK, "成功")
-                                    // 11-13：本次请求被取消（用户跳段/停止）——
-                                    // 灰丸「已取消」，不画红丸、不显示成员正文
-                                    memberEntries.any(isCancelRow) ->
-                                        LogPill(LogPillKind.CANCELED, "已取消")
                                     // 丸只报状态（10-12 用户令）：原来写「源错误」——那是**原因**，
                                     // 不该占丸位。现在一律「失败」，原因交给正文首行（服务端
                                     // 已改成「源错误：…」开头，见 SystemTtsService.errorEvent）
@@ -1450,10 +1454,6 @@ private fun isMatchEntry(e: LogEntry, q: String): Boolean =
 // 需要次数时看正文里的重试行（「开始第 N 次重试」原文照旧保留）。
 private fun pillOf(e: LogEntry, entryIndex: Int, failedHeads: Set<Int> = emptySet()): LogPill? {
     val msg = e.message.replace(Regex("<[^>]*>"), "")
-    // 11-13 用户令（灰丸档）：被跳段/停止打断的请求标「已取消」。
-    // 判据是服务端在取消时补的子行「⟨取消⟩」，与失败（ERROR）严格区分——
-    // 取消是用户主动操作，不是异常，不能标红当失败。
-    if (msg.startsWith(CANCEL_MARKER)) return LogPill(LogPillKind.CANCELED, "已取消")
     return when {
         e.configId != 0L -> when {
             e.level == LogLevel.SUCCESS -> LogPill(LogPillKind.OK, "成功")
@@ -1536,6 +1536,8 @@ private fun tailTextOfRow(e: LogEntry): String? {
     return if (clipped) out.toString().trimEnd() + "…" else reordered
 }
 
+// 11-13：CANCELED 暂不产出——用户选定「不显示」档，取消请求整组丢弃。
+// 枚举与配色保留（when 需穷尽），将来若要改回灰丸档可直接启用。
 internal enum class LogPillKind { OK, FAIL, RETRY, STANDBY, CANCELED }
 internal data class LogPill(val kind: LogPillKind, val text: String)
 
