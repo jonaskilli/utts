@@ -1617,7 +1617,9 @@ internal fun LogScreen(
                                     isMatch = isMatchEntry(head, searchQuery),
                                     // 排版实验 1008（C）：只染"请求音频："前缀，正文回默认色
                                     isRequestHead = true,
-                                    highlight = head == locateHighlight,
+                                    highlight = head == locateHighlight ||
+                                        // 11-14 一键复位：滚达后短暂高亮 2 秒（与搜索定位同视觉）
+                                        head == resumeHighlightEntry,
                                 )
                                 }
                                 // 过程成员行（10-10 用户令终版）：失败丸行（时间+丸，无文字）
