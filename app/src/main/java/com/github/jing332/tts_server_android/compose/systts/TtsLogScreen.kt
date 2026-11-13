@@ -1626,6 +1626,18 @@ private fun PinnedLogHeader(
                 else -> viewChapter.ifBlank { chapter }
             }
             val chapLabel = shortChapterLabel(shownChapter).let { if (it.isBlank()) "" else " $it" }
+            // 11-14 播放进度后缀（用户定稿：书章行章名后加「（3/25）」）：
+            // 只在书章行显示的章 == 播放章时才挂（筛选到别的书/翻到别的章时
+            // 对不上，宁可隐藏也不张冠李戴）；取数=快照 segIndex/totalSegs。
+            // 未筛选态同样挂（灰字分支同款后缀，见下方两分支）。
+            val playingProgressSuffix = playingSnap?.let { snap ->
+                val isPlayChapter = shownBook == snap.book &&
+                    shortChapterLabel(shownChapter) == shortChapterLabel(snap.chapterTitle)
+                if (snap.playing && isPlayChapter && snap.totalSegs > 0 && snap.segIndex >= 0) {
+                    val done = (snap.segIndex + 1).coerceAtMost(snap.totalSegs)
+                    "（${done}/${snap.totalSegs}）"
+                } else ""
+            } ?: ""
 
             // 左侧信息槽：占满行内剩余宽度，右侧两个按钮先量、先占位。
             // 槽内书名可省略，章名不让位——长书名不能把「第N章」或右侧按钮挤没。
@@ -1662,7 +1674,7 @@ private fun PinnedLogHeader(
                             )
                             if (chapLabel.isNotBlank()) {
                                 Text(
-                                    text = chapLabel,
+                                    text = chapLabel + playingProgressSuffix,
                                     style = MaterialTheme.typography.labelSmall,
                                     fontSize = 11.sp,
                                     color = MaterialTheme.colorScheme.primary,
@@ -1712,7 +1724,7 @@ private fun PinnedLogHeader(
                             )
                             if (chapLabel.isNotBlank()) {
                                 Text(
-                                    text = chapLabel,
+                                    text = chapLabel + playingProgressSuffix,
                                     style = MaterialTheme.typography.bodySmall,
                                     fontSize = 11.5.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1770,15 +1782,17 @@ private fun PinnedLogHeader(
             val synthTotal = snap.synthTotalSegs
             val playDone = (snap.segIndex + 1).coerceAtLeast(0)
             val playTotal = snap.totalSegs
+            // 用户定稿两分支：
+            //   同章：后台合成 3/25        ← 书章行已显示当前章，第二行不重复
+            //   跨章：后台合成 第6章 1/35  ← 括号不再带播放进度（播放进度已在书章行的（3/25）里）
             val text = buildString {
                 append("后台合成 ")
-                if (synthName.isNotBlank()) append("$synthName ") else append("第${synthIdx + 1}章 ")
-                if (synthTotal > 0) append("${synthDone.coerceAtMost(synthTotal)}/$synthTotal")
-                if (!sameChapter && playTotal > 0) {
-                    append("（当前：")
-                    if (playName.isNotBlank()) append("$playName ") else append("第${snap.chapterIndex + 1}章 ")
-                    append("${playDone.coerceAtMost(playTotal)}/$playTotal")
-                    append("）")
+                if (!sameChapter) {
+                    if (synthName.isNotBlank()) append("$synthName ") else append("第${synthIdx + 1}章 ")
+                    if (synthTotal > 0) append("${synthDone.coerceAtMost(synthTotal)}/$synthTotal")
+                } else if (snap.totalSegs > 0) {
+                    val done = (snap.segIndex + 1).coerceAtMost(snap.totalSegs)
+                    append("${done}/${snap.totalSegs}")
                 }
             }
             Row(
