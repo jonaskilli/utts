@@ -111,10 +111,35 @@ fun neutralCardColor(): Color = MaterialTheme.colorScheme.surfaceContainerLow
  */
 @Composable
 fun keyGroupHeaderColor(): Color {
+    // ===== 11-13 晚（用户令「要换，统一下……这都是跟主题色配套的」）=====
+    // 原公式 lerp(secondaryContainer, background, 0.55f) → 绿主题 #EAF8ED，
+    // 与「书籍框/角色标签」的 softFillColor()（#E7F7EC）只差 3 个色阶，
+    // 肉眼看不出但**公式是两套**：调色时要改两处，且紫/雾/墨三套各自的落点也略有出入。
+    // 现统一委托给 softFillColor()，全站「浅填充绿」只有一个来源。
+    //
+    // 历史保留：上一版为什么那么写、绿主题逐通道核对过程见上方注释——
+    // 那些结论（#EAF7EF 才是用户记的老绿）仍然有效，只是不再单独实现一遍。
+    return softFillColor()
+}
+
+/**
+ * 全站「浅填充色」单一来源（11-13 晚统一）。
+ *
+ * 用在：角色列表标签框、换声面板分段选中态、**书籍框填充**、**日志页章首底色**、
+ * **密钥管理组头色带**——凡是「需要一层比页底略深/略彩、又不抢正文的浅底」都走这里。
+ *
+ * 浅色 `lerp(secondaryContainer, White, 0.42)`，绿主题算出 **#E7F7EC**；
+ * 深色往上一级浅槽混，保持"底色比页底亮一档"的原关系（往白里混会糊成中灰）。
+ *
+ * ⚠️ 调浓度时**只改这里**，别再各处写 lerp——否则又会出现「一大一小两档绿」
+ * （这个坑 11-11 已经踩过一次）。
+ */
+@Composable
+fun softFillColor(): Color {
     val cs = MaterialTheme.colorScheme
     return if (cs.background.luminance() > 0.5f)
-        lerp(cs.secondaryContainer, cs.background, 0.55f)
-    else lerp(cs.secondaryContainer, neutralCardColor(), 0.30f)
+        lerp(cs.secondaryContainer, Color.White, 0.42f)
+    else lerp(cs.secondaryContainer, cs.surfaceContainerHighest, 0.42f)
 }
 
 /**

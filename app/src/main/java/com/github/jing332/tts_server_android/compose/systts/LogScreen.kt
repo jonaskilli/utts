@@ -91,6 +91,8 @@ import com.github.jing332.compose.ComposeExtensions.toAnnotatedString
 import com.github.jing332.compose.widgets.ControlBottomBarVisibility
 import com.github.jing332.tts_server_android.R
 import com.github.jing332.tts_server_android.compose.systts.role.softContainerColor
+// 11-13 晚：章首日志底色与书籍框/角色标签同款绿（用户令「还是那个书籍框那个填充率」）
+import com.github.jing332.tts_server_android.compose.systts.role.softFillBarColor
 import com.github.jing332.tts_server_android.compose.theme.logLevelColor
 import com.github.jing332.tts_server_android.compose.LocalBottomBarBehavior
 import kotlinx.coroutines.launch
@@ -1343,21 +1345,18 @@ internal fun LogScreen(
                                     // 行间用纵向间距分隔（首行顶 6dp，行与行 8dp 由外层间隔表达——
                                     // 这里用统一 vertical 6dp，视觉等同旧行距但无线）
                                     .fillMaxWidth()
-                                    // ===== 11-13 晚（用户令「还是给章节日志加底色，用主题色」）=====
-                                    // 换章后的第一条日志整行铺一层主题色淡底，作为章边界标记。
-                                    // 字号/字重/内衬一律不动（用户明确「字号也不用变，用以前的」）。
-                                    //
-                                    // ⚠️ 值取 primary 10%（绿主题 seed #109D58 → 页底上约 #E0F0E6）。
-                                    // 为什么不取 6%：6% 混出来是 #E9F3ED，与日期签的 #DAF2E2 太近
-                                    // ——而「章节标记和日期标记要能分开」正是这一 wheel 的起点，
-                                    // 太淡就退回原来的问题。10% 与日期签拉开，又仍轻于正文。
-                                    // 判据走 isChapterHead(列表项下标)，查 build 时建好的章表，
-                                    // 滚动热路径上只是一次数组比较。
+                                    // ===== 11-13 晚（用户令，二改）=====
+                                    // 「章节签日志颜色保持原样，不要加绿，只是这条底色变绿了，
+                                    //   还是那个书籍框那个填充率」
+                                    // 即：①只有**底色**用绿，文字（时间/成功丸/正文/发音人信息）
+                                    //      全部保持原色，不染绿、不加粗；
+                                    //    ②绿色取**书籍框那一档** = role 模块现成的
+                                    //      softFillBarColor()（lerp(secondaryContainer, White, 0.42)
+                                    //      → 绿主题 #E7F7EC），不是我自己算的 primary 10%。
+                                    // 与角色列表标签框、换声面板选中态、书籍框填充同源同值。
                                     .then(
                                         if (currentGroups.isChapterHead(itemIndex))
-                                            Modifier.background(
-                                                MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
-                                            )
+                                            Modifier.background(softFillBarColor())
                                         else Modifier
                                     )
                                     .padding(horizontal = 16.dp, vertical = 6.dp)

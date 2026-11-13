@@ -80,6 +80,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.drake.net.utils.withIO
 import com.github.jing332.common.utils.limitByDisplayWidth
 import com.github.jing332.tts_server_android.compose.theme.pluginChipColor
+// 11-13 晚：浅填充色单一来源下沉到 theme 包（组头/章首底/书籍框共用一份实现）
+import com.github.jing332.tts_server_android.compose.theme.softFillColor
 import com.github.jing332.common.ACCENT_GREEN
 import com.github.jing332.tts_server_android.compose.theme.AppShapes
 import com.github.jing332.tts_server_android.compose.systts.common.PreviewIconButton
@@ -251,13 +253,13 @@ internal fun softContainerColor(): Color = softFillBarColor()
  */
 @Composable
 internal fun softFillBarColor(): Color {
-    val cs = MaterialTheme.colorScheme
-    // 深色必须单独一档：往白里混 42% 会得到 #868C88 这种中灰块（对深页底 5.36），
-    // 底上的浅色文字对比只剩 2.47——直接糊掉。深色改为往上一级浅槽混，
-    // 保持"底色比页底亮一档"的原关系（对页底 1.55、文字对比 8.4）。
-    return if (cs.background.luminance() > 0.5f)
-        lerp(cs.secondaryContainer, Color.White, 0.42f)
-    else lerp(cs.secondaryContainer, cs.surfaceContainerHighest, 0.42f)
+    // ===== 11-13 晚：实现下沉到 theme.softFillColor()，这里只做委托 =====
+    // 原因：密钥管理组头、日志页章首底色也要用同一档绿，若各写一份 lerp，
+    // 就又回到「多处复制、调色只改一处」的老坑（本函数上方注释描述的正是这个问题）。
+    // 现全站唯一实现在 theme/Theme.kt 的 softFillColor()；
+    // 本函数保留原名与 internal 可见性，避免改动调用点（SegmentedTextToggle、
+    // BackupDialog 等都按这个名字 import）。
+    return softFillColor()
 }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
