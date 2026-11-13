@@ -36,6 +36,10 @@ object ReadProgressReader {
         val totalSegs: Int,
         val segText: String = "",
         val atMs: Long,
+        // 合成前沿（U阅 合成循环每笔提交时刷新；预取跨章时与播放章不同）
+        val synthChapterIndex: Int = -1,
+        val synthSegIndex: Int = -1,
+        val synthChapterTitle: String = "",
     )
 
     private data class Cache(val mtime: Long, val size: Long, val snap: Snapshot)
@@ -60,6 +64,9 @@ object ReadProgressReader {
                 totalSegs = obj.optInt("totalSegs", 0),
                 segText = obj.optString("segText"),
                 atMs = obj.optLong("at", 0L),
+                synthChapterIndex = obj.optInt("synthChapterIndex", -1),
+                synthSegIndex = obj.optInt("synthSegIndex", -1),
+                synthChapterTitle = obj.optString("synthChapterTitle"),
             )
             cached = Cache(mtime, size, snap)
             validOrNull(snap)

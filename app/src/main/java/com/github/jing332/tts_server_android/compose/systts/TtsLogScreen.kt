@@ -217,11 +217,6 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
     // playingSnap：轮询 readProgress.json（U阅 段切换时写）。快照带 mtime/size 缓存，
     // 轮询本身只是 stat 一次文件，成本可忽略；文件没变时直接命中缓存不读盘。
     //
-    // synthesizedInRange（进度分子）：「从正在朗读段到章末」范围里已合成好的段数。
-    // 判据 = 日志里出现「获取成功」子行且正文能对上该范围某段的文本——日志没有
-    // 段号，只能按正文对：把成功行的 boldBody 拿去比对段文本前缀（U阅 段切分与
-    // 请求文本同源，前缀匹配可靠；省略号截断只发生在尾部，前缀不受影响）。
-    // 口径（用户拍板）：分母 = 当前段到章末，跳段自动重算。
     val playingSnap by produceState(
         initialValue = null,
         producer = {
@@ -231,24 +226,17 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
             }
         }
     )
-    val synthesizedInRange = remember(playingSnap, vm.logs) {
-        val snap = playingSnap ?: return@remember 0
-        if (!snap.playing || snap.segIndex < 0) return@remember 0
-        // 章范围 = segIndex ..< totalSegs；成功行的正文前缀集合
-        // 近似口径：数「请求音频」主行正文以当前段前缀开头的笔数。
-        // （成功子行不携带正文无法逐笔对齐；请求行出现即已提交引擎，取消后必重提，
-        //  所以"出现过"≈"已合成或正在合成"。取 min(count, remain) 由调用方钳制。）
-        var count = 0
-        vm.logs.forEach { e ->
-            if (e.bookName.isNotBlank() && e.indent == 0 && e.configId != 0L) {
-                val body = boldBodyOf(e)
-                if (body.isNotEmpty() && snap.segText.isNotBlank() &&
-                    body.startsWith(snap.segText.take(12))
-                ) count++
-            }
-        }
-        count
-    }
+    // ===== 11-14 合成侧三值（进度行数据源）=====
+    // 数据来自快照的合成前沿字段（U阅 合成循环每笔提交时刷新，见 ReadProgressFile.
+    // reportSynthFront）；「多合几段」= 前沿段号 - 播放段号，仅同章时可减（预取跨章时
+    // 前沿在下一章，"多合几段"跨章无意义，此时只报章名与正在合第几段）。
+    val synthesizedChapter = playingSnap?.synthChapterTitle.orEmpty()
+    val synthesizedAhead = playingSnap?.let { snap ->
+        if (snap.synthChapterIndex == snap.chapterIndex &&
+            snap.synthSegIndex >= snap.segIndex
+        ) snap.synthSegIndex - snap.segIndex else -1
+    } ?: -1
+    val synthesizedSegIdx = playingSnap?.synthSegIndex ?: -1
 
     // 归组结果（10-06 全链卡）：与 LogScreen 共用同一实例——搜索跳转要把条目下标
     // 换算成列表项下标（一张卡=一个列表项），必须用同一份归组才不会错位
@@ -702,9 +690,8 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                     // 正在朗读的书（与筛选无关）：用于"筛着 A 在读 B"的跳转提示条
                     readingBook = readingBook,
                     readingChapter = readingChapter,
-                    // 11-14 后台合成进度行：快照 + 分子（书章行下方那行小字）
+                    // 11-14 后台合成进度行：快照（章名/多合段数/正在合第几段）
                     playingSnap = playingSnap,
-                    synthesizedInRange = synthesizedInRange,
                 )
                 if (vm.logs.isNotEmpty())
                 HorizontalDivider(
@@ -1498,8 +1485,6 @@ private fun PinnedLogHeader(
     // 11-14「正在朗读」播放快照（ReadProgressReader.read()）：非空时
     // ①书章行下渲染进度行 ②传给 LogScreen 做卡片描边与复位浮钮。null=没在朗读。
     playingSnap: com.github.jing332.tts_server_android.service.systts.help.ReadProgressReader.Snapshot? = null,
-    // 分子：正在朗读段到章末范围内已合成的段数（UTTS 自算，见 TtsLogScreen 调用处）
-    synthesizedInRange: Int = 0,
 ) {
     Column(
         Modifier
@@ -1768,48 +1753,58 @@ private fun PinnedLogHeader(
             //（用户 11-11 选 B 方案：一个动作一个入口）。
         }
 
-        // ===== ③-b 后台合成进度行（11-14 新增，用户定稿）=====
-        // 书章行正下方一行纯文字小字：11.5sp（吸顶区小字档，与书名/章名同档），不吸顶、不进日志流。
-        // 内容「后台合成 23/37 · 62%」：
-        //   分母 = 从正在朗读段到章末的段数（用户拍板口径：跟播放走，跳段自动重算；
-        //     分母用全章会在"半中间开始读"时永远跑不满，误判成卡住）
-        //   分子 = 其中 UTTS 已合成好的段数（synthesizeToFile 成功落缓存的计数）
-        // 没在朗读（快照空/过期）整行隐藏，书章行高度不变。
+        // ===== ③-b 后台合成进度行（11-14 新增；同日改口：去百分比/全章占比，
+        // 改报「当前章 · 比播放多合成了几段 · 正在合第几段」）=====
+        //
+        // 用户原话：「13/28 这是啥意思？……想看的还有比当前多合成了几段，
+        // 至于整个章节合成了百分之多少我不关心」。
+        //
+        // 三个数字，各答一个问题：
+        //   《第六章》          ← 正在合的是哪一章（预取可能已跨章，播放章≠合成章）
+        //   多合 5 段           ← 合成前沿领先播放位置多少段（你最关心的那个数：
+        //                          它越大，你接下来随便跳都不用等）
+        //   正在合第 3 段       ← 该章内合成进行到的段号（体感"快好了没有"）
+        //
+        // 数据：章名与段号来自快照（U阅 写的合成侧信息——注：快照是播放侧，
+        // 合成侧章/段由 UTTS 自己从 in-flight 请求行提取，见 synthesizedAhead 计算）。
+        // 没在朗读整行隐藏。
         playingSnap?.let { snap ->
-            val remain = (snap.totalSegs - snap.segIndex).coerceAtLeast(0)
-            if (remain > 0) {
-                val done = synthesizedInRange.coerceIn(0, remain)
-                val pct = done * 100 / remain
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 17.dp, end = 16.dp, bottom = 7.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = buildString {
-                            append("后台合成 ")
-                            append("$done/$remain")
-                            if (done < remain) append(" · 合成中")
-                            else append(" · 已备完")
-                        },
-                        style = MaterialTheme.typography.labelSmall,
-                        // 11.5sp = 吸顶区小字档（书名/章名同档），不新开 10.5 孤例
-                        //（全站 10.5sp 只有日志文件弹窗的等宽预览在用，性质不同）
-                        fontSize = 11.5.sp,
-                        // 进度行灰=时间/尾串同档灰（onSurfaceVariant），不引入孤例
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.weight(1f),
-                    )
-                    Text(
-                        text = "$pct%",
-                        style = MaterialTheme.typography.labelSmall,
-                        fontSize = 11.5.sp,
-                        // 百分比=主题主色（与成功丸字色同源，读出"这是正向状态"）
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Medium,
-                    )
-                }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 17.dp, end = 16.dp, bottom = 7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = buildString {
+                        append("后台合成")
+                        synthesizedChapter.takeIf { it.isNotBlank() }?.let {
+                            append(" · ")
+                            append(shortChapterLabel(it))
+                        }
+                        if (synthesizedAhead > 0) {
+                            append(" · 多合 ")
+                            append(synthesizedAhead)
+                            append(" 段")
+                        } else {
+                            append(" · 与播放持平")
+                        }
+                        synthesizedSegIdx.takeIf { it >= 0 }?.let {
+                            append(" · 正在合第 ")
+                            append(it + 1)
+                            append(" 段")
+                        }
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    // 11.5sp = 吸顶区小字档（书名/章名同档），不新开 10.5 孤例
+                    //（全站 10.5sp 只有日志文件弹窗的等宽预览在用，性质不同）
+                    fontSize = 11.5.sp,
+                    // 灰=时间/尾串同档灰（onSurfaceVariant），不引入孤例
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
             }
         }
 
