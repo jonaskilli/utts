@@ -40,6 +40,7 @@ object ReadProgressReader {
         val synthChapterIndex: Int = -1,
         val synthSegIndex: Int = -1,
         val synthChapterTitle: String = "",
+        val synthTotalSegs: Int = 0,
     )
 
     private data class Cache(val mtime: Long, val size: Long, val snap: Snapshot)
@@ -67,6 +68,7 @@ object ReadProgressReader {
                 synthChapterIndex = obj.optInt("synthChapterIndex", -1),
                 synthSegIndex = obj.optInt("synthSegIndex", -1),
                 synthChapterTitle = obj.optString("synthChapterTitle"),
+                synthTotalSegs = obj.optInt("synthTotalSegs", 0),
             )
             cached = Cache(mtime, size, snap)
             validOrNull(snap)

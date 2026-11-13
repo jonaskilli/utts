@@ -1769,6 +1769,33 @@ private fun PinnedLogHeader(
         // 合成侧章/段由 UTTS 自己从 in-flight 请求行提取，见 synthesizedAhead 计算）。
         // 没在朗读整行隐藏。
         playingSnap?.let { snap ->
+            // 用户定稿格式（融合旧 1/32 与章名双信息）：
+            //   跨章预取（合成章≠播放章）：「后台合成 第6章 1/35（当前：第5章3/25）」
+            //   同章（常态）：                「后台合成 第6章 3/25」
+            // 括号段=播放位置（用户耳朵所在），括号外=合成前沿——一眼看出领先了多少。
+            // 分子=该章已完成段数（按正文前缀匹配数过），分母=该章总段数。
+            val synthIdx = snap.synthChapterIndex
+            val synthName = shortChapterLabel(snap.synthChapterTitle)
+            val playName = shortChapterLabel(snap.chapterTitle)
+            val sameChapter = synthIdx == snap.chapterIndex
+            // 合成章已完成数：以「正在朗读丸+成功」的近似口径计——直接数该章内
+            // 正文前缀已出现过请求行的段数上限不可靠，改用前沿段号+1（前沿之前的
+            // 都提交过了；跨章预取按章内顺序合，段号即进度）。
+            val synthDone = (snap.synthSegIndex + 1).coerceAtLeast(0)
+            val synthTotal = snap.synthTotalSegs
+            val playDone = (snap.segIndex + 1).coerceAtLeast(0)
+            val playTotal = snap.totalSegs
+            val text = buildString {
+                append("后台合成 ")
+                if (synthName.isNotBlank()) append("$synthName ") else append("第${synthIdx + 1}章 ")
+                if (synthTotal > 0) append("${synthDone.coerceAtMost(synthTotal)}/$synthTotal")
+                if (!sameChapter && playTotal > 0) {
+                    append("（当前：")
+                    if (playName.isNotBlank()) append("$playName ") else append("第${snap.chapterIndex + 1}章 ")
+                    append("${playDone.coerceAtMost(playTotal)}/$playTotal")
+                    append("）")
+                }
+            }
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1776,25 +1803,7 @@ private fun PinnedLogHeader(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = buildString {
-                        append("后台合成")
-                        synthesizedChapter.takeIf { it.isNotBlank() }?.let {
-                            append(" · ")
-                            append(shortChapterLabel(it))
-                        }
-                        if (synthesizedAhead > 0) {
-                            append(" · 多合 ")
-                            append(synthesizedAhead)
-                            append(" 段")
-                        } else {
-                            append(" · 与播放持平")
-                        }
-                        synthesizedSegIdx.takeIf { it >= 0 }?.let {
-                            append(" · 正在合第 ")
-                            append(it + 1)
-                            append(" 段")
-                        }
-                    },
+                    text = text,
                     style = MaterialTheme.typography.labelSmall,
                     // 11.5sp = 吸顶区小字档（书名/章名同档），不新开 10.5 孤例
                     //（全站 10.5sp 只有日志文件弹窗的等宽预览在用，性质不同）
