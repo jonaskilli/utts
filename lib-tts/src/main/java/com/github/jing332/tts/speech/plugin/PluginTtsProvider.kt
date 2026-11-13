@@ -9,6 +9,7 @@ import com.github.jing332.tts.speech.TextToSpeechProvider
 import com.github.jing332.tts.speech.plugin.engine.TtsPluginEngineV2
 import com.github.jing332.tts.synthesizer.SystemParams
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
 import java.io.InputStream
 
 open class PluginTtsProvider(
@@ -53,15 +54,32 @@ open class PluginTtsProvider(
                 timeoutMs = params.requestTimeout
             ) ?: throw IllegalStateException("Engine not initialized: ${plugin.pluginId}")
         } catch (e: CancellationException) {
-            // 取消/超时（停止朗读、清空重读、破窗重发）：
-            // runWithTimeout 只是 future.cancel(true)，Rhino 不响应中断——被取消的插件调用
-            // 会在后台继续跑，插件的忙标志 / WS 会话停在半脏状态。此时若只重置 state 而
-            // 保留引擎，下一笔请求会撞上「请等待当前请求完成」「Object PluginJS not found」
-            // 或 WS Broken pipe（11-13 真机日志实锤，导致重试风暴与整段卡住）。
-            // 因此取消即作废引擎：移出缓存并异步销毁（removeEngine 内部用独立线程池，
-            // 不会因 onDestroy 的同步脚本调用阻塞本次取消），下一次请求重建干净引擎。
+            // ===== 11-13 晚：取消后「作废引擎 or 保留引擎」折中（用户选定）=====
+            //
+            // 背景：11-13 白天实装「取消即作废引擎」，治好了「请等待当前请求完成 /
+            // Object PluginJS not found / WS Broken pipe」那套重试风暴，代价是
+            // **每次用户跳段/翻页都要重建引擎**。真机日志实测重建开销可观：
+            // 用户 7 分钟里 15 次 Engine timeout destroy，其中 8 次紧跟 -3（取消）之后，
+            // 每次重建 1~4 秒，期间新请求只能排队 —— 用户体感就是"跳段后要等一下才出声"。
+            //
+            // 折中：按取消的**来路**分档，只对"脏风险高"的那类作废引擎。
+            //   · 超时（TimeoutCancellationException，withTimeout 抛出，它是
+            //     CancellationException 的子类）→ 插件本身处理慢/卡住，引擎内部
+            //     状态高度可疑：**照旧作废重建**，与旧行为完全一致。
+            //   · 其它取消 = 用户主动停止/翻页/跳段、U阅 stop()、破窗重发 →
+            //     这是我们自己的调度掐断的，插件通常停在干净位置：**只重置 state，
+            //     保留引擎**，下一笔直接用，省掉 1~4 秒重建。
+            //
+            // 保留档的兜底自愈：万一下一笔真撞上脏状态，合成会失败 → 正常重试链
+            // 递增 retries → 重试前也会 removeEngine 重建（见 AbstractMixSynthesizer
+            // 的 retry()），等价于旧行为、只多花一次重试；不会比"每次都重建"更差地卡死。
+            //
+            // 想恢复旧行为（一律作废）：删掉下面的 isTimeout 判断，回到无条件 removeEngine。
+            val isTimeout = e is TimeoutCancellationException
             state = EngineState.Uninitialized()
-            runCatching { CachedEngineManager.removeEngine(source) }
+            if (isTimeout) {
+                runCatching { CachedEngineManager.removeEngine(source) }
+            }
             throw e
         } catch (e: Exception) {
             // 发生网络或其他异常时，重置引擎状态并强制销毁
