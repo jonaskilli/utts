@@ -479,7 +479,18 @@ internal class LogGroups(
                     // 卡内也不再吸收规则行，避免分析行挂在无关请求卡顶造成误导
                     e.isSpeechRuleLog -> raw.add(Item.Bare(i))
                     // "请求音频"主行：开新卡（旧卡先收）
-                    e.configId != 0L -> openCard(i)
+                    // 11-14 修「同毫秒双卡并成一坨」（用户截图实报三处混串：第二条请求行
+                    // 挤进前一张卡、整行变绿字 13sp、成功丸尾串与获取成功行字段错配）：
+                    // 旧判据只看 configId != 0。请求行的 configId 来自 logback MDC
+                    //（SystemTtsService 在 logI 前 put、finally 里 remove）——并发两笔
+                    // 同毫秒开卡时若某笔的 configId 意外为 0（MDC 时序窗口，真机截图
+                    // 复现过一次），该行就会掉进下面的 else 分支被当成前一张卡的
+                    // **成员行**渲染：成员行不传 isRequestHead → INFO 走主题绿 + 13sp，
+                    // 正是截图里「请求音频整行变绿、字号变小」的那一行。
+                    // 修法＝双判据取或：消息以「请求音频」开头也认定是主行。
+                    // 该前缀只由请求行产生（logI("请求音频：…") 唯一调用点），不会误伤；
+                    // configId 正常时行为不变，异常时兜回主行，最坏退化=多开一张卡。
+                    (e.configId != 0L || e.message.startsWith("请求音频")) -> openCard(i)
                     // 其他主行（重试/备用TTS/兜底发音人/系统消息）：有卡归卡，ERROR=失败
                     // 终点收卡（标记 groupFailed）；无卡落裸行——失败链不再悬置并组（10-10 终案）
                     else -> {
