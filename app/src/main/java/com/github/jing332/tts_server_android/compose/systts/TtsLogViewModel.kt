@@ -493,6 +493,15 @@ class TtsLogViewModel : ViewModel() {
 
 
     private fun toLogEntry(line: String): LogEntry {
+        // 11-13 修「获取成功」孤行（用户实报：上一行请求音频已有成功标志，下一行又
+        // 单独一条获取成功）：logS 落盘时 indent **没写进行格式**（见
+        // SystemTtsService.logS 的 FileWriter 段），回读解析不出子行标记 →
+        // LogScreen 的 indent>0 分支进不去 → 配置项也是空（configId 留空占位）→
+        // 既不进组也不开卡，落成独立裸行。live 内存路径带 indent=1 显示正常，
+        // 只有历史行/重启后/清空重读可见此问题。
+        // 修法（最小侵入）：「获取成功：」前缀只由 logS(SUCCESS, indent=1) 产生，
+        // 回读时据此还原子行身份；若日后新增其他子行前缀，走落盘格式加字段的路。
+        val isAcquiredSuffix = line.contains("获取成功：")
         // 带书章的新格式（11-10，v1.7 规则）：
         //   time | LEVEL | configId | roleName | §bookName | chapterTitle | message
         // 判别靠 bookName 前的固定标记 §：旧日志行里没有这一节，不会误判；正文里的 " | "
@@ -509,6 +518,7 @@ class TtsLogViewModel : ViewModel() {
                 roleName = m.groupValues[4],
                 bookName = m.groupValues[5],
                 chapterTitle = m.groupValues[6],
+                indent = if (isAcquiredSuffix) 1 else 0,
             )
         }
         // 新格式（09-08）：time | LEVEL | configId | roleName | message —— configId/roleName
@@ -522,6 +532,7 @@ class TtsLogViewModel : ViewModel() {
                 message = m.groupValues[5],
                 configId = m.groupValues[3].toLongOrNull() ?: 0L,
                 roleName = m.groupValues[4],
+                indent = if (isAcquiredSuffix) 1 else 0,
             )
         }
         // MDC 全空的变体（无 configId 的系统级日志）：configId/roleName 落盘为空段，
@@ -534,6 +545,7 @@ class TtsLogViewModel : ViewModel() {
                 level = m.groupValues[2].toLogLevel(),
                 time = m.groupValues[1],
                 message = m.groupValues[3],
+                indent = if (isAcquiredSuffix) 1 else 0,
             )
         }
         // 旧格式：time | LEVEL | message（message 可含 " | "，需全量重组）
@@ -542,7 +554,8 @@ class TtsLogViewModel : ViewModel() {
             val level = it[1]
             val message = it.drop(2).joinToString(" | ")
             LogEntry(
-                level = level.toLogLevel(), time = time, message = message
+                level = level.toLogLevel(), time = time, message = message,
+                indent = if (isAcquiredSuffix) 1 else 0,
             )
         }
     }
