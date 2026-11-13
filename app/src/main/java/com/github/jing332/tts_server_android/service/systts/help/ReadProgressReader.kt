@@ -31,6 +31,7 @@ object ReadProgressReader {
     data class Snapshot(
         val playing: Boolean,
         val book: String,
+        val chapterTitle: String = "",
         val chapterIndex: Int,
         val segIndex: Int,
         val totalSegs: Int,
@@ -60,6 +61,7 @@ object ReadProgressReader {
             val snap = Snapshot(
                 playing = obj.optBoolean("playing", false),
                 book = obj.optString("book"),
+                chapterTitle = obj.optString("chapterTitle"),
                 chapterIndex = obj.optInt("chapterIndex", -1),
                 segIndex = obj.optInt("segIndex", -1),
                 totalSegs = obj.optInt("totalSegs", 0),

@@ -1393,7 +1393,7 @@ internal fun LogScreen(
                             val groupHeadTime = groupTimeText(
                                 head,
                                 successMember ?: absorbed,
-                                keepRange = failedHeads.contains(item.head) ||
+                                keepRange = currentGroups.failedHeads.contains(item.head) ||
                                     (successMember == null && absorbed == null && head.level == LogLevel.ERROR),
                             )
                             // 行流定稿（10-10 用户令）：成功=行头绿丸+灰数字，成员区整撤

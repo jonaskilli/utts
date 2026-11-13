@@ -219,7 +219,7 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
     // playingSnap：轮询 readProgress.json（U阅 段切换时写）。快照带 mtime/size 缓存，
     // 轮询本身只是 stat 一次文件，成本可忽略；文件没变时直接命中缓存不读盘。
     //
-    val playingSnap by produceState(
+    val playingSnap by produceState<com.github.jing332.tts_server_android.service.systts.help.ReadProgressReader.Snapshot?>(
         initialValue = null,
         producer = {
             while (true) {
@@ -696,6 +696,8 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                         vm.scopeChapter.value = null
                     },
                     onSwitchChapter = { b, c -> jumpToChapter(b, c) },
+                    knownBooks = vm.knownBooks,
+                    chaptersOf = { b -> vm.chaptersOf(b) },
                     // 筛选条件（与"视野"分开）：null=不限
                     scopeBook = vm.scopeBook.value,
                     scopeChapter = vm.scopeChapter.value,
@@ -716,7 +718,7 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                     // 正在朗读的书（与筛选无关）：用于"筛着 A 在读 B"的跳转提示条
                     readingBook = readingBook,
                     readingChapter = readingChapter,
-                    // 11-14 后台合成进度行：快照（章名/多合段数/正在合第几段）
+                    // 11-14 后台合成进度行 + 快照（内部自算书章行后缀）
                     playingSnap = playingSnap,
                 )
                 if (vm.logs.isNotEmpty())
@@ -1491,6 +1493,10 @@ private fun PinnedLogHeader(
     chapterCount: Int,
     onSwitchBook: (String) -> Unit,
     onSwitchChapter: (String, String) -> Unit,
+    // 11-14 书章下拉数据源：书列表 / 某书的章列表（含条数）——由调用方从 vm 取，
+    // 子组件不直接摸 vm（此前 CI 红：PinnedLogHeader 内引用主作用域 vm）。
+    knownBooks: List<String> = emptyList(),
+    chaptersOf: (String) -> List<Pair<String, Int>> = { emptyList() },
     // 11-11 用户定案「全部日志 + 其下方筛选」：
     //   · scopeBook / scopeChapter 是**筛选条件**（null=不限）；
     //   · viewBook / viewChapter 是**跟随滚动的视野信息**（当前看到哪本书哪一章）。
@@ -1511,6 +1517,7 @@ private fun PinnedLogHeader(
     // 11-14「正在朗读」播放快照（ReadProgressReader.read()）：非空时
     // ①书章行下渲染进度行 ②传给 LogScreen 做卡片描边与复位浮钮。null=没在朗读。
     playingSnap: com.github.jing332.tts_server_android.service.systts.help.ReadProgressReader.Snapshot? = null,
+
 ) {
     Column(
         Modifier
@@ -1654,8 +1661,7 @@ private fun PinnedLogHeader(
             val chapLabel = shortChapterLabel(shownChapter).let { if (it.isBlank()) "" else " $it" }
             // 11-14 播放进度后缀（用户定稿：书章行章名后加「（3/25）」）：
             // 只在书章行显示的章 == 播放章时才挂（筛选到别的书/翻到别的章时
-            // 对不上，宁可隐藏也不张冠李戴）；取数=快照 segIndex/totalSegs。
-            // 未筛选态同样挂（灰字分支同款后缀，见下方两分支）。
+            // 对不上，宁可隐藏也不张冠李戴）。playingSnap 由调用方传入。
             val playingProgressSuffix = playingSnap?.let { snap ->
                 val isPlayChapter = shownBook == snap.book &&
                     shortChapterLabel(shownChapter) == shortChapterLabel(snap.chapterTitle)
@@ -1709,7 +1715,7 @@ private fun PinnedLogHeader(
                                 onDismissRequest = { bookMenu = false },
                                 modifier = Modifier.widthIn(max = 220.dp),
                             ) {
-                                vm.knownBooks.forEach { b ->
+                                knownBooks.forEach { b ->
                                     DropdownMenuItem(
                                         text = {
                                             Text(
@@ -1745,7 +1751,7 @@ private fun PinnedLogHeader(
                                     onDismissRequest = { chapMenu = false },
                                     modifier = Modifier.widthIn(max = 220.dp),
                                 ) {
-                                    vm.chaptersOf(shownBook).forEach { (name, count) ->
+                                    chaptersOf(shownBook).forEach { (name, count) ->
                                         DropdownMenuItem(
                                             text = {
                                                 Text(
@@ -1807,7 +1813,7 @@ private fun PinnedLogHeader(
                                 onDismissRequest = { bookMenu2 = false },
                                 modifier = Modifier.widthIn(max = 220.dp),
                             ) {
-                                vm.knownBooks.forEach { b ->
+                                knownBooks.forEach { b ->
                                     DropdownMenuItem(
                                         text = {
                                             Text(
@@ -1842,7 +1848,7 @@ private fun PinnedLogHeader(
                                     onDismissRequest = { chapMenu2 = false },
                                     modifier = Modifier.widthIn(max = 220.dp),
                                 ) {
-                                    vm.chaptersOf(shownBook).forEach { (name, count) ->
+                                    chaptersOf(shownBook).forEach { (name, count) ->
                                         DropdownMenuItem(
                                             text = {
                                                 Text(
