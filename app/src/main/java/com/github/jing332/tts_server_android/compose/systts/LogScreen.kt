@@ -7,6 +7,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkOut
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -37,6 +38,7 @@ import androidx.compose.material.icons.filled.CheckBox
 import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.KeyboardDoubleArrowDown
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
@@ -61,6 +63,8 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -295,6 +299,20 @@ internal class LogGroups(
     fun listItemFor(entryIndex: Int): Int =
         if (entryIndex in entryToList.indices && entryToList[entryIndex] >= 0) entryToList[entryIndex]
         else entryIndex
+
+    // ===== 11-14「一键复位」定位（用户终版口径：顶栏不加、筛选行不加，用右下角浮动钮）=====
+    //
+    // playingEntryIndex：当前朗读段的「请求音频」主行条目下标（重排后 list 的下标）。
+    // 用户在列表里上下翻历史时，右下角出现浮钮；点它 = 滚回这条 + 短暂高亮。
+    // 「正在朗读」那条日志本身不做任何常驻特殊样式——定位是**随需动作**，不是筛选。
+    // -1 = 没有在朗读（U阅 停止/进度文件过期/列表里找不到匹配卡），浮钮彻底隐藏。
+    //
+    // 匹配方式：日志行没有段号字段，用「章名+正文前缀」双键对齐——U阅 在段落切换时
+    // 把 chapterTitle 与当前段正文前缀写进 readProgress.json，这里拿正文去匹配
+    // 「请求音频」主行的 <b>正文</b>。正文是两边唯一的公共键（段号只在 U阅 内部有意义）。
+    val playingEntryIndex: Int = -1,
+    // 进度小字由调用方拼好传入（「23/37 · 62%」），渲染在书章条下方那一行，本类不管格式
+    val playingProgressText: String = "",
 
     fun entriesOf(item: Item): List<Int> = when (item) {
         is Item.Header -> emptyList()
@@ -758,6 +776,10 @@ internal fun LogScreen(
     // 归组结果（10-06 全链卡）：由 TtsLogScreen 传入同一实例（搜索跳转要用映射）；
     // 缺省内部构建。转发器按位置传参、不传此参，走内部构建、全裸行零影响
     groups: LogGroups? = null,
+    // 11-14「一键复位」：正在朗读段的播放快照（书名/章名/正文前缀/本章总段数）。
+    // 非空且 playing=true 时：①头部进度行显示 ②复位浮钮启用 ③匹配卡加描边。
+    // null = 没在朗读（U阅 停止/文件过期），全部相关 UI 隐藏，浮钮退回 ⇊ 跳底部。
+    playingSnapshot: com.github.jing332.tts_server_android.service.systts.help.ReadProgressReader.Snapshot? = null,
     // 「原文」定位键（用户 10-08 午后 甲方案）：非空=true=当前处于筛选/搜索态，
     // 卡右上角显示小键；点击回调把该条目交回上层（清筛选+跳完整流原位）
     showLocateKey: Boolean = false,
@@ -803,6 +825,37 @@ internal fun LogScreen(
     // 归组结果：外部传入优先，否则内部构建（缓存随列表重建）
     val builtGroups = remember(list, groups) { groups ?: LogGroups.build(list) }
     val currentGroups by rememberUpdatedState(builtGroups)
+
+    // ===== 11-14「正在朗读」卡片匹配 + 复位高亮 =====
+    //
+    // 匹配键：章名 + 正文前缀（readProgress.json 的 segText 前 12 字，正文是
+    // 两边唯一公共键；日志行的 <b>正文</b> 就是原文，时间可能差几十毫秒不可靠）。
+    // 在 build 产物里找「请求音频」主行（Item.Group.head），换算列表项下标。
+    // playingEntryIndex=-1 = 没找到（未开播/卡被筛掉/正文改写），相关 UI 全隐藏。
+    //
+    // ⚠️ 匹配在 remember(list, playingSnapshot) 里做：日志每秒追加，重算成本
+    // O(n)，n≈几百行可接受；不能用 derivedStateOf（playingSnapshot 非快照态对象）。
+    val playingMatch = remember(builtGroups, list, playingSnapshot) {
+        val snap = playingSnapshot
+        if (snap == null || !snap.playing || snap.segText.isBlank()) {
+            null
+        } else {
+            val segKey = snap.segText.trim().take(12)
+            val entry = list.lastOrNull { e ->
+                e.chapterTitle == snap.chapterTitle && boldBodyOf(e).startsWith(segKey)
+            }
+            if (entry != null) {
+                val entryIdx = list.indexOf(entry)
+                BuiltPlayingMatch(
+                    entryIndex = entryIdx,
+                    listItem = builtGroups.listItemFor(entryIdx),
+                )
+            } else null
+        }
+    }
+
+    // 一键复位后的短暂高亮目标（浮钮点击时置入，2 秒后由协程清除）
+    var resumeHighlightEntry by remember { mutableStateOf<LogEntry?>(null) }
 
     // ===== 11-11 吸顶跟随滚动：当前视口首项所属的书/章 =====
     // 用户令「全部日志我划到哪就显示哪本书的信息」。
@@ -946,6 +999,27 @@ internal fun LogScreen(
         }
         val hasNewBelow = list.size > lastSeenSizeAtBottom && !isAtBottom
         val showJumpToBottom = isFarFromBottom || hasNewBelow
+        // ===== 11-14「一键复位」浮钮（用户终版口径）=====
+        //
+        // 双态单钮：任何时刻右下角最多一个浮钮，永不同现——
+        //   · 朗读进行中（playingMatch 非空）→ ⟲ 复位钮（绿点角标=朗读中）；
+        //     点它滚回正在朗读那张卡并短暂高亮。
+        //   · 没在朗读 → ⇊ 跳底部（即上方 showJumpToBottom 的原有行为，一字未改）。
+        //
+        // 用户定案的显隐判据：**正在朗读那张卡不在当前可见范围时才出现**——
+        // 它就在眼前时给一个复位钮没有意义，还会挡内容；滚走它才出现，复位后消失。
+        // 复位优先于 ⇊（甲案）：预取让合成跑在播放前面，最新日志常在朗读位置下方
+        // 很远，翻完历史想回的多半是"耳朵的位置"；看最新合成记录走「最新日志」跟随。
+        // 判定用 visibleItemsInfo（与 logIndexAtY 同源），比只看 firstVisibleItemIndex 准：
+        // 目标卡被顶部吸顶区压住一半时 firstVisible 可能已越过它，但视觉上仍在屏内。
+        val playingVisible by remember {
+            derivedStateOf {
+                val m = playingMatch
+                if (m == null) return@derivedStateOf true // 没在朗读：视作"可见"，让位给 ⇊
+                listState.layoutInfo.visibleItemsInfo.any { it.index == m.listItem }
+            }
+        }
+        val showResumePlaying = playingMatch != null && !playingVisible
         // ===== 自动滚底 =====
         // 两条来源必须分开，因为语义完全不同（11-11 用户纠正）：
         //
@@ -1324,10 +1398,18 @@ internal fun LogScreen(
                             val tailText = remember(item.head, successMember, absorbed) {
                                 if (absorbed != null) null else tailTextOfRow(successMember ?: head)
                             }
-                            // 组头时间（10-12 用户令「起始时间到结束时间都会有」）：成功组=请求→成功，
-                            // 失败组=请求→失败（合并过的取末次失败时间）。起点统一是**请求行**，
-                            // 不再是「吸收条自己的时间」——同一页所有成对行都读成「从发起到有结果」
-                            val groupHeadTime = groupTimeText(head, successMember ?: absorbed)
+                            // 组头时间（11-14 用户改口「有耗时了，结束时间就不用要了」）：
+                            // 成功组=只显开始时刻（耗时尾串已表达时长，结束时刻冗余，
+                            //   省出 ~100dp 给「正在朗读」丸与段号丸，链多数不再折行）；
+                            // 失败/合并组=保留 起始→结束（失败链可能拖几十秒，
+                            //   "拖了多久才失败"本身是排障信息，不能砍）。
+                            // 起点=请求行时间，与旧口径一致。
+                            val groupHeadTime = groupTimeText(
+                                head,
+                                successMember ?: absorbed,
+                                keepRange = failedHeads.contains(item.head) ||
+                                    (successMember == null && absorbed == null && head.level == LogLevel.ERROR),
+                            )
                             // 行流定稿（10-10 用户令）：成功=行头绿丸+灰数字，成员区整撤
                             // （结果信息已上头）；失败/重试/切备用的过程行仍要露出——
                             // 有非成功成员行时显示成员区（成功行本身不上，数字已在丸后）
@@ -1352,6 +1434,24 @@ internal fun LogScreen(
                                             )
                                         )
                                             Modifier.background(softFillBarColor())
+                                        else Modifier
+                                    )
+                                    // 11-14「正在朗读」行强调（用户定稿三件套之二三）：
+                                    // 行左缘 3px 绿轨 + 行底极淡绿。章名段底色逻辑保留
+                                    //（两者同时命中时章名底色优先——章名行不会同时是朗读行
+                                    // 以外的情况，叠加无意义，故章名分支在前）。
+                                    .then(
+                                        if (playingMatch?.entryIndex == item.head)
+                                            Modifier
+                                                .background(Color(0xFFEDF7F0))
+                                                .drawBehind {
+                                                    drawLine(
+                                                        color = Color(0xFF7CB894),
+                                                        strokeWidth = 3.dp.toPx(),
+                                                        start = Offset(0f, 0f),
+                                                        end = Offset(0f, size.height),
+                                                    )
+                                                }
                                         else Modifier
                                     )
                                     .padding(horizontal = 16.dp, vertical = 6.dp)
@@ -1392,6 +1492,30 @@ internal fun LogScreen(
                                                 tint = if (groupChecked) MaterialTheme.colorScheme.primary
                                                 else MaterialTheme.colorScheme.onSurfaceVariant
                                             )
+                                        }
+                                        // 11-14「正在朗读」丸：只插在本组被匹配为朗读段时。
+                                        // 链首位置（时间之前）＝用户定稿次序①；绿描边样式与
+                                        // StatusPill 同款字号，区别于「成功」实底丸（身份 vs 结果）。
+                                        //playingMatch 捕获的是 remember 快照，这里用当前值判断
+                                        val isPlayingHead = playingMatch?.entryIndex == item.head
+                                        if (isPlayingHead) {
+                                            Box(Modifier.padding(end = 6.dp)) {
+                                                Text(
+                                                    text = "正在朗读",
+                                                    style = MaterialTheme.typography.labelMedium,
+                                                    fontSize = 12.sp,
+                                                    color = Color(0xFF26643F),
+                                                    modifier = Modifier
+                                                        .clip(AppShapes.md)
+                                                        .background(Color(0xFFDFF0E5))
+                                                        .border(
+                                                            1.dp,
+                                                            Color(0xFF9FCDB2),
+                                                            AppShapes.md,
+                                                        )
+                                                        .padding(horizontal = 9.dp, vertical = 2.dp),
+                                                )
+                                            }
                                         }
                                         Text(
                                             // 时间字号 13→12sp（10-12 用户令「时间栏字号缩小一号」）：
@@ -1436,6 +1560,20 @@ internal fun LogScreen(
                                                 color = if (pillShown?.kind == LogPillKind.FAIL)
                                                     Color(if (darkTheme) 0xFFE57373 else 0xFFF44336)
                                                 else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.padding(start = 8.dp)
+                                            )
+                                        }
+                                        // 11-14 段号丸（链尾⑤，浅灰小字）：只正在朗读那条显示——
+                                        // 历史行没人需要知道第几段；数据来自 readProgress.json
+                                        // 的 segIndex（随快照传入），链长时与耗时体积一起折行。
+                                        if (isPlayingHead && playingSnapshot != null &&
+                                            playingSnapshot.segIndex >= 0
+                                        ) {
+                                            Text(
+                                                text = "第 ${playingSnapshot.segIndex} 段",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                fontSize = LOG_AUX_SIZE,
+                                                color = Color(0xFF9AA69F),
                                                 modifier = Modifier.padding(start = 8.dp)
                                             )
                                         }
@@ -1555,7 +1693,12 @@ internal fun LogScreen(
                 // 键缩小后 48dp 遗留外距把键顶离屏底太远（用户 10-08：太靠上）→20dp，
                 // 拇指自然可及也不压底栏
                 .padding(bottom = 20.dp),
-            visible = showJumpToBottom,
+            // 11-14 双态单钮：朗读中=⟲复位（且目标条不在视野才出现）；否则=⇊跳底部。
+            // 两态共用同一枚浮钮位置与动画，永不同现（用户令「谁会想去看底部的日志呀」
+            // ——朗读中 ⇊ 让位，看最新合成记录走「实时」跟随或滑到底）。
+            // visible 三分支：复位钮（朗读中+目标不在视野）/ ⇊（没在朗读且离底）/ 都不显示
+            visible = showResumePlaying ||
+                (!showResumePlaying && showJumpToBottom && playingMatch == null),
             enter = fadeIn() + expandIn(expandFrom = Alignment.BottomCenter),
             exit = shrinkOut(shrinkTowards = Alignment.BottomCenter) + fadeOut(),
         ) {
@@ -1565,13 +1708,25 @@ internal fun LogScreen(
                 modifier = Modifier
                     .size(56.dp)
                     .clickable(
-                        // 去涟漪但保留可达性语义：这个键只干一件事（滚到底）
+                        // 去涟漪但保留可达性语义：复位态=滚回正在朗读那条；跳底态=滚到底
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
                     ) {
                         scope.launch {
                             kotlin.runCatching {
-                                listState.scrollToItem(currentGroups.items.lastIndex)
+                                val m = playingMatch
+                                if (showResumePlaying && m != null) {
+                                    // 一键复位：滚回正在朗读那张卡（用户令「点它就回到那个位置」）
+                                    listState.animateScrollToItem(m.listItem)
+                                    // 短暂高亮 2 秒后清除（与搜索定位 locateHighlight 同节奏）
+                                    resumeHighlightEntry = currentList.getOrNull(m.entryIndex)
+                                    scope.launch {
+                                        kotlinx.coroutines.delay(2000)
+                                        resumeHighlightEntry = null
+                                    }
+                                } else {
+                                    listState.scrollToItem(currentGroups.items.lastIndex)
+                                }
                             }
                         }
                     },
@@ -1586,12 +1741,34 @@ internal fun LogScreen(
                     modifier = Modifier.size(40.dp),
                 ) {
                     Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            Icons.Default.KeyboardDoubleArrowDown,
-                            stringResource(id = R.string.move_to_bottom),
-                            modifier = Modifier.size(20.dp),
-                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                        )
+                        if (showResumePlaying) {
+                            // ⟲ 复位符号（Icons.Default.Refresh）：功能名就叫「一键复位」，名图一致。
+                            // 历史注意：10-11「回原位」键曾撤过 ⟲ 文字符号（当时语义不搭）——
+                            // 那是筛选态文字胶囊的语境；这里是独立浮钮、功能名就叫复位，不冲突。
+                            Box(
+                                modifier = Modifier
+                                    .size(24.dp)
+                                    .background(
+                                        color = Color(0xFF34A853).copy(alpha = 0.22f),
+                                        shape = CircleShape,
+                                    ),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    Icons.Default.Refresh,
+                                    contentDescription = "一键复位到正在朗读",
+                                    modifier = Modifier.size(16.dp),
+                                    tint = Color(0xFF2F6B45),
+                                )
+                            }
+                        } else {
+                            Icon(
+                                Icons.Default.KeyboardDoubleArrowDown,
+                                stringResource(id = R.string.move_to_bottom),
+                                modifier = Modifier.size(20.dp),
+                                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                            )
+                        }
                     }
                 }
             }
@@ -1645,13 +1822,15 @@ private fun headTimeText(e: LogEntry): String {
 }
 
 /**
- * 成对行的时间区间（10-12 用户令「起始时间到结束时间会有吗」）：起点=请求行时间，
- * 终点=结果行时间（成功子行 / 失败全文条；合并过的取它的末条时间 endTime）。
- * 只有终点确实晚于起点才出区间；取不到终点或同一秒 → 退回单时间。
+ * 成对行的时间区间（11-14 改口）：成功组只显开始时刻（耗时尾串已表达时长，
+ * 结束时刻冗余——省出的宽度给「正在朗读」丸与段号丸，见 groupHeadTime 调用处注释）；
+ * 失败/合并组保留 起始→结束（失败链拖了多久本身是排障信息）。
+ * 起点恒=请求行时间；keepRange=false 时只返回 start。
  */
-private fun groupTimeText(startEntry: LogEntry, endEntry: LogEntry?): String {
+private fun groupTimeText(startEntry: LogEntry, endEntry: LogEntry?, keepRange: Boolean): String {
     val start = startEntry.time.drop(11).dropLast(4)
     if (start.length != 8) return headTimeText(startEntry)
+    if (!keepRange) return start
     val endRaw = endEntry?.let { e ->
         e.endTime.takeIf { it.length >= 19 } ?: e.time.takeIf { it.length >= 19 }
     } ?: return start
@@ -1674,7 +1853,7 @@ private fun requestTextOf(e: LogEntry): String =
  *
  * 找不到 `<b>`（老格式/无正文行）时返回空串，调用方据此不加底色。
  */
-private fun boldBodyOf(e: LogEntry): String {
+internal fun boldBodyOf(e: LogEntry): String {
     val m = Regex("<b>([\\s\\S]*?)</b>").find(e.message) ?: return ""
     return m.groupValues[1].replace(Regex("<[^>]*>"), "").trim()
 }
@@ -1732,6 +1911,14 @@ private fun tailTextOfRow(e: LogEntry): String? {
 // 枚举与配色保留（when 需穷尽），将来若要改回灰丸档可直接启用。
 internal enum class LogPillKind { OK, FAIL, RETRY, STANDBY, CANCELED }
 internal data class LogPill(val kind: LogPillKind, val text: String)
+
+/**
+ * 「正在朗读」匹配结果（11-14 一键复位配套）：
+ * entryIndex = 该段「请求音频」主行在（重排后）日志条目列表里的下标；
+ * listItem   = 换算后的列表项下标（滚动定位用）。
+ * null = 没找到（未开播/卡被筛掉/正文对不上），复位浮钮与描边全部隐藏。
+ */
+internal data class BuiltPlayingMatch(val entryIndex: Int, val listItem: Int)
 
 // 状态药丸（10-10 行流定稿；11-10 四改：成功改主题主色，其余三态不变）：丸只装状态字；
 // 丸后灰字（耗时·大小/失败原因）由调用方另排。

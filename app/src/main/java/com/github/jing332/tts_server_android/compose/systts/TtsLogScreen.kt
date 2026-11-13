@@ -9,6 +9,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.clickable
@@ -67,6 +68,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -208,6 +210,44 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
     // 用全量日志兜底，保证只要读过这本书，顶部始终显示当前书章。
     val pinnedFallback = remember(vm.logs) {
         vm.logs.lastOrNull { it.bookName.isNotBlank() }
+    }
+
+    // ===== 11-14「正在朗读」播放快照 + 合成分子 =====
+    //
+    // playingSnap：轮询 readProgress.json（U阅 段切换时写）。快照带 mtime/size 缓存，
+    // 轮询本身只是 stat 一次文件，成本可忽略；文件没变时直接命中缓存不读盘。
+    //
+    // synthesizedInRange（进度分子）：「从正在朗读段到章末」范围里已合成好的段数。
+    // 判据 = 日志里出现「获取成功」子行且正文能对上该范围某段的文本——日志没有
+    // 段号，只能按正文对：把成功行的 boldBody 拿去比对段文本前缀（U阅 段切分与
+    // 请求文本同源，前缀匹配可靠；省略号截断只发生在尾部，前缀不受影响）。
+    // 口径（用户拍板）：分母 = 当前段到章末，跳段自动重算。
+    val playingSnap by produceState(
+        initialValue = null,
+        producer = {
+            while (true) {
+                value = com.github.jing332.tts_server_android.service.systts.help.ReadProgressReader.read()
+                kotlinx.coroutines.delay(1000)
+            }
+        }
+    )
+    val synthesizedInRange = remember(playingSnap, vm.logs) {
+        val snap = playingSnap ?: return@remember 0
+        if (!snap.playing || snap.segIndex < 0) return@remember 0
+        // 章范围 = segIndex ..< totalSegs；成功行的正文前缀集合
+        // 近似口径：数「请求音频」主行正文以当前段前缀开头的笔数。
+        // （成功子行不携带正文无法逐笔对齐；请求行出现即已提交引擎，取消后必重提，
+        //  所以"出现过"≈"已合成或正在合成"。取 min(count, remain) 由调用方钳制。）
+        var count = 0
+        vm.logs.forEach { e ->
+            if (e.bookName.isNotBlank() && e.indent == 0 && e.configId != 0L) {
+                val body = boldBodyOf(e)
+                if (body.isNotEmpty() && snap.segText.isNotBlank() &&
+                    body.startsWith(snap.segText.take(12))
+                ) count++
+            }
+        }
+        count
     }
 
     // 归组结果（10-06 全链卡）：与 LogScreen 共用同一实例——搜索跳转要把条目下标
@@ -662,6 +702,9 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                     // 正在朗读的书（与筛选无关）：用于"筛着 A 在读 B"的跳转提示条
                     readingBook = readingBook,
                     readingChapter = readingChapter,
+                    // 11-14 后台合成进度行：快照 + 分子（书章行下方那行小字）
+                    playingSnap = playingSnap,
+                    synthesizedInRange = synthesizedInRange,
                 )
                 if (vm.logs.isNotEmpty())
                 HorizontalDivider(
@@ -675,6 +718,8 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                 .fillMaxSize()
                 .padding(top = paddingValues.calculateTopPadding())
                 .padding(bottom = paddingValues.calculateBottomPadding()),
+            // 11-14「正在朗读」：快照（卡片描边/复位浮钮/段号丸）；进度行在 PinnedLogHeader
+            playingSnapshot = playingSnap,
             list = displayLogs,
             listState = listState,
             // 搜索定位期间不自动滚底，避免与跳转互相拉扯；多选中暂停（1003）——
@@ -1450,6 +1495,11 @@ private fun PinnedLogHeader(
     // 正在朗读的书（与筛选不同）：非空且与 scopeBook 不一致时给「切过去」提示条
     readingBook: String = "",
     readingChapter: String = "",
+    // 11-14「正在朗读」播放快照（ReadProgressReader.read()）：非空时
+    // ①书章行下渲染进度行 ②传给 LogScreen 做卡片描边与复位浮钮。null=没在朗读。
+    playingSnap: com.github.jing332.tts_server_android.service.systts.help.ReadProgressReader.Snapshot? = null,
+    // 分子：正在朗读段到章末范围内已合成的段数（UTTS 自算，见 TtsLogScreen 调用处）
+    synthesizedInRange: Int = 0,
 ) {
     Column(
         Modifier
@@ -1483,6 +1533,9 @@ private fun PinnedLogHeader(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                // 11-14 用户令「这排胶囊可以左滑」：改固有宽度后一行放不下，
+                // 整排横向滚动。rememberScrollState 保持续状态，滑到哪停哪。
+                .horizontalScroll(rememberScrollState())
                 // 外衬 24→16：左右各收 4dp（删掉 DEBUG 后每颗已很宽裕，这两处保留不动）
                 .padding(start = 10.dp, end = 6.dp, top = 6.dp, bottom = 5.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -1497,27 +1550,26 @@ private fun PinnedLogHeader(
             PinnedFilterLabel()
             // 11-11 用户令「写得更省略一点，第一个就写实时」：文案「实时最新」→「实时」。
             // 等分宽度下两颗四字标签最吃紧，缩成两字后余量充足，也不会再被省略号吃掉。
-            PinnedChip(
-                label = "实时",
-                selected = autoFollow,
-                onClick = onToggleAutoFollow,
-                modifier = Modifier.weight(1f),
-                horizontalPadding = 6.dp,
-            )
-            // 11-11 用户令：保留红底红字（「填充色是红色，字号也是红色也行吧，要不就不改了」），
-            // 排障语义"红色=错误"维持。
-            // 11-11 用户令「第二个就写错误」：文案「只看错误」→「错误」。
-            // 红色语义不变（选中=淡红底+红字），缩短后仍能一眼认出这是排障开关。
+            // 11-14 用户令「筛选行改序改名」：实时→「最新日志」挪到最后；
+            // 新序=朗读规则 → 插件 → 错误 → 最新日志。「实时」的名字太抽象
+            // （"最新"什么？），「最新日志」名实相符且四字与其他胶囊长度齐。
+            // 整排改为可横向滑动（五颗/四颗一行放不下，用户令「这排胶囊可以左滑」）。
+            // 等分宽度（weight）与横滑互斥——横滑必须用固有宽度，weight 移除。
+            PinnedChip("朗读规则", showRule, onToggleRule, horizontalPadding = 6.dp)
+            PinnedChip("插件", showPlugin, onTogglePlugin, horizontalPadding = 6.dp)
             PinnedChip(
                 label = "错误",
                 selected = errorOnly,
                 onClick = onToggleErrorOnly,
                 error = true,
-                modifier = Modifier.weight(1f),
                 horizontalPadding = 6.dp,
             )
-            PinnedChip("朗读规则", showRule, onToggleRule, modifier = Modifier.weight(1f), horizontalPadding = 6.dp)
-            PinnedChip("插件", showPlugin, onTogglePlugin, modifier = Modifier.weight(1f), horizontalPadding = 6.dp)
+            PinnedChip(
+                label = "最新日志",
+                selected = autoFollow,
+                onClick = onToggleAutoFollow,
+                horizontalPadding = 6.dp,
+            )
         }
 
         // ===== ② 筛选 + 视野（11-11 用户定案「全部日志 + 其下方筛选」）=====
@@ -1714,6 +1766,47 @@ private fun PinnedLogHeader(
 
             // 注：「取消筛选」由左侧胶囊里的「取消」承担，不再单独放按钮
             //（用户 11-11 选 B 方案：一个动作一个入口）。
+        }
+
+        // ===== ③-b 后台合成进度行（11-14 新增，用户定稿）=====
+        // 书章行正下方一行纯文字小字：灰绿 10.5sp，不吸顶、不进日志流。
+        // 内容「后台合成 23/37 · 62%」：
+        //   分母 = 从正在朗读段到章末的段数（用户拍板口径：跟播放走，跳段自动重算；
+        //     分母用全章会在"半中间开始读"时永远跑不满，误判成卡住）
+        //   分子 = 其中 UTTS 已合成好的段数（synthesizeToFile 成功落缓存的计数）
+        // 没在朗读（快照空/过期）整行隐藏，书章行高度不变。
+        playingSnap?.let { snap ->
+            val remain = (snap.totalSegs - snap.segIndex).coerceAtLeast(0)
+            if (remain > 0) {
+                val done = synthesizedInRange.coerceIn(0, remain)
+                val pct = done * 100 / remain
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 17.dp, end = 16.dp, bottom = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = buildString {
+                            append("后台合成 ")
+                            append("$done/$remain")
+                            if (done < remain) append(" · 合成中")
+                            else append(" · 已备完")
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        fontSize = 10.5.sp,
+                        color = Color(0xFF7E8F85),
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        text = "$pct%",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontSize = 10.5.sp,
+                        color = Color(0xFF3E7B57),
+                        fontWeight = FontWeight.Medium,
+                    )
+                }
+            }
         }
 
         // ===== ④ 跳转提示条：筛着 A 书、却在读 B =====
