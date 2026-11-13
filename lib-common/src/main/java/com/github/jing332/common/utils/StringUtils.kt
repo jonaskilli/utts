@@ -40,7 +40,29 @@ object StringUtils {
             }
         }
 
-        return list.filter { it.replace("”", "").isNotBlank() }
+        // 11-13 实锤修复（用户实报「对话的右引号日志里都没有」）：按句号/问号等切分后，
+        // 紧随其后的收尾引号（”』」）会被切到**下一片**的开头——例如
+        //   “带她走吧。”     → ["“带她走吧。", "”"]
+        //   “不行。”刘桂珍说，→ ["“不行。", "”刘桂珍说，"]
+        // 而下面的 filter 会把只剩引号的一片整片丢掉（replace("”","") 后为空），
+        // 于是右引号彻底消失；后一种还会在下片留下一个孤立的 ” 被念出来。
+        // 修法：把每片开头的收尾引号剥下来，补回上一片末尾；剥空的片自然被过滤。
+        val closers = "”』」’\""
+        val merged = ArrayList<String>(list.size)
+        for (raw in list) {
+            var piece = raw
+            if (merged.isNotEmpty()) {
+                var k = 0
+                while (k < piece.length && closers.indexOf(piece[k]) >= 0) k++
+                if (k > 0) {
+                    merged[merged.size - 1] = merged.last() + piece.substring(0, k)
+                    piece = piece.substring(k)
+                }
+            }
+            merged.add(piece)
+        }
+
+        return merged.filter { it.replace("”", "").isNotBlank() }
     }
 
     /**
