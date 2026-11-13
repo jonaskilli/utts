@@ -122,6 +122,13 @@ private val LOG_AUX_SIZE = 12.sp    // 时间 / 状态（原 12sp，收档时被
 private val LOG_RAW_TEXT_SIZE = 12.sp
 
 private val MetaColorSentinel = Color(0xFFFF00FF)       // 获取成功前缀 → 石板灰
+
+/**
+ * 11-13 取消标记（灰丸档，用户选定）：服务端在一次合成被跳段/停止打断时，
+ * 往该请求行下发一条以此开头的子行。与失败明确区分——取消是用户主动操作，
+ * 标灰不标红。用方头括号包裹避免与正文撞词。
+ */
+internal const val CANCEL_MARKER = "〖已取消〗"
 private val VoiceMetaSentinel = Color(0xFF00FFFF)       // 发音人信息 → 雾紫
 private val RoleChipSentinel = Color(0xFF0F0F0F)        // 角色名小牌 → 靛蓝牌字色（10-14 用户令）
 private val PluginChipSentinel = Color(0xFF0E0E0E)      // 插件名小牌 → 灰青牌字色
@@ -1137,10 +1144,21 @@ internal fun LogScreen(
                             // failedHeads 也没记，旧兜底 `?: LogPill(FAIL,"失败")` 把空窗误画成红丸。
                             // 改为没有失败证据就不出丸（结果到了由 SUCCESS/failedHeads/源错误
                             // 接管），等待期行头只有时间，与「过程未知」的语义一致
-                            val successMember = memberEntries.firstOrNull { it.level == LogLevel.SUCCESS }
+                            // 取消子行也用 SUCCESS 级别落盘（logS 唯一出口），必须排除，
+                            // 否则它会被当成「成功」，绿丸盖过灰丸
+                            val isCancelRow = { e: LogEntry ->
+                                e.message.replace(Regex("<[^>]*>"), "").startsWith(CANCEL_MARKER)
+                            }
+                            val successMember = memberEntries.firstOrNull {
+                                it.level == LogLevel.SUCCESS && !isCancelRow(it)
+                            }
                             val pill = remember(item.head, successMember, absorbed, currentGroups) {
                                 when {
                                     successMember != null -> LogPill(LogPillKind.OK, "成功")
+                                    // 11-13：本次请求被取消（用户跳段/停止）——
+                                    // 灰丸「已取消」，不画红丸、不显示成员正文
+                                    memberEntries.any(isCancelRow) ->
+                                        LogPill(LogPillKind.CANCELED, "已取消")
                                     // 丸只报状态（10-12 用户令）：原来写「源错误」——那是**原因**，
                                     // 不该占丸位。现在一律「失败」，原因交给正文首行（服务端
                                     // 已改成「源错误：…」开头，见 SystemTtsService.errorEvent）
@@ -1432,6 +1450,10 @@ private fun isMatchEntry(e: LogEntry, q: String): Boolean =
 // 需要次数时看正文里的重试行（「开始第 N 次重试」原文照旧保留）。
 private fun pillOf(e: LogEntry, entryIndex: Int, failedHeads: Set<Int> = emptySet()): LogPill? {
     val msg = e.message.replace(Regex("<[^>]*>"), "")
+    // 11-13 用户令（灰丸档）：被跳段/停止打断的请求标「已取消」。
+    // 判据是服务端在取消时补的子行「⟨取消⟩」，与失败（ERROR）严格区分——
+    // 取消是用户主动操作，不是异常，不能标红当失败。
+    if (msg.startsWith(CANCEL_MARKER)) return LogPill(LogPillKind.CANCELED, "已取消")
     return when {
         e.configId != 0L -> when {
             e.level == LogLevel.SUCCESS -> LogPill(LogPillKind.OK, "成功")
@@ -1514,7 +1536,7 @@ private fun tailTextOfRow(e: LogEntry): String? {
     return if (clipped) out.toString().trimEnd() + "…" else reordered
 }
 
-internal enum class LogPillKind { OK, FAIL, RETRY, STANDBY }
+internal enum class LogPillKind { OK, FAIL, RETRY, STANDBY, CANCELED }
 internal data class LogPill(val kind: LogPillKind, val text: String)
 
 // 状态药丸（10-10 行流定稿；11-10 四改：成功改主题主色，其余三态不变）：丸只装状态字；
@@ -1552,6 +1574,8 @@ private fun StatusPill(pill: LogPill) {
         LogPillKind.FAIL -> Color(0xFFC62828)
         LogPillKind.RETRY -> if (dark) Color(0xFF9AA0A8) else Color(0xFF4A5568)
         LogPillKind.STANDBY -> if (dark) Color(0xFFC9A94E) else Color(0xFF9A7B14)
+        // 11-13 取消：中性灰（比重试更淡一档），明确「不是错，是你自己掐的」
+        LogPillKind.CANCELED -> if (dark) Color(0xFF8A9099) else Color(0xFF7D8790)
     }
     val bg = when (pill.kind) {
         // 成功底随主色：页底混 8% 主色，自动带当前主题色相（原固定淡绿 #F2F8F4 在
@@ -1560,6 +1584,7 @@ private fun StatusPill(pill: LogPill) {
         LogPillKind.FAIL -> Color(0xFFFDEEED)
         LogPillKind.RETRY -> if (dark) Color(0xFF2A2D33) else Color(0xFFF3F5F8)
         LogPillKind.STANDBY -> if (dark) Color(0xFF3A3226) else Color(0xFFFDF7E7)
+        LogPillKind.CANCELED -> if (dark) Color(0xFF2B2E33) else Color(0xFFF0F2F4)
     }
     // Box 居中（10-12 用户令「字一定要居中对齐」）：Text 直接挂 padding 时字形上下留白
     // 随字重/基线浮动，视觉偏上；Box(contentAlignment=Center) + 内衬给 Box 才几何居中。

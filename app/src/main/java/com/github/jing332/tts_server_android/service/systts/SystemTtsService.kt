@@ -106,6 +106,11 @@ import kotlin.system.exitProcess
 class SystemTtsService : TextToSpeechService(), IEventDispatcher {
     companion object {
         const val TAG = "SystemTtsService"
+        /**
+         * 11-13 取消子行标记：与 LogScreen 的 CANCEL_MARKER 必须逐字相同。
+         * 服务端在合成被打断时下发这条子行，日志页据此画灰丸「已取消」。
+         */
+        internal const val CANCEL_CHILD_MARKER = "〖已取消〗"
         // 日志消息中次级信息(声音配置/语速音量/备用)的哨兵色；渲染时在 LogScreen 按主题重映射为次级色
         private const val META_INFO_COLOR = "#FF00FF"
         // 发音人信息专用哨兵色；渲染时在 LogScreen 按主题重映射为雾紫
@@ -379,6 +384,7 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
 
     override fun onStop() {
         if (synthesizerJob?.isActive == true) {
+            logCanceled()
             synthesizerJob?.cancel()
         }
         synthesizerJob = null
@@ -387,6 +393,13 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
 
     private lateinit var mCurrentText: String
     private var synthesizerJob: Job? = null
+    // 11-13：在途请求的实例 id（取消时用它把「已取消」标回对应请求行）。
+    // 由 normalEvent 在请求行落盘时登记，合成结束时清空。
+    internal var currentReqId: String = ""
+    // 同上：取消子行要用**被打断那一笔**自己的书章。破窗点处 MDC 已被上一笔的
+    // finally 清空（见 normalEvent 的 finally），所以必须在这里另存一份。
+    private var currentReqBook: String = ""
+    private var currentReqChapter: String = ""
     private var mNotificationJob: Job? = null
 
     // 🛠️ 记住上一个 callback，解决系统队列死锁
@@ -420,6 +433,12 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
         }
 
         // 🛠️ 强力破窗：新请求冒头时强制注销旧任务，解决阅读APP重新点击播放没反应
+        // 11-13：破窗掉的上一笔是「被新请求打断」，标「已取消」而不是失败——
+        // 用户连点跳段时同一段会出现多条请求行，只有最后一条有结果，
+        // 前几条此前是无结果的裸行，看着像卡了。标灰丸后一眼分清。
+        if (lastTtsCallback != null && synthesizerJob?.isActive == true) {
+            logCanceled()
+        }
         onStop()
         lastTtsCallback?.runCatching { error(TextToSpeech.ERROR_SYNTHESIS); done() }
         lastTtsCallback = callback
@@ -702,6 +721,36 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
         Log.e(TAG, msg, throwable)
 
         logger.error(msg)
+    }
+
+    /**
+     * 11-13：给「在途请求」补一条「已取消」子行（灰丸档，用户选定）。
+     *
+     * 场景：用户连点跳段/停止时，上一笔合成被打断（破窗或 onStop），
+     * 它在日志里已经发过「请求音频」却永远等不到成功/失败行——此前显示为
+     * 无结果的裸行，用户看起来像"卡住了"。补这条子行后日志页把它画成灰丸
+     * 「已取消」，与真失败（红丸）严格区分。
+     *
+     * 只发一次：清空 currentReqId 防重复；无在途请求时静默跳过。
+     */
+    private fun logCanceled() {
+        val reqId = currentReqId
+        if (reqId.isEmpty()) return
+        // 先取值再清空（顺序写反过一次：清了再读，书章必为空）
+        val book = currentReqBook
+        val chapter = currentReqChapter
+        currentReqId = ""
+        currentReqBook = ""
+        currentReqChapter = ""
+        runCatching {
+            logS(
+                CANCEL_CHILD_MARKER,
+                indent = 1,
+                bookName = book,
+                chapterTitle = chapter,
+                reqId = reqId,
+            )
+        }
     }
 
     private fun logS(
@@ -1020,6 +1069,12 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                         // 「他说，」的 0.9s/50.7KB），自己的成功行掉成孤立裸行。
                         if (e.request.reqId.isNotBlank())
                             org.slf4j.MDC.put("reqId", e.request.reqId)
+                        // 11-13：登记在途请求 id —— 被打断时（破窗/onStop）据此补「已取消」子行
+                        if (e.request.reqId.isNotBlank()) {
+                            currentReqId = e.request.reqId
+                            currentReqBook = e.request.bookName
+                            currentReqChapter = e.request.chapterTitle
+                        }
                         logI("请求音频：" + e.request.text())
                         // 降级兜底提示：规则 JS 分析失败会把文本直接投给兜底标签，
                         // 请求行与正常请求无异、看不出是兜底。判定：括号4 本职是『』括号发音人，
@@ -1083,6 +1138,13 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                         // 11-13：同一请求实例 id → 并发交错时子行仍能挂回自己的卡
                         reqId = e.request.reqId,
                     )
+                    // 11-13：成功收尾即清在途标记，否则下一笔请求破窗时会把这条
+                    // 已经成功的请求误标成「已取消」（灰丸错挂）
+                    if (e.request.reqId.isNotEmpty() && e.request.reqId == currentReqId) {
+                        currentReqId = ""
+                        currentReqBook = ""
+                        currentReqChapter = ""
+                    }
                 }
             }
 
