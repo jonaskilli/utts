@@ -1769,7 +1769,7 @@ private fun PinnedLogHeader(
         }
 
         // ===== ③-b 后台合成进度行（11-14 新增，用户定稿）=====
-        // 书章行正下方一行纯文字小字：灰绿 10.5sp，不吸顶、不进日志流。
+        // 书章行正下方一行纯文字小字：11.5sp（吸顶区小字档，与书名/章名同档），不吸顶、不进日志流。
         // 内容「后台合成 23/37 · 62%」：
         //   分母 = 从正在朗读段到章末的段数（用户拍板口径：跟播放走，跳段自动重算；
         //     分母用全章会在"半中间开始读"时永远跑不满，误判成卡住）
@@ -1794,15 +1794,19 @@ private fun PinnedLogHeader(
                             else append(" · 已备完")
                         },
                         style = MaterialTheme.typography.labelSmall,
-                        fontSize = 10.5.sp,
-                        color = Color(0xFF7E8F85),
+                        // 11.5sp = 吸顶区小字档（书名/章名同档），不新开 10.5 孤例
+                        //（全站 10.5sp 只有日志文件弹窗的等宽预览在用，性质不同）
+                        fontSize = 11.5.sp,
+                        // 进度行灰=时间/尾串同档灰（onSurfaceVariant），不引入孤例
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.weight(1f),
                     )
                     Text(
                         text = "$pct%",
                         style = MaterialTheme.typography.labelSmall,
-                        fontSize = 10.5.sp,
-                        color = Color(0xFF3E7B57),
+                        fontSize = 11.5.sp,
+                        // 百分比=主题主色（与成功丸字色同源，读出"这是正向状态"）
+                        color = MaterialTheme.colorScheme.primary,
                         fontWeight = FontWeight.Medium,
                     )
                 }

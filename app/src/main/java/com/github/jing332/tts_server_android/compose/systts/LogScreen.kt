@@ -7,7 +7,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkOut
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -1398,6 +1397,7 @@ internal fun LogScreen(
                             val tailText = remember(item.head, successMember, absorbed) {
                                 if (absorbed != null) null else tailTextOfRow(successMember ?: head)
                             }
+                            val railColor = playingRailColor()
                             // 组头时间（11-14 用户改口「有耗时了，结束时间就不用要了」）：
                             // 成功组=只显开始时刻（耗时尾串已表达时长，结束时刻冗余，
                             //   省出 ~100dp 给「正在朗读」丸与段号丸，链多数不再折行）；
@@ -1443,10 +1443,10 @@ internal fun LogScreen(
                                     .then(
                                         if (playingMatch?.entryIndex == item.head)
                                             Modifier
-                                                .background(Color(0xFFEDF7F0))
+                                                .background(playingRowBg())
                                                 .drawBehind {
                                                     drawLine(
-                                                        color = Color(0xFF7CB894),
+                                                        color = railColor,
                                                         strokeWidth = 3.dp.toPx(),
                                                         start = Offset(0f, 0f),
                                                         end = Offset(0f, size.height),
@@ -1499,22 +1499,8 @@ internal fun LogScreen(
                                         //playingMatch 捕获的是 remember 快照，这里用当前值判断
                                         val isPlayingHead = playingMatch?.entryIndex == item.head
                                         if (isPlayingHead) {
-                                            Box(Modifier.padding(end = 6.dp)) {
-                                                Text(
-                                                    text = "正在朗读",
-                                                    style = MaterialTheme.typography.labelMedium,
-                                                    fontSize = 12.sp,
-                                                    color = Color(0xFF26643F),
-                                                    modifier = Modifier
-                                                        .clip(AppShapes.md)
-                                                        .background(Color(0xFFDFF0E5))
-                                                        .border(
-                                                            1.dp,
-                                                            Color(0xFF9FCDB2),
-                                                            AppShapes.md,
-                                                        )
-                                                        .padding(horizontal = 9.dp, vertical = 2.dp),
-                                                )
+                                            Box(Modifier.padding(start = 6.dp)) {
+                                                StatusPill(LogPill(LogPillKind.PLAYING, "正在朗读"))
                                             }
                                         }
                                         Text(
@@ -1573,7 +1559,7 @@ internal fun LogScreen(
                                                 text = "第 ${playingSnapshot.segIndex} 段",
                                                 style = MaterialTheme.typography.bodySmall,
                                                 fontSize = LOG_AUX_SIZE,
-                                                color = Color(0xFF9AA69F),
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                 modifier = Modifier.padding(start = 8.dp)
                                             )
                                         }
@@ -1749,7 +1735,7 @@ internal fun LogScreen(
                                 modifier = Modifier
                                     .size(24.dp)
                                     .background(
-                                        color = Color(0xFF34A853).copy(alpha = 0.22f),
+                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.22f),
                                         shape = CircleShape,
                                     ),
                                 contentAlignment = Alignment.Center,
@@ -1758,7 +1744,7 @@ internal fun LogScreen(
                                     Icons.Default.Refresh,
                                     contentDescription = "一键复位到正在朗读",
                                     modifier = Modifier.size(16.dp),
-                                    tint = Color(0xFF2F6B45),
+                                    tint = MaterialTheme.colorScheme.primary,
                                 )
                             }
                         } else {
@@ -1909,7 +1895,7 @@ private fun tailTextOfRow(e: LogEntry): String? {
 
 // 11-13：CANCELED 暂不产出——用户选定「不显示」档，取消请求整组丢弃。
 // 枚举与配色保留（when 需穷尽），将来若要改回灰丸档可直接启用。
-internal enum class LogPillKind { OK, FAIL, RETRY, STANDBY, CANCELED }
+internal enum class LogPillKind { OK, FAIL, RETRY, STANDBY, CANCELED, PLAYING }
 internal data class LogPill(val kind: LogPillKind, val text: String)
 
 /**
@@ -1957,11 +1943,14 @@ private fun StatusPill(pill: LogPill) {
         LogPillKind.STANDBY -> if (dark) Color(0xFFC9A94E) else Color(0xFF9A7B14)
         // 11-13 取消：中性灰（比重试更淡一档），明确「不是错，是你自己掐的」
         LogPillKind.CANCELED -> if (dark) Color(0xFF8A9099) else Color(0xFF7D8790)
+        // 11-14 正在朗读：跟「成功」同走主题主色（身份 vs 结果，同色系两档由描边区分）
+        LogPillKind.PLAYING -> primary
     }
     val bg = when (pill.kind) {
         // 成功底随主色：页底混 8% 主色，自动带当前主题色相（原固定淡绿 #F2F8F4 在
         // 蓝/紫主题下会与主色字撞色）
         LogPillKind.OK -> lerp(MaterialTheme.colorScheme.background, primary, 0.08f)
+        LogPillKind.PLAYING -> lerp(MaterialTheme.colorScheme.background, primary, 0.14f)
         LogPillKind.FAIL -> Color(0xFFFDEEED)
         LogPillKind.RETRY -> if (dark) Color(0xFF2A2D33) else Color(0xFFF3F5F8)
         LogPillKind.STANDBY -> if (dark) Color(0xFF3A3226) else Color(0xFFFDF7E7)
@@ -2276,3 +2265,16 @@ private fun ChapterBarRow(
         }
     }
 }
+
+/**
+ * 「正在朗读」行的底色与左轨色（11-14）：全部从主题派生，深浅主题自动适配，
+ * 不引入硬编码孤例。底=背景混 6% 主色（比成功丸的 8% 更淡一档——行底是大面积，
+ * 丸是小面积，同浓度会颠倒主次）；轨=主色 55% 不透明（细线需要更实才看得见）。
+ */
+@Composable
+private fun playingRowBg(): Color =
+    lerp(MaterialTheme.colorScheme.background, MaterialTheme.colorScheme.primary, 0.06f)
+
+@Composable
+private fun playingRailColor(): Color =
+    MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
