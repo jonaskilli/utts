@@ -12,6 +12,8 @@ import com.github.jing332.common.audio.AudioDecoder.Companion.readPcmChunk
 import com.github.jing332.common.audio.exo.DownmixAudioProcessor
 import com.github.jing332.common.audio.exo.ExoAudioDecoder
 import com.github.jing332.common.audio.exo.LoudnessAudioProcessor
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import com.github.jing332.common.audio.exo.SampleRateResampleProcessor
 import com.github.jing332.common.utils.rootCause
 import com.github.jing332.tts.error.StreamProcessorError
@@ -111,6 +113,17 @@ internal class DefaultResultProcessor(
     private val skipAudioProcessor by lazy { silenceSkippingAudioProcessor() }
     private val loudnessAudioProcessor by lazy { LoudnessAudioProcessor() }
 
+    // 11-13 S4 死锁根修：预取并发下 N 个 fetcher 同时进入 processStream，而本类是
+    // 进程级单例（MixSynthesizer.global → streamProcessor 单例），内部的
+    // ExoAudioDecoder / sonic / skip / loudness 处理器全是共享实例——
+    // 两笔 seg 并发解码时 ensurePipeline() 的 flush() 会清掉对方管线内已 queue
+    // 的输入与 EOF，双方互相踩踏 → decode 永挂 → channel 不 close →
+    // U阅 synthesizeToFile 永等 onDone（日志铁证：10:02:30.692 两笔
+    // audio format detected 后 18 分钟零日志，两笔音频均已 SUCCESS 到手）。
+    // 并发收益本就集中在网络下载阶段（83KB/s 主导），解码是 CPU 快路径，
+    // 串行化只损失毫秒级重叠；此处加锁根除互踩，与回填按序消费天然兼容。
+    private val processMutex = Mutex()
+
     /**
      * @throw [CancellationException]
      */
@@ -121,7 +134,7 @@ internal class DefaultResultProcessor(
         targetSampleRate: Int,
         callback: PcmAudioDataListener,
         requestCostMs: Long,
-    ): Result<Unit, StreamProcessorError> {
+    ): Result<Unit, StreamProcessorError> = processMutex.withLock {
         val config = request.config
         logger.debug {
             "req=${request.text}, sampleRate=${config.audioFormat.sampleRate}, targetSampleRate=${targetSampleRate}"
