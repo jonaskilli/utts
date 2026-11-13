@@ -359,6 +359,9 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
         list: List<TextSegment>,
     ) {
         val concurrency = context.cfg.prefetchConcurrency().coerceIn(1, 8)
+        // 11-13：并发数落日志——用户报障时从 system_tts.log 直接确认本次配置，
+        // 不用再靠「请求时间戳重叠」反推（S4 实测：三路配 2 路时肉眼根本看不出来）
+        logger.info { "produceSegments: concurrency=$concurrency, segments=${list.size}" }
         // N=1：保持与旧「串行 for」完全一致的基线路径（验收第2条），直写播放通道
         if (concurrency <= 1 || list.size <= 1) {
             val sink = ChannelSink(channel)
