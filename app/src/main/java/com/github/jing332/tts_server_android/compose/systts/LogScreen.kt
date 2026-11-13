@@ -299,20 +299,6 @@ internal class LogGroups(
         if (entryIndex in entryToList.indices && entryToList[entryIndex] >= 0) entryToList[entryIndex]
         else entryIndex
 
-    // ===== 11-14「一键复位」定位（用户终版口径：顶栏不加、筛选行不加，用右下角浮动钮）=====
-    //
-    // playingEntryIndex：当前朗读段的「请求音频」主行条目下标（重排后 list 的下标）。
-    // 用户在列表里上下翻历史时，右下角出现浮钮；点它 = 滚回这条 + 短暂高亮。
-    // 「正在朗读」那条日志本身不做任何常驻特殊样式——定位是**随需动作**，不是筛选。
-    // -1 = 没有在朗读（U阅 停止/进度文件过期/列表里找不到匹配卡），浮钮彻底隐藏。
-    //
-    // 匹配方式：日志行没有段号字段，用「章名+正文前缀」双键对齐——U阅 在段落切换时
-    // 把 chapterTitle 与当前段正文前缀写进 readProgress.json，这里拿正文去匹配
-    // 「请求音频」主行的 <b>正文</b>。正文是两边唯一的公共键（段号只在 U阅 内部有意义）。
-    val playingEntryIndex: Int = -1,
-    // 进度小字由调用方拼好传入（「23/37 · 62%」），渲染在书章条下方那一行，本类不管格式
-    val playingProgressText: String = "",
-
     fun entriesOf(item: Item): List<Int> = when (item) {
         is Item.Header -> emptyList()
         // 书条/章节签是纯装饰性分隔头，不带可复制条目（多选/复制不把它们算进去）
@@ -830,7 +816,7 @@ internal fun LogScreen(
     // 匹配键：章名 + 正文前缀（readProgress.json 的 segText 前 12 字，正文是
     // 两边唯一公共键；日志行的 <b>正文</b> 就是原文，时间可能差几十毫秒不可靠）。
     // 在 build 产物里找「请求音频」主行（Item.Group.head），换算列表项下标。
-    // playingEntryIndex=-1 = 没找到（未开播/卡被筛掉/正文改写），相关 UI 全隐藏。
+    // 匹配不到 = 没找到（未开播/卡被筛掉/正文改写），相关 UI 全隐藏。
     //
     // ⚠️ 匹配在 remember(list, playingSnapshot) 里做：日志每秒追加，重算成本
     // O(n)，n≈几百行可接受；不能用 derivedStateOf（playingSnapshot 非快照态对象）。
