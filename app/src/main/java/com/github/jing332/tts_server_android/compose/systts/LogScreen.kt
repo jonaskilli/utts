@@ -224,6 +224,30 @@ internal class LogGroups(
         if (itemIndex in itemBook.indices && itemIndex < itemChapter.size)
             itemBook[itemIndex] to itemChapter[itemIndex]
         else "" to ""
+
+    /**
+     * 11-13 晚：该列表项是不是「本章第一条日志」（换章后的第一行）。
+     *
+     * 用户改口「不喜欢专门加一栏放章节名……还是给章节日志加底色（用主题色）」——
+     * 不再插独立章签行，改为让换章后第一条日志自己带一层主题色淡底，
+     * 字号/字重/行高一律不动（用户明确「字号也不用变，用以前的」）。
+     *
+     * 判据：本项有章、且与**前一个有章的前驱项**不同章。
+     * 直接查 itemChapter 表（build 时已逐项填好），不额外存集合。
+     * 跳过无书章的项（日期签/插件行/旧日志），避免它们打断判断。
+     */
+    fun isChapterHead(itemIndex: Int): Boolean {
+        if (itemIndex !in itemChapter.indices) return false
+        val cur = itemChapter[itemIndex]
+        if (cur.isBlank()) return false
+        for (i in itemIndex - 1 downTo 0) {
+            val prev = itemChapter[i]
+            if (prev.isBlank()) continue
+            return prev != cur
+        }
+        return true // 前面没有任何带章项 → 本项就是首章的第一条
+    }
+
     sealed class Item {
         class Header(val date: String) : Item()
         class Bare(val index: Int) : Item()
@@ -613,12 +637,19 @@ internal class LogGroups(
             }
 
             var lastChapterKey: Pair<String, String>? = null
+            // ===== 11-13 晚（用户改口：「不喜欢专门加一栏放章节名，字号也不用变，
+            // 还是给章节日志加底色（用主题色）」）=====
+            // 我上一版插了独立 ChapterBar 行（15sp/ExtraBold + 2dp 线），用户不要这种
+            // "专门一栏"。改为：**章首那条日志自己带主题色淡底**——不新增行、不改字号、
+            // 不动字重，只让"换章后的第一条日志"从视觉上跳出来。
+            // chapterHeadEntries = 每个 (书,章) 的第一条条目下标；渲染侧据此给该卡加底色。
+            val chapterHeadEntries = HashSet<Int>()
             raw.forEach { item ->
                 val anchorIdx = anchorOf(item)
                 if (anchorIdx >= 0) {
                     val e = list[anchorIdx]
                     // 11-11：书条不再插入列表流——改由上层吸顶渲染（用户令置顶）。
-                    // 这里负责日期签 + **章节签**。
+                    // 这里只负责日期签。
                     val t = e.time
                     if (t.length >= 10) {
                         val d = t.substring(0, 10)
@@ -627,24 +658,12 @@ internal class LogGroups(
                             lastDate = d
                         }
                     }
-                    // ===== 11-13 晚（用户令「章节我想重点突出下，比如分隔线，或者字大点」）=====
-                    // 章节签在 11-11 曾被整撤（书章信息全交给吸顶），代价是日志流里
-                    // **完全看不到章与章的边界**——用户截图里「第1章实施绑架」到下一段
-                    // 之间没有任何视觉分隔，得靠读正文自己找换章点。现恢复插入：
-                    // 只在「章发生变化」处插一条，同章内任意多条日志都只插一次
-                    //（lastChapterKey 游标，跨章才更新）。书条仍不插（吸顶已表达书名）。
+                    // 记下「每条日志属于哪一章的第一条」：换章处的那一条进集合
                     if (e.bookName.isNotBlank() && e.chapterTitle.isNotBlank()) {
                         val ck = e.bookName to e.chapterTitle
                         if (ck != lastChapterKey) {
                             lastChapterKey = ck
-                            finalItems.add(
-                                Item.ChapterBar(
-                                    book = e.bookName,
-                                    chapter = e.chapterTitle,
-                                    count = chapterCount[ck] ?: 0,
-                                    anchorEntry = anchorIdx,
-                                )
-                            )
+                            chapterHeadEntries.add(anchorIdx)
                         }
                     }
                 }
@@ -1086,28 +1105,16 @@ internal fun LogScreen(
             //（比日期签还左），页面出现三条左线。此为那次改卡片漏掉的对齐。
             contentPadding = PaddingValues(horizontal = 0.dp)
         ) {
-                itemsIndexed(currentGroups.items, key = { index, _ -> index }) { _, item ->
+                itemsIndexed(currentGroups.items, key = { index, _ -> index }) { itemIndex, item ->
                     when (item) {
                         // 11-11 用户令：书条/章条不再出现在日志流里，改为**吸顶**
                         //（在 TtsLogScreen 的 topBar 下方固定渲染）。此处保留分支只因
                         // Item 是 sealed class 需要穷举，实际不会再产出这两个 Item。
                         is LogGroups.Item.BookBar -> Unit
-                        // 11-13 晚：章节签恢复进列表流（用户令「章节重点突出」）。
-                        // 点整行=滚到本章首条；右侧「切换章」=弹章节列表（与吸顶区同级入口）。
-                        is LogGroups.Item.ChapterBar -> ChapterBarRow(
-                            book = item.book,
-                            chapter = item.chapter,
-                            count = item.count,
-                            onSwitch = onSwitchChapter?.let { cb ->
-                                { cb(item.book, item.chapter) }
-                            },
-                            onClick = {
-                                val target = currentGroups.listItemFor(item.anchorEntry)
-                                if (target >= 0) {
-                                    scope.launch { runCatching { listState.scrollToItem(target) } }
-                                }
-                            },
-                        )
+                        // 11-13 晚：章签不再单独成行（用户令「不喜欢专门加一栏放章节名」），
+                        // 改为「换章后第一条日志整行加主题色淡底」（见 Group 分支的
+                        // currentGroups.isChapterHead 判断）。此分支保留仅为 sealed class 穷举。
+                        is LogGroups.Item.ChapterBar -> Unit
                         is LogGroups.Item.Header -> {
                             // 日期签：每天第一条上方出现一次（10-06：日期不再逐行重复）。
                             // 签盒 start 7 + 签内衬 9 = 签文字 16，与裸行/卡内正文同线
@@ -1336,6 +1343,23 @@ internal fun LogScreen(
                                     // 行间用纵向间距分隔（首行顶 6dp，行与行 8dp 由外层间隔表达——
                                     // 这里用统一 vertical 6dp，视觉等同旧行距但无线）
                                     .fillMaxWidth()
+                                    // ===== 11-13 晚（用户令「还是给章节日志加底色，用主题色」）=====
+                                    // 换章后的第一条日志整行铺一层主题色淡底，作为章边界标记。
+                                    // 字号/字重/内衬一律不动（用户明确「字号也不用变，用以前的」）。
+                                    //
+                                    // ⚠️ 值取 primary 10%（绿主题 seed #109D58 → 页底上约 #E0F0E6）。
+                                    // 为什么不取 6%：6% 混出来是 #E9F3ED，与日期签的 #DAF2E2 太近
+                                    // ——而「章节标记和日期标记要能分开」正是这一 wheel 的起点，
+                                    // 太淡就退回原来的问题。10% 与日期签拉开，又仍轻于正文。
+                                    // 判据走 isChapterHead(列表项下标)，查 build 时建好的章表，
+                                    // 滚动热路径上只是一次数组比较。
+                                    .then(
+                                        if (currentGroups.isChapterHead(itemIndex))
+                                            Modifier.background(
+                                                MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
+                                            )
+                                        else Modifier
+                                    )
                                     .padding(horizontal = 16.dp, vertical = 6.dp)
                                     .then(
                                         if (selectionMode) Modifier.clickable {
