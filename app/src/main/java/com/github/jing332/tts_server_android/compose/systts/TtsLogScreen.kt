@@ -294,6 +294,23 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
         }
     }
 
+    // 11-14：跳到某章首条（从章节弹窗抽出，供章下拉菜单直接调用——
+    // 用户嫌弹窗离触发点远且复杂，点章名 ▾ 的菜单选完直接滚，不再二次弹窗）。
+    // 只滚动不改筛选（原弹窗口径保留）。
+    fun jumpToChapter(book: String, chapter: String) {
+        val idx = displayLogs.indexOfFirst {
+            it.bookName == book && it.chapterTitle == chapter
+        }
+        if (idx >= 0) {
+            val item = logGroups.listItemFor(idx)
+            scope.launch {
+                runCatching { listState.animateScrollToItem(item) }
+            }
+        } else {
+            context.toast("该章还没有日志")
+        }
+    }
+
     // 搜索词变化 → 跳到最近一条匹配(高亮由 LogScreen 渲染)；列表本身已实时过滤，
     // 跳转目标按归组映射换算：命中卡内任一行即落到整张卡
     LaunchedEffect(searchQuery) {
@@ -670,8 +687,15 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                     bookTotal = logGroups.bookTotal,
                     chapter = logGroups.pinnedChapter,
                     chapterCount = logGroups.pinnedChapterCount,
-                    onSwitchBook = { bookPickerFor = it },
-                    onSwitchChapter = { b, c -> chapterPickerFor = b to c },
+                    // 11-14 用户定稿：下拉菜单点选后直接生效，不再二次弹窗——
+                    // 书=切筛选范围（原书籍弹窗职责）；章=滚到该章首条（原章节弹窗职责）。
+                    // 弹窗本体保留（章节弹窗还有"该章还没有日志"等兜底文案依赖，
+                    // 若后续确认无入口再撤）。
+                    onSwitchBook = { b ->
+                        vm.scopeBook.value = b
+                        vm.scopeChapter.value = null
+                    },
+                    onSwitchChapter = { b, c -> jumpToChapter(b, c) },
                     // 筛选条件（与"视野"分开）：null=不限
                     scopeBook = vm.scopeBook.value,
                     scopeChapter = vm.scopeChapter.value,
