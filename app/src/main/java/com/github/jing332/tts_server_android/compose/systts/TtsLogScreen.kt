@@ -1676,17 +1676,32 @@ private fun PinnedLogHeader(
                                     .weight(1f, fill = false)
                                     .clickable { bookMenu = true },
                             )
+                            // 紧凑菜单（用户令「把这个框小一点……得和谐呀」）：
+                            // MD3 DropdownMenu 默认项 48dp 高/16sp 字，相对吸顶 11sp 小字巨大。
+                            // 自定义项：11.5sp、36dp 高、内衬 12×6，与吸顶区同视觉密度；
+                            // 触发字本身不动（仍是 11sp 原样式，不加箭头/不加框）。
                             DropdownMenu(
                                 expanded = bookMenu,
                                 onDismissRequest = { bookMenu = false },
+                                modifier = Modifier.widthIn(max = 220.dp),
                             ) {
                                 vm.knownBooks.forEach { b ->
                                     DropdownMenuItem(
-                                        text = { Text(b) },
+                                        text = {
+                                            Text(
+                                                b,
+                                                fontSize = 11.5.sp,
+                                                color = MaterialTheme.colorScheme.onSurface,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
+                                        },
                                         onClick = {
                                             bookMenu = false
                                             onSwitchBook(b)
                                         },
+                                        modifier = Modifier.height(36.dp),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                                     )
                                 }
                             }
@@ -1704,14 +1719,25 @@ private fun PinnedLogHeader(
                                 DropdownMenu(
                                     expanded = chapMenu,
                                     onDismissRequest = { chapMenu = false },
+                                    modifier = Modifier.widthIn(max = 220.dp),
                                 ) {
                                     vm.chaptersOf(shownBook).forEach { (name, count) ->
                                         DropdownMenuItem(
-                                            text = { Text("$name · $count 条") },
+                                            text = {
+                                                Text(
+                                                    "$name · $count 条",
+                                                    fontSize = 11.5.sp,
+                                                    color = MaterialTheme.colorScheme.onSurface,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                )
+                                            },
                                             onClick = {
                                                 chapMenu = false
                                                 onSwitchChapter(shownBook, name)
                                             },
+                                            modifier = Modifier.height(36.dp),
+                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                                         )
                                     }
                                 }
@@ -1755,14 +1781,25 @@ private fun PinnedLogHeader(
                             DropdownMenu(
                                 expanded = bookMenu2,
                                 onDismissRequest = { bookMenu2 = false },
+                                modifier = Modifier.widthIn(max = 220.dp),
                             ) {
                                 vm.knownBooks.forEach { b ->
                                     DropdownMenuItem(
-                                        text = { Text(b) },
+                                        text = {
+                                            Text(
+                                                b,
+                                                fontSize = 11.5.sp,
+                                                color = MaterialTheme.colorScheme.onSurface,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
+                                        },
                                         onClick = {
                                             bookMenu2 = false
                                             onSwitchBook(b)
                                         },
+                                        modifier = Modifier.height(36.dp),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                                     )
                                 }
                             }
@@ -1779,14 +1816,25 @@ private fun PinnedLogHeader(
                                 DropdownMenu(
                                     expanded = chapMenu2,
                                     onDismissRequest = { chapMenu2 = false },
+                                    modifier = Modifier.widthIn(max = 220.dp),
                                 ) {
                                     vm.chaptersOf(shownBook).forEach { (name, count) ->
                                         DropdownMenuItem(
-                                            text = { Text("$name · $count 条") },
+                                            text = {
+                                                Text(
+                                                    "$name · $count 条",
+                                                    fontSize = 11.5.sp,
+                                                    color = MaterialTheme.colorScheme.onSurface,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                )
+                                            },
                                             onClick = {
                                                 chapMenu2 = false
                                                 onSwitchChapter(shownBook, name)
                                             },
+                                            modifier = Modifier.height(36.dp),
+                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                                         )
                                     }
                                 }
