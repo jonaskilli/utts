@@ -57,6 +57,15 @@ class SysttsFilter : Filter<ILoggingEvent>() {
                     // 同样随 MDC 落盘，重启后旧日志行仍可按书/章归组；无值即空串
                     bookName = event.mdcPropertyMap["bookName"] ?: "",
                     chapterTitle = event.mdcPropertyMap["chapterTitle"] ?: "",
+                    // 11-14 修「实时页成功行没挂在卡片上、还多一条裸行」（用户两次截图实报）：
+                    // 请求实例 id 早已随 MDC 落盘（logback.xml 有 %X{reqId} 列），
+                    // **落盘侧**回读时能带上，于是 LogScreen 的重排正确；
+                    // 但实时这条路径当初只补了 configId/roleName/书章，独独漏了 reqId
+                    // ⇒ 实时页里请求主行 reqId 恒空 ⇒ regroupByReqId 的游程判据对主行
+                    // 完全透明（`if (e.reqId.isEmpty()) continue`）⇒ 两笔并发时后一张卡
+                    // 把前一张顶掉，成功行挂到别人的卡上，另一条成功行落成裸行。
+                    // 主行与子行（logS 直传 reqId）同源，补上这一行两路径才一致。
+                    reqId = event.mdcPropertyMap["reqId"] ?: "",
                 )
             )
 
