@@ -1565,20 +1565,29 @@ private fun PinnedLogHeader(
             // 与未筛选时的灰字形成天然反差——不需要额外加"已筛选"三个字。
             // 取消仍只在这颗胶囊里，不给同一件事开第二个入口。
             val filtered = !scopeBook.isNullOrBlank()
-            // ===== 11-13 晚（用户令）：「顶部章节名，还是以最新日志为准，
-            // 最新日志是哪本书哪个章节就是哪个」=====
+            // ===== 11-13 晚（用户令「顶部章节名，两个都要：又要最新又要滚动」）=====
             //
-            // 原顺序是 viewBook 优先（11-11 的「划到哪显示哪本」口径），于是吸顶跟着
-            // 滚动位置走：往回翻到旧章节时，顶部会跟着退回旧章名。
-            // 用户现在要的口径相反：**顶部反映「正在读哪儿」，不反映「手指划到哪儿」**。
-            // 列表是按时间正序、新日志追加在尾，`book`/`chapter` 取自
-            // list.lastOrNull{ 带书章 } = 最新一条请求行，正是"最新日志"。
+            // 现有两个口径各有用途，用户明确要**都保留**，用「实时」勾选当开关：
+            //   · 勾着「实时」（autoFollow=true，默认）= 你在跟最新日志，
+            //     顶部就该显示**最新那条**的书章（list.lastOrNull{带书章} → book/chapter）；
+            //   · 取消「实时」（autoFollow=false）= 你在往回翻旧日志，
+            //     顶部跟随**视线所在位置**（viewBook/viewChapter，由 LogScreen 回传）。
             //
-            // 顺带说明：这也让 LogScreen 里那条「章边界进视口就切」的扫描失去意义
-            //（它只影响 viewBookChapter 回传值，而这里已不再优先用它）。保留该逻辑
-            // 不动——筛选态/无书章等回落情形仍会用到 view 值。
-            val shownBook = if (filtered) scopeBook.orEmpty() else book.ifBlank { viewBook }
-            val shownChapter = if (filtered) scopeChapter.orEmpty() else chapter.ifBlank { viewChapter }
+            // 这个映射不需要新增控件：两种行为在同一次勾选状态里天然互斥，语义也自洽
+            // ——「实时」本来就意味着"看最新的"，关掉它才是在翻历史。
+            //
+            // 回落顺序都保留：主值取空时（无书章条目/筛选清空）退到另一个，
+            // 避免吸顶整块空掉。
+            val shownBook = when {
+                filtered -> scopeBook.orEmpty()
+                autoFollow -> book.ifBlank { viewBook }
+                else -> viewBook.ifBlank { book }
+            }
+            val shownChapter = when {
+                filtered -> scopeChapter.orEmpty()
+                autoFollow -> chapter.ifBlank { viewChapter }
+                else -> viewChapter.ifBlank { chapter }
+            }
             val chapLabel = shortChapterLabel(shownChapter).let { if (it.isBlank()) "" else " $it" }
 
             // 左侧信息槽：占满行内剩余宽度，右侧两个按钮先量、先占位。
