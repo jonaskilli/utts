@@ -612,18 +612,39 @@ internal class LogGroups(
                 }
             }
 
+            var lastChapterKey: Pair<String, String>? = null
             raw.forEach { item ->
                 val anchorIdx = anchorOf(item)
                 if (anchorIdx >= 0) {
                     val e = list[anchorIdx]
-                    // 11-11：书条/章条不再插入列表流——改由上层吸顶渲染（用户令置顶）。
-                    // 这里只负责日期签；书章信息在循环外统计成 pinnedBook/pinnedChapter。
+                    // 11-11：书条不再插入列表流——改由上层吸顶渲染（用户令置顶）。
+                    // 这里负责日期签 + **章节签**。
                     val t = e.time
                     if (t.length >= 10) {
                         val d = t.substring(0, 10)
                         if (d != lastDate) {
                             finalItems.add(Item.Header(d))
                             lastDate = d
+                        }
+                    }
+                    // ===== 11-13 晚（用户令「章节我想重点突出下，比如分隔线，或者字大点」）=====
+                    // 章节签在 11-11 曾被整撤（书章信息全交给吸顶），代价是日志流里
+                    // **完全看不到章与章的边界**——用户截图里「第1章实施绑架」到下一段
+                    // 之间没有任何视觉分隔，得靠读正文自己找换章点。现恢复插入：
+                    // 只在「章发生变化」处插一条，同章内任意多条日志都只插一次
+                    //（lastChapterKey 游标，跨章才更新）。书条仍不插（吸顶已表达书名）。
+                    if (e.bookName.isNotBlank() && e.chapterTitle.isNotBlank()) {
+                        val ck = e.bookName to e.chapterTitle
+                        if (ck != lastChapterKey) {
+                            lastChapterKey = ck
+                            finalItems.add(
+                                Item.ChapterBar(
+                                    book = e.bookName,
+                                    chapter = e.chapterTitle,
+                                    count = chapterCount[ck] ?: 0,
+                                    anchorEntry = anchorIdx,
+                                )
+                            )
                         }
                     }
                 }
@@ -1071,7 +1092,22 @@ internal fun LogScreen(
                         //（在 TtsLogScreen 的 topBar 下方固定渲染）。此处保留分支只因
                         // Item 是 sealed class 需要穷举，实际不会再产出这两个 Item。
                         is LogGroups.Item.BookBar -> Unit
-                        is LogGroups.Item.ChapterBar -> Unit
+                        // 11-13 晚：章节签恢复进列表流（用户令「章节重点突出」）。
+                        // 点整行=滚到本章首条；右侧「切换章」=弹章节列表（与吸顶区同级入口）。
+                        is LogGroups.Item.ChapterBar -> ChapterBarRow(
+                            book = item.book,
+                            chapter = item.chapter,
+                            count = item.count,
+                            onSwitch = onSwitchChapter?.let { cb ->
+                                { cb(item.book, item.chapter) }
+                            },
+                            onClick = {
+                                val target = currentGroups.listItemFor(item.anchorEntry)
+                                if (target >= 0) {
+                                    scope.launch { runCatching { listState.scrollToItem(target) } }
+                                }
+                            },
+                        )
                         is LogGroups.Item.Header -> {
                             // 日期签：每天第一条上方出现一次（10-06：日期不再逐行重复）。
                             // 签盒 start 7 + 签内衬 9 = 签文字 16，与裸行/卡内正文同线
@@ -1949,63 +1985,74 @@ private fun ChapterBarRow(
     onSwitch: (() -> Unit)? = null,
     onClick: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(
-                lerp(
-                    MaterialTheme.colorScheme.secondaryContainer,
-                    MaterialTheme.colorScheme.surfaceContainerLow,
-                    0.55f
+    // ===== 11-13 晚（用户令「没办法只给章节名加大加粗吧，只要这个突出一下也行，
+    // 跟其他不一致」）=====
+    // 上一版是整条带绿底的行（lerp secondaryContainer），和「日期签」的灰绿底撞脸，
+    // 一眼分不清哪个是日期、哪个是章。用户选的是**只让章名加大加粗**：
+    //   ① 去掉整行底色，保持页底（不再和日期签混淆）；
+    //   ② 上方一条比日期签更实的全宽线，作为「换章了」的硬边界；
+    //   ③ 章名 15sp/ExtraBold，明显大于正文 12.5sp 与日期签 11sp。
+    // 「第N章」序号牌、右侧「切换章」入口、点击跳本章首条 —— 行为全部不变。
+    Column(Modifier.fillMaxWidth()) {
+        HorizontalDivider(
+            modifier = Modifier.padding(top = 12.dp),
+            thickness = 2.dp,
+            color = MaterialTheme.colorScheme.outlineVariant
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick)
+                .padding(start = 16.dp, end = 12.dp, top = 8.dp, bottom = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // 章节序号小牌：只从章名里取「第N章」这一段，取不到就整串当章名
+            val idx = Regex("^第\\s*[0-9一二三四五六七八九十百零]+\\s*章").find(chapter)?.value
+            if (idx != null) {
+                Text(
+                    text = idx,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontSize = 12.5.sp,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier
+                        .clip(AppShapes.xs)
+                        .background(MaterialTheme.colorScheme.secondaryContainer)
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
                 )
-            )
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        // 章节序号小牌：只从章名里取「第N章」这一段，取不到就整串当章名
-        val idx = Regex("^第\\s*[0-9一二三四五六七八九十百零]+\\s*章").find(chapter)?.value
-        if (idx != null) {
+                Spacer(Modifier.width(8.dp))
+            }
             Text(
-                text = idx,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier
-                    .clip(AppShapes.xs)
-                    .background(MaterialTheme.colorScheme.secondaryContainer)
-                    .padding(horizontal = 6.dp, vertical = 1.dp),
+                // 已带序号就不再重复一遍序号前缀
+                text = idx?.let { chapter.removePrefix(it).trim() }?.ifEmpty { chapter } ?: chapter,
+                style = MaterialTheme.typography.titleSmall,
+                fontSize = 15.sp,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontWeight = FontWeight.ExtraBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
             )
-            Spacer(Modifier.width(8.dp))
-        }
-        Text(
-            // 已带序号就不再重复一遍序号前缀
-            text = idx?.let { chapter.removePrefix(it).trim() }?.ifEmpty { chapter } ?: chapter,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurface,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
-        Text(
-            text = if (count > 0) "$count 条" else "",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        // 右侧「切换章」（11-11 用户令）：与书条「切换书」同款胶囊、同位置、同字号——
-        // 两者左右对齐才读得出「这是同级入口」。始终显示（只有一章也显示）。
-        if (onSwitch != null) {
-            Spacer(Modifier.width(8.dp))
             Text(
-                text = "切换章",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier
-                    .clip(AppShapes.sm)
-                    // 点击独立于整行：点键=换章，点行=跳本章首条，两个动作不互相吃掉
-                    .clickable(onClick = onSwitch)
-                    .padding(horizontal = 8.dp, vertical = 2.dp),
+                text = if (count > 0) "$count 条" else "",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            // 右侧「切换章」：与书条「切换书」同款胶囊、同位置、同字号——
+            // 两者左右对齐才读得出「这是同级入口」。始终显示（只有一章也显示）。
+            if (onSwitch != null) {
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = "切换章",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .clip(AppShapes.sm)
+                        // 点击独立于整行：点键=换章，点行=跳本章首条，两个动作不互相吃掉
+                        .clickable(onClick = onSwitch)
+                        .padding(horizontal = 8.dp, vertical = 2.dp),
+                )
+            }
         }
     }
 }

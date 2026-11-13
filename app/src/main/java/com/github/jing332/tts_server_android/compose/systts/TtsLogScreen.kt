@@ -1565,8 +1565,20 @@ private fun PinnedLogHeader(
             // 与未筛选时的灰字形成天然反差——不需要额外加"已筛选"三个字。
             // 取消仍只在这颗胶囊里，不给同一件事开第二个入口。
             val filtered = !scopeBook.isNullOrBlank()
-            val shownBook = if (filtered) scopeBook.orEmpty() else viewBook
-            val shownChapter = if (filtered) scopeChapter.orEmpty() else viewChapter
+            // ===== 11-13 晚（用户令）：「顶部章节名，还是以最新日志为准，
+            // 最新日志是哪本书哪个章节就是哪个」=====
+            //
+            // 原顺序是 viewBook 优先（11-11 的「划到哪显示哪本」口径），于是吸顶跟着
+            // 滚动位置走：往回翻到旧章节时，顶部会跟着退回旧章名。
+            // 用户现在要的口径相反：**顶部反映「正在读哪儿」，不反映「手指划到哪儿」**。
+            // 列表是按时间正序、新日志追加在尾，`book`/`chapter` 取自
+            // list.lastOrNull{ 带书章 } = 最新一条请求行，正是"最新日志"。
+            //
+            // 顺带说明：这也让 LogScreen 里那条「章边界进视口就切」的扫描失去意义
+            //（它只影响 viewBookChapter 回传值，而这里已不再优先用它）。保留该逻辑
+            // 不动——筛选态/无书章等回落情形仍会用到 view 值。
+            val shownBook = if (filtered) scopeBook.orEmpty() else book.ifBlank { viewBook }
+            val shownChapter = if (filtered) scopeChapter.orEmpty() else chapter.ifBlank { viewChapter }
             val chapLabel = shortChapterLabel(shownChapter).let { if (it.isBlank()) "" else " $it" }
 
             // 左侧信息槽：占满行内剩余宽度，右侧两个按钮先量、先占位。
