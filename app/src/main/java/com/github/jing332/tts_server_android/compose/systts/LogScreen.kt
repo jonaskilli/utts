@@ -228,26 +228,31 @@ internal class LogGroups(
         else "" to ""
 
     /**
-     * 11-13 晚：该列表项是不是「本章第一条日志」（换章后的第一行）。
+     * 11-13 深夜（用户最终口径，替代之前两版）：
+     * 「我的意思就是说它显示的是某一章章节名的日志的时候才加底色，其他任何情况下都不加底色」
      *
-     * 用户改口「不喜欢专门加一栏放章节名……还是给章节日志加底色（用主题色）」——
-     * 不再插独立章签行，改为让换章后第一条日志自己带一层主题色淡底，
-     * 字号/字重/行高一律不动（用户明确「字号也不用变，用以前的」）。
+     * 判据＝**这条日志自己的正文**是不是章节名，与前后日志无关：
+     *     正文 == 该行的 chapterTitle  →  加底色
      *
-     * 判据：本项有章、且与**前一个有章的前驱项**不同章。
-     * 直接查 itemChapter 表（build 时已逐项填好），不额外存集合。
-     * 跳过无书章的项（日期签/插件行/旧日志），避免它们打断判断。
+     * 为什么这个等式成立（不是猜，两头都核对过）：
+     *   · 规则侧 `getChapterTitleIfHeading()`（朗读规则 v1.7.5 第 2787-2789 行）这样认章名：
+     *       /^第[0-9〇零一二三四五六七八九十百千万]+[章节回卷]/
+     *       /^(序章|楔子|序言|引子|尾声|终章|后记|番外)/
+     *     命中就把**这一段原样**当章名返回，所以章名段的「正文」与「chapterTitle」逐字相同；
+     *   · 普通正文段的 chapterTitle 是「它属于哪一章」，与正文完全不同。
+     *   真机日志核对：「第1章 实施绑架」「第2章 这种东西…」「第3章 她的链子来了！」三条
+     *   正文==章名；「月黑风高。」「付雪梨默默咽了口口水。」等正文≠章名，全部判对。
+     *
+     * 好处：不另写正则。以后规则改进（新增章名形态），日志页自动跟着对，两边不会打架。
+     * 非常规章名（序章/楔子/尾声/番外）规则本来就会返回章名，自然也加底色。
+     *
+     * @param text 该行被朗读的正文（JSON 已去 HTML 标签）
+     * @param chapterTitle 该行的章名（规则透传，空串=旧规则/未定位）
      */
-    fun isChapterHead(itemIndex: Int): Boolean {
-        if (itemIndex !in itemChapter.indices) return false
-        val cur = itemChapter[itemIndex]
-        if (cur.isBlank()) return false
-        for (i in itemIndex - 1 downTo 0) {
-            val prev = itemChapter[i]
-            if (prev.isBlank()) continue
-            return prev != cur
-        }
-        return true // 前面没有任何带章项 → 本项就是首章的第一条
+    fun isChapterTitleLog(text: String, chapterTitle: String): Boolean {
+        if (chapterTitle.isBlank()) return false
+        if (text.isBlank()) return false
+        return text.trim() == chapterTitle.trim()
     }
 
     sealed class Item {
@@ -638,34 +643,21 @@ internal class LogGroups(
                 }
             }
 
-            var lastChapterKey: Pair<String, String>? = null
-            // ===== 11-13 晚（用户改口：「不喜欢专门加一栏放章节名，字号也不用变，
-            // 还是给章节日志加底色（用主题色）」）=====
-            // 我上一版插了独立 ChapterBar 行（15sp/ExtraBold + 2dp 线），用户不要这种
-            // "专门一栏"。改为：**章首那条日志自己带主题色淡底**——不新增行、不改字号、
-            // 不动字重，只让"换章后的第一条日志"从视觉上跳出来。
-            // chapterHeadEntries = 每个 (书,章) 的第一条条目下标；渲染侧据此给该卡加底色。
-            val chapterHeadEntries = HashSet<Int>()
             raw.forEach { item ->
                 val anchorIdx = anchorOf(item)
                 if (anchorIdx >= 0) {
                     val e = list[anchorIdx]
                     // 11-11：书条不再插入列表流——改由上层吸顶渲染（用户令置顶）。
                     // 这里只负责日期签。
+                    // ⚠️ 11-13 深夜：原来这里还记「换章处第一条」给章首底色用，
+                    // 用户最终口径改为「日志内容是章节名才加底色」——判据只依赖该行
+                    // 自己的正文与 chapterTitle，不再需要这张「章首条目」表，已整套删除。
                     val t = e.time
                     if (t.length >= 10) {
                         val d = t.substring(0, 10)
                         if (d != lastDate) {
                             finalItems.add(Item.Header(d))
                             lastDate = d
-                        }
-                    }
-                    // 记下「每条日志属于哪一章的第一条」：换章处的那一条进集合
-                    if (e.bookName.isNotBlank() && e.chapterTitle.isNotBlank()) {
-                        val ck = e.bookName to e.chapterTitle
-                        if (ck != lastChapterKey) {
-                            lastChapterKey = ck
-                            chapterHeadEntries.add(anchorIdx)
                         }
                     }
                 }
@@ -1107,15 +1099,16 @@ internal fun LogScreen(
             //（比日期签还左），页面出现三条左线。此为那次改卡片漏掉的对齐。
             contentPadding = PaddingValues(horizontal = 0.dp)
         ) {
-                itemsIndexed(currentGroups.items, key = { index, _ -> index }) { itemIndex, item ->
+                itemsIndexed(currentGroups.items, key = { index, _ -> index }) { _, item ->
                     when (item) {
                         // 11-11 用户令：书条/章条不再出现在日志流里，改为**吸顶**
                         //（在 TtsLogScreen 的 topBar 下方固定渲染）。此处保留分支只因
                         // Item 是 sealed class 需要穷举，实际不会再产出这两个 Item。
                         is LogGroups.Item.BookBar -> Unit
-                        // 11-13 晚：章签不再单独成行（用户令「不喜欢专门加一栏放章节名」），
-                        // 改为「换章后第一条日志整行加主题色淡底」（见 Group 分支的
-                        // currentGroups.isChapterHead 判断）。此分支保留仅为 sealed class 穷举。
+                        // 11-13 深夜：章签不再单独成行（用户两次否掉独立章签行），
+                        // 改为「日志内容本身是章节名时整行加底色」——判据见 Group 分支的
+                        // currentGroups.isChapterTitleLog(boldBodyOf(head), head.chapterTitle)。
+                        // 本分支保留仅为 sealed class 穷举。
                         is LogGroups.Item.ChapterBar -> Unit
                         is LogGroups.Item.Header -> {
                             // 日期签：每天第一条上方出现一次（10-06：日期不再逐行重复）。
@@ -1345,17 +1338,19 @@ internal fun LogScreen(
                                     // 行间用纵向间距分隔（首行顶 6dp，行与行 8dp 由外层间隔表达——
                                     // 这里用统一 vertical 6dp，视觉等同旧行距但无线）
                                     .fillMaxWidth()
-                                    // ===== 11-13 晚（用户令，二改）=====
-                                    // 「章节签日志颜色保持原样，不要加绿，只是这条底色变绿了，
-                                    //   还是那个书籍框那个填充率」
-                                    // 即：①只有**底色**用绿，文字（时间/成功丸/正文/发音人信息）
-                                    //      全部保持原色，不染绿、不加粗；
-                                    //    ②绿色取**书籍框那一档** = role 模块现成的
-                                    //      softFillBarColor()（lerp(secondaryContainer, White, 0.42)
-                                    //      → 绿主题 #E7F7EC），不是我自己算的 primary 10%。
-                                    // 与角色列表标签框、换声面板选中态、书籍框填充同源同值。
+                                    // 11-13 深夜（用户最终口径）：
+                                    // 「它显示的是某一章章节名的日志的时候才加底色，
+                                    //   其他任何情况下都不加底色」
+                                    // 判据＝这条日志自己的正文 == 它的 chapterTitle
+                                    //（规则认章名时把该段原样返回，所以章名段两者逐字相同）。
+                                    // 与前后日志无关、与书名无关，只看这一条。
+                                    // 底色取书籍框同款 softFillBarColor()（#E7F7EC），
+                                    // 文字（时间/成功丸/正文/发音人信息）一律不动。
                                     .then(
-                                        if (currentGroups.isChapterHead(itemIndex))
+                                        if (currentGroups.isChapterTitleLog(
+                                                boldBodyOf(head), head.chapterTitle
+                                            )
+                                        )
                                             Modifier.background(softFillBarColor())
                                         else Modifier
                                     )
@@ -1668,6 +1663,21 @@ private fun groupTimeText(startEntry: LogEntry, endEntry: LogEntry?): String {
 private fun requestTextOf(e: LogEntry): String =
     e.message.replace(Regex("<[^>]*>"), "")
         .substringAfter("请求音频：", "").trim()
+
+/**
+ * 11-13 深夜：只取请求行里**被朗读的那段正文**（`<b>…</b>` 内的部分）。
+ *
+ * 服务端请求行格式固定为：
+ *   请求音频：<b>正文</b><br><font …>发音人信息</font>…
+ * 正文在第一个 `<b>` 与 `</b>` 之间。判「这行是不是章节名日志」必须用它，
+ * 不能用 requestTextOf——那个把发音人信息也带进来了，永远不可能等于章名。
+ *
+ * 找不到 `<b>`（老格式/无正文行）时返回空串，调用方据此不加底色。
+ */
+private fun boldBodyOf(e: LogEntry): String {
+    val m = Regex("<b>([\\s\\S]*?)</b>").find(e.message) ?: return ""
+    return m.groupValues[1].replace(Regex("<[^>]*>"), "").trim()
+}
 
 /**
  * 某条日志是不是「成功的获取结果子行」。
