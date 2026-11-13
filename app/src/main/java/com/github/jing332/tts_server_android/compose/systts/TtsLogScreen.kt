@@ -52,6 +52,8 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.AlertDialog
@@ -1656,9 +1658,12 @@ private fun PinnedLogHeader(
                                 .padding(start = 9.dp, end = 3.dp, top = 3.dp, bottom = 3.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            // 11-14 用户令「书名和章节名做成能跳转的形式，别加筛选书和跳章节了」：
-                            // 书名点击=开书籍弹窗（原「筛选书」键职责）；章名点击=开章节弹窗
-                            //（原「跳到第x章」键职责）。样式与原胶囊字一致（淡绿 11sp），加 clickable。
+                            // 11-14 用户令「做成下拉框的形式」：书名/章名各挂一个
+                            // DropdownMenu——书多项/章多项时点击展开选择，只有一项
+                            // 时无可选项=点了也不弹（视觉上就是普通文字，自然禁用）。
+                            // 职责承接原「筛选书」（书下拉）与「跳到第x章」（章下拉）。
+                            var bookMenu by remember { mutableStateOf(false) }
+                            var chapMenu by remember { mutableStateOf(false) }
                             Text(
                                 text = "《$shownBook》",
                                 style = MaterialTheme.typography.labelSmall,
@@ -1669,9 +1674,22 @@ private fun PinnedLogHeader(
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier
                                     .weight(1f, fill = false)
-                                    .clip(RoundedCornerShape(50))
-                                    .clickable { onSwitchBook(shownBook) },
+                                    .clickable { bookMenu = true },
                             )
+                            DropdownMenu(
+                                expanded = bookMenu,
+                                onDismissRequest = { bookMenu = false },
+                            ) {
+                                vm.knownBooks.forEach { b ->
+                                    DropdownMenuItem(
+                                        text = { Text(b) },
+                                        onClick = {
+                                            bookMenu = false
+                                            onSwitchBook(b)
+                                        },
+                                    )
+                                }
+                            }
                             if (chapLabel.isNotBlank()) {
                                 Text(
                                     text = chapLabel + playingProgressSuffix,
@@ -1681,11 +1699,22 @@ private fun PinnedLogHeader(
                                     fontWeight = FontWeight.Medium,
                                     maxLines = 1,
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(50))
-                                        .clickable {
-                                            onSwitchChapter(shownBook, shownChapter)
-                                        },
+                                        .clickable { chapMenu = true },
                                 )
+                                DropdownMenu(
+                                    expanded = chapMenu,
+                                    onDismissRequest = { chapMenu = false },
+                                ) {
+                                    vm.chaptersOf(shownBook).forEach { (name, count) ->
+                                        DropdownMenuItem(
+                                            text = { Text("$name · $count 条") },
+                                            onClick = {
+                                                chapMenu = false
+                                                onSwitchChapter(shownBook, name)
+                                            },
+                                        )
+                                    }
+                                }
                             }
                             // 「取消」与书名之间一道浅竖线分隔（视觉上表明这是两段，不是书名的一部分）
                             Spacer(Modifier.width(6.dp))
@@ -1708,8 +1737,10 @@ private fun PinnedLogHeader(
                             )
                         }
                     } else {
-                        // ---- 未筛选：纯灰字（11-14 用户令：也可点击开弹窗，颜色不变）----
+                        // ---- 未筛选：纯灰字 + 同款下拉（多项才弹，单项点了不弹）----
                         Row(verticalAlignment = Alignment.CenterVertically) {
+                            var bookMenu2 by remember { mutableStateOf(false) }
+                            var chapMenu2 by remember { mutableStateOf(false) }
                             Text(
                                 text = "《$shownBook》",
                                 style = MaterialTheme.typography.bodySmall,
@@ -1719,9 +1750,22 @@ private fun PinnedLogHeader(
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier
                                     .weight(1f, fill = false)
-                                    .clip(RoundedCornerShape(50))
-                                    .clickable { onSwitchBook(shownBook) },
+                                    .clickable { bookMenu2 = true },
                             )
+                            DropdownMenu(
+                                expanded = bookMenu2,
+                                onDismissRequest = { bookMenu2 = false },
+                            ) {
+                                vm.knownBooks.forEach { b ->
+                                    DropdownMenuItem(
+                                        text = { Text(b) },
+                                        onClick = {
+                                            bookMenu2 = false
+                                            onSwitchBook(b)
+                                        },
+                                    )
+                                }
+                            }
                             if (chapLabel.isNotBlank()) {
                                 Text(
                                     text = chapLabel + playingProgressSuffix,
@@ -1730,11 +1774,22 @@ private fun PinnedLogHeader(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1,
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(50))
-                                        .clickable {
-                                            onSwitchChapter(shownBook, shownChapter)
-                                        },
+                                        .clickable { chapMenu2 = true },
                                 )
+                                DropdownMenu(
+                                    expanded = chapMenu2,
+                                    onDismissRequest = { chapMenu2 = false },
+                                ) {
+                                    vm.chaptersOf(shownBook).forEach { (name, count) ->
+                                        DropdownMenuItem(
+                                            text = { Text("$name · $count 条") },
+                                            onClick = {
+                                                chapMenu2 = false
+                                                onSwitchChapter(shownBook, name)
+                                            },
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
