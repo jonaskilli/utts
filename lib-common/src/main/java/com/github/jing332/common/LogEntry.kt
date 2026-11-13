@@ -30,6 +30,12 @@ data class LogEntry(
     // 日志页按「无书章」处理（不画书条、不画章节签），与旧行为完全一致
     val bookName: String = "",
     val chapterTitle: String = "",
+    // 11-13：请求实例 id（一次「请求音频」= 一个 id，其成功/失败/取消子行同 id）。
+    // 落盘在该行的 message 前缀「⟨req:xxx⟩」里（见 SystemTtsService.logS/normalEvent）。
+    // 用途：并发两笔请求交错完成时，日志页按 id 把子行挂回自己那张卡——
+    // 此前只按出现顺序就近挂，实测「爷爷，」卡上挂着「他说，」的 0.9s/50.7KB，
+    // 自己的成功行反而掉成孤立裸行。空串=旧日志行/无关联行，退回顺序配对。
+    val reqId: String = "",
 ) :
     Parcelable {
     fun getLevelChar(): String = level.toLogLevelChar()

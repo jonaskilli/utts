@@ -707,6 +707,8 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
     private fun logS(
         msg: String,
         indent: Int = 0,
+        // 11-13：子行所属请求实例 id（与请求行同一值）→ 落盘后日志页按 id 挂回卡
+        reqId: String = "",
         // ⚠️ 11-11 修正：书章**必须由调用方显式传入**，不能在这里读 MDC。
         // 原因（自查发现的缺陷）：logS 的调用点是 NormalEvent.ReadAllFromStream，
         // 那是**独立事件**、在请求处理完之后才到；而 normalEvent 的 finally 早已把
@@ -730,6 +732,7 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                 indent = indent,
                 bookName = mdcBook,
                 chapterTitle = mdcChapter,
+                reqId = reqId,
             )
         )
         // 持久化到**主日志** system_tts.log（11-11 用户定案：合并回去，删掉 child 文件）。
@@ -758,7 +761,8 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                 val safeBook = mdcBook.replace("§", "Ｓ").replace("|", "｜")
                 val safeChapter = mdcChapter.replace("§", "Ｓ").replace("|", "｜")
                 FileWriter(logFile, true).use {
-                    it.append("$time | SUCCESS |  |  | §$safeBook | $safeChapter | $msg\n")
+                    // 11-13：第五段加 reqId（空串=旧版/无关联），子行据此挂回自己的请求卡
+                    it.append("$time | SUCCESS |  |  | §$safeBook | $safeChapter | $reqId | $msg\n")
                 }
             }
         }.onFailure { Log.e(TAG, "logS write file: ", it) }
@@ -1011,6 +1015,11 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                             org.slf4j.MDC.put("bookName", e.request.bookName)
                         if (e.request.chapterTitle.isNotBlank())
                             org.slf4j.MDC.put("chapterTitle", e.request.chapterTitle)
+                        // 11-13：请求实例 id 随行落盘。并发两笔时成功/失败子行靠它挂回自己
+                        // 那张卡——此前只按顺序就近挂，实测错配（「爷爷，」卡上挂着
+                        // 「他说，」的 0.9s/50.7KB），自己的成功行掉成孤立裸行。
+                        if (e.request.reqId.isNotBlank())
+                            org.slf4j.MDC.put("reqId", e.request.reqId)
                         logI("请求音频：" + e.request.text())
                         // 降级兜底提示：规则 JS 分析失败会把文本直接投给兜底标签，
                         // 请求行与正常请求无异、看不出是兜底。判定：括号4 本职是『』括号发音人，
@@ -1048,6 +1057,7 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                         org.slf4j.MDC.remove("roleName")
                         org.slf4j.MDC.remove("bookName")
                         org.slf4j.MDC.remove("chapterTitle")
+                        org.slf4j.MDC.remove("reqId")
                     }
                 }
 
@@ -1070,6 +1080,8 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                         // 书章取自事件自带的 request（MDC 此时已被 finally 清掉，取不到）
                         bookName = e.request.bookName,
                         chapterTitle = e.request.chapterTitle,
+                        // 11-13：同一请求实例 id → 并发交错时子行仍能挂回自己的卡
+                        reqId = e.request.reqId,
                     )
                 }
             }

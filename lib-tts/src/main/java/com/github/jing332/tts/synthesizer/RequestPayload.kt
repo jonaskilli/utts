@@ -11,6 +11,10 @@ data class RequestPayload(
     val failoverFromTag: String? = null,
     val bookName: String = "",
     val chapterTitle: String = "",
+    // 11-13：请求实例 id。一次「请求音频」生成一个，其成功/失败/取消子行沿用同一个值，
+    // 日志页据此把子行挂回自己的卡（并发交错时不再按就近顺序错配）。
+    // 重试/切备用的递归调用必须原样透传，否则同一条失败链会拆成两张卡。
+    val reqId: String = "",
 ) {
     val text: String
         get() = params.text

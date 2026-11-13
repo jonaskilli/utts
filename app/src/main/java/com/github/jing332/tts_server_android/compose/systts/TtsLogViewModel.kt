@@ -502,6 +502,26 @@ class TtsLogViewModel : ViewModel() {
         // 修法（最小侵入）：「获取成功：」前缀只由 logS(SUCCESS, indent=1) 产生，
         // 回读时据此还原子行身份；若日后新增其他子行前缀，走落盘格式加字段的路。
         val isAcquiredSuffix = line.contains("获取成功：")
+        // 11-13：带请求实例 id 的新格式（本次改造）——
+        //   time | LEVEL | configId | roleName | §book | chapter | reqId | message
+        // reqId 列可为空（旧行/无关联行）。判别：§ 段之后的第一个 " | " 分出的第 3 段
+        // 是一个短 token（r+字母数字，或无字符）。为免误判正文里的 " | "，只认
+        // 「以 r 开头且长度 3~24 的字母数字」或空串——不匹配就落回下面的老格式。
+        Regex(
+            "^(\\d{4}-\\d\\d-\\d\\d \\d\\d:\\d\\d:\\d\\d\\.\\d{3}) \\|\\s*([A-Z]+)\\s*\\|\\s*(\\d*)\\s*\\|\\s*(.*?)\\s*\\|\\s*§(.*?)\\s*\\|\\s*(.*?)\\s*\\|\\s*(r[0-9a-z]{2,23}|)\\s*\\|\\s*(.*)$"
+        ).find(line)?.let { m ->
+            return LogEntry(
+                level = m.groupValues[2].toLogLevel(),
+                time = m.groupValues[1],
+                message = m.groupValues[8],
+                configId = m.groupValues[3].toLongOrNull() ?: 0L,
+                roleName = m.groupValues[4],
+                bookName = m.groupValues[5],
+                chapterTitle = m.groupValues[6],
+                reqId = m.groupValues[7],
+                indent = if (isAcquiredSuffix) 1 else 0,
+            )
+        }
         // 带书章的新格式（11-10，v1.7 规则）：
         //   time | LEVEL | configId | roleName | §bookName | chapterTitle | message
         // 判别靠 bookName 前的固定标记 §：旧日志行里没有这一节，不会误判；正文里的 " | "

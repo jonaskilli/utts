@@ -273,16 +273,65 @@ internal class LogGroups(
 
     companion object {
         /**
+         * 11-13 归属修复（用户实报「爷爷，卡上挂着别人 0.9s/50.7KB」）：
+         * 并发时两笔请求的日志按时间交错落盘——REQ_A、REQ_B、SUCCESS_A、SUCCESS_B，
+         * 分组按顺序跑，SUCCESS_A 就挂到 B 的卡上、SUCCESS_B 因卡已关掉成孤立裸行。
+         *
+         * 修法取最小侵入：按请求实例 id 做一次**稳定重排**——把同一 reqId 的所有行
+         * 聚到该请求首次出现的位置，组内保持原始先后（请求行必是首条）。重排后
+         * 分组逻辑照旧按顺序跑就能正确配对，不必重写整台状态机。
+         * 无 reqId 的行（旧日志、插件行、规则行、系统消息）各自归位到原下标，
+         * 相对顺序保持不变；已有顺序即为最优时该函数是恒等变换。
+         */
+        private fun regroupByReqId(list: List<LogEntry>): List<LogEntry> {
+            if (list.isEmpty()) return list
+            if (list.none { it.reqId.isNotEmpty() }) return list
+            // 每个 reqId 的首条下标 + 其成员（保持原顺序）
+            val firstAt = LinkedHashMap<String, Int>()
+            val buckets = HashMap<String, MutableList<LogEntry>>()
+            list.forEachIndexed { i, e ->
+                if (e.reqId.isEmpty()) return@forEachIndexed
+                firstAt.getOrPut(e.reqId) { i }
+                buckets.getOrPut(e.reqId) { ArrayList() }.add(e)
+            }
+            // 已经是「首条紧随其后就是全部成员」的常见情形：跳过重排，避免无谓开销
+            var needReorder = false
+            for ((id, idx) in firstAt) {
+                val n = buckets[id]?.size ?: 0
+                if (n <= 1) continue
+                var seen = 0
+                for (j in idx until minOf(idx + n + 8, list.size)) {
+                    if (list[j].reqId == id) seen++
+                }
+                if (seen < n) { needReorder = true; break }
+            }
+            if (!needReorder) return list
+
+            val out = ArrayList<LogEntry>(list.size)
+            val emitted = HashSet<String>()
+            list.forEachIndexed { i, e ->
+                if (e.reqId.isEmpty()) {
+                    out.add(e)
+                } else if (emitted.add(e.reqId)) {
+                    buckets[e.reqId]?.forEach { out.add(it) }
+                }
+                // 已发过的 reqId 成员跳过（它们已随首条一起输出）
+            }
+            return out
+        }
+
+        /**
          * @param fallbackBook / [fallbackChapter] 列表里没有带书章的条目时的回落值
          *   （11-11：由调用方传"全量日志里最近一条带书章的条目"）。
          *   用户实报「切换章节时有时无」——因为吸顶区只看**过滤后**的列表，
          *   选单本书/切书时主行被滤掉，吸顶区就空掉。加回落可保证只要读过这本书就仍显示。
          */
         fun build(
-            list: List<LogEntry>,
+            input: List<LogEntry>,
             fallbackBook: String = "",
             fallbackChapter: String = "",
         ): LogGroups {
+            val list = regroupByReqId(input)
             val raw = ArrayList<Item>(list.size)
             var head = -1
             var members = ArrayList<Int>()

@@ -216,8 +216,14 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
         // 重试/切备用的递归调用必须原样透传，否则失败链上的那条日志会丢掉书章
         bookName: String = "",
         chapterTitle: String = "",
+        // 11-13：请求实例 id（空串=自己生成）。重试/备用递归必须原样透传同一 id，
+        // 否则同一条失败链在日志里会拆成两张卡。
+        reqId: String = "",
     ) {
-        val request = RequestPayload(params, config, roleName, failoverFromTag, bookName, chapterTitle)
+        val request = RequestPayload(
+            params, config, roleName, failoverFromTag, bookName, chapterTitle,
+            reqId = reqId.ifEmpty { "r" + System.identityHashCode(params).toString(36) + System.nanoTime().toString(36).takeLast(6) }
+        )
         suspend fun retry() {
             CachedEngineManager.removeEngine(config.source)
             delay(context.cfg.retryDelay())
@@ -242,6 +248,7 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
                     sink, params, config.standbyConfig, 0, maxRetries,
                     roleName = roleName, failoverFromTag = fromTag,
                     bookName = bookName, chapterTitle = chapterTitle,
+                    reqId = request.reqId,
                 )
             } else {
                 val next = retries + 1
@@ -258,6 +265,7 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
                     sink, retryParams, config, next, maxRetries,
                     roleName = roleName, failoverFromTag = failoverFromTag,
                     bookName = bookName, chapterTitle = chapterTitle,
+                    reqId = request.reqId,
                 )
             }
         }
