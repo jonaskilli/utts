@@ -1340,14 +1340,16 @@ internal fun LogScreen(
                             // 日期文字用主色、不加底。语义上它就该是**分隔标记**（新的一天从这里
                             // 开始），不是可点控件——竖线正好表达"划一条线"。
                             // 也顺手解决了胶囊带来的边距问题：不再有底色块，文字直接落内容线。
-                            // 11-14 晚（用户令「日期那个竖线边距调到跟筛选边距一样，好像是 8dp」）：
-                            // 竖线**左缘落 8dp**，与吸顶筛选行的左缘同一条工具带；
-                            // 日期文字仍落 16dp 内容线 ⇒ 间距 = 16 − 8 − 3(线宽) = **5dp**。
-                            // 这两条是同一套账：竖线是装饰性刻度（允许比内容线更靠外），
-                            // 但它到文字的距离必须由 8/16 两个基准算出来，不能另拍一个 7。
+                            // 11-15（内容线整体 16→8，同批）：日期签跟着重算，规则只有一条——
+                            // **日期文字必须正好落 8dp 内容线**。
+                            //   旧：竖线 8 + 线宽 3 + 间距 5 = 文字 16（对得上旧内容线 16）
+                            //   新：竖线 3 + 线宽 3 + 间距 2 = 文字 8 （对得上新内容线 8）
+                            // 竖线为什么从 8 挪到 3、而不是跟着压到 0：它的语义是"装饰刻度允许
+                            // 比内容线更外凸"（11-14 定的），但 0 会让 3dp 竖线在圆角屏被吃掉半笔，
+                            // 故左缘留 3；于是竖线比内容线外凸 5dp，性质不变、只是基准整体左移。
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(start = 8.dp, top = 10.dp, bottom = 4.dp),
+                                modifier = Modifier.padding(start = 3.dp, top = 10.dp, bottom = 4.dp),
                             ) {
                                 Box(
                                     Modifier
@@ -1356,7 +1358,7 @@ internal fun LogScreen(
                                         .clip(RoundedCornerShape(2.dp))
                                         .background(MaterialTheme.colorScheme.primary)
                                 )
-                                Spacer(Modifier.width(5.dp))
+                                Spacer(Modifier.width(2.dp))
                                 Text(
                                     text = item.date,
                                     style = MaterialTheme.typography.labelSmall,
@@ -1396,10 +1398,15 @@ internal fun LogScreen(
                                         // 行本身保持素底
                                         else Modifier
                                     )
-                                    // 10-10 B 案：裸行左缘 4→16，与卡内正文/日期签文字同落
-                                    // 全站 ListGutter 16dp 线（原本 4dp 是卡片带外边距时代的
-                                    // 「贴边族」口径，卡片改通边后失效）。纵向 3.5 未动。
-                                    .padding(horizontal = 16.dp, vertical = 3.5.dp)
+                                    // 11-15 用户令（第二轮定稿）：「合成进度以及下方的日志
+                                    // 都要左右边距改为 8dp，就是跟顶部一样」→ 内容线 16→8，
+                                    // 与吸顶筛选行/书章框的 8dp 工具带**彻底同线**（此前是
+                                    // 控件带 8、内容线 16 两条左线，用户点名不要一页三条线）。
+                                    // ⚠️ 这推翻了 10-10 的「全站 ListGutter 16」B 案：
+                                    // 该口径的前提是「控制带 16/控制带 8 分家」，而吸顶两排
+                                    // 在 11-14 已整体收到 8，日志页内部再守 16 就成了孤例。
+                                    // 纵向 3.5 未动（行距与边距是两件事）。
+                                    .padding(horizontal = 8.dp, vertical = 3.5.dp)
                             ) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     // 行内元素套 Row(CenterVertically)：与组头行同因——FlowRow
@@ -1627,7 +1634,9 @@ internal fun LogScreen(
                                                 }
                                         else Modifier
                                     )
-                                    .padding(horizontal = 16.dp, vertical = 6.dp)
+                                    // 11-15 同批：组卡内容线 16→8，与裸行/进度行同线
+                                    //（推导见上面裸行那段注释）。
+                                    .padding(horizontal = 8.dp, vertical = 6.dp)
                                     .then(
                                         if (selectionMode) Modifier.clickable {
                                             // 组=多选粒度：整组勾/整组取消

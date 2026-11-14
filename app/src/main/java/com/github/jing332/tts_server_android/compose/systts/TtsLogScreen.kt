@@ -2133,9 +2133,12 @@ private fun PinnedLogHeader(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    // 11-14：纯文字信息行，等同正文——左 17→16 归到内容线
-                    // （原 17 比正文多 1dp，是历史零头）。top 2→1 让它紧贴书章成一组。
-                    .padding(start = 16.dp, end = 16.dp, top = 1.dp, bottom = 7.dp),
+                    // 11-15 用户令：「合成进度以及下方的日志都要左右边距改为 8dp，
+                    // 就是跟顶部一样」→ 16/16 改 **8/8**，与书章框左缘同线。
+                    // 原注释（11-14 的「归到内容线 16」）随之失效：内容线本身已整体
+                    // 收到 8（见 LogScreen 裸行/组卡/日期签注释），进度行不再当孤例。
+                    // top 1 让它紧贴书章成一组，纵向未动。
+                    .padding(start = 8.dp, end = 8.dp, top = 1.dp, bottom = 7.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
@@ -2166,7 +2169,8 @@ private fun PinnedLogHeader(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 12.dp, end = 12.dp, bottom = 6.dp)
+                    // 11-15：12→8，与内容线同批对齐（见进度行注释）
+                    .padding(start = 8.dp, end = 8.dp, bottom = 6.dp)
                     .clip(AppShapes.sm)
                     .background(Color(0xFFFFF7E3))
                     .clickable {
