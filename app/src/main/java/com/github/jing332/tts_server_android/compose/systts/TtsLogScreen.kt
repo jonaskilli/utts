@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -85,12 +86,15 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import com.github.jing332.tts_server_android.compose.theme.AppShapes
 import androidx.compose.ui.unit.Dp
@@ -1657,7 +1661,12 @@ private fun PinnedLogHeader(
                 // 间距账：筛选 bottom9 + 这里 top0 = 9dp；这里 bottom0 + 进度 top1 = 1dp。
                 .padding(start = 8.dp, end = 8.dp, bottom = 0.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(5.dp),
+            // 11-14 晚（用户令「书名和章节名中间有空隙咋处理」）：
+            // 空隙的真因不是这里，而是**书名的 Box 挂了 weight(1f)**——它把整行剩余宽度
+            // 全吃下来，章名框被顶到行尾，中间就露出一大段空白。已改 weight(1f, fill=false)
+            // （只让"够用即可"、不吃满），两框因此**相邻**。这里的间距再收到 2dp，
+            // 让两个框看成一整条带上的两颗，而不是被拉开的两截。
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             // ===== 书/章：左侧信息 + 右侧按钮（11-11 用户选 B 方案定稿）=====
             //
@@ -1704,6 +1713,58 @@ private fun PinnedLogHeader(
             // 将来若要恢复只需改这一处。
             val playingProgressSuffix = ""
 
+            // ===== 11-14 晚（用户令「我感觉现在还是不够灵活，这个关于章节名和书名的长度」）=====
+            //
+            // 上一版给章名一个**固定**上限 maxWidth/3，好看但死板，实测立刻暴露矛盾：
+            //   书名「三体」只需 ~65dp，章名「第9章 他把她锁进了柴房」需要 ~158dp，
+            //   整行明明放得下，章名却被 1/3（≈115dp）硬切成了「第9章 他把她…」，
+            //   而书名框那边空着 160dp 没法用。
+            //
+            // 病根：1/3 是**行宽的比例**，跟"书名实际要多少"无关，所以它既可能过宽、
+            // 也可能过窄。真正该由书名决定章名能拿多少。现改为：
+            //   ① 先量书名文字宽 wBook（用 TextMeasurer，不需要 composition）；
+            //   ② 还剩下的宽度 = 行宽 − 2dp 间距 − wBook；
+            //   ③ 章名上限 = (2) 与「行宽/3」取**较大**者 —— 即「书名用不完的部分都给章名」，
+            //     1/3 退化成**保底**（防止书名极长时把章名压成省略号）；
+            //   ④ 若两框都放得下（wBook + wChap ≤ 行宽 − 2dp），章名**不受任何上限**，
+            //      完整显示，剩余空白**全归书名框**（用户 11-14 选定的分法）。
+            //
+            // 于是 1/3 只在「书名长 + 章名也长」时作为兜底出现，不再误伤短书名场景。
+            val textMeasurer = rememberTextMeasurer()
+            val density = LocalDensity.current
+            val chapTextStyle = TextStyle(fontSize = 11.5.sp)
+            // 两框各自的"框内开销"（不是文字宽），用于把文字宽换算成框宽：
+            //   书名框 = 左衬 6 + 图标 14 + 图标字距 3 + 箭头 14 + 右衬 3 = 40dp
+            //   章名框 = 左衬 6 + 箭头 14 + 右衬 3                    = 23dp
+            val bookChrome = with(density) { 40.dp.toPx() }
+            val chapChrome = with(density) { 23.dp.toPx() }
+            val gapPx = with(density) { 2.dp.toPx() }
+            val wBookText = if (shownBook.isBlank()) 0f
+            else textMeasurer.measure(shownBook, chapTextStyle).size.width.toFloat()
+            val wChapText = if (chapLabel.isBlank()) 0f
+            else textMeasurer.measure(chapLabel.trim(), chapTextStyle).size.width.toFloat()
+            val bookNeeded = wBookText + bookChrome
+            val chapNeeded = wChapText + chapChrome
+
+            // 外层 BoxWithConstraints 只为拿**这一行真实可用宽**（已扣左右 8dp 内衬），
+            // 供下面的章名上限做动态计算；它不改布局语义。
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val rowW = constraints.maxWidth.toFloat()
+            // 两框能否同时完整放下（各自内容宽 + 2dp 间距）
+            val bothFit = chapLabel.isBlank() || (bookNeeded + chapNeeded + gapPx <= rowW)
+            // 章名框上限（动态，不是写死 1/3）：
+            //   · 放得下 → 不限，章名完整显示（剩余空白全归书名框，用户 11-14 选定）；
+            //   · 放不下 → 取「行宽 − 间距 − 书名需要宽」与「行宽/3」中的**较大**者。
+            //     含义：书名用不完的宽度优先给章名；1/3 退化成一个保底下限，
+            //     只在书名很长、把章名挤到不足 1/3 时才生效。
+            // 这样 1/3 不再是"天花板"，不会再出现「书名只要 65dp、章名却被切在 115dp」。
+            val chapCapPx = when {
+                chapLabel.isBlank() -> 0f
+                bothFit -> rowW
+                else -> maxOf(rowW - gapPx - bookNeeded, rowW / 3f)
+            }
+            val chapMaxWidth = with(density) { chapCapPx.toDp() }
+
             // 左侧信息槽：占满行内剩余宽度，右侧两个按钮先量、先占位。
             // 槽内书名可省略，章名不让位——长书名不能把「第N章」或右侧按钮挤没。
             Box(Modifier.weight(1f)) {
@@ -1743,6 +1804,11 @@ private fun PinnedLogHeader(
                             // ⚠️ weight 必须挂在 Box 上：Box 处在父 Row 的 RowScope 里，
                             // 而 Box 内部是 BoxScope（没有 weight）——挂在内层 Row 上
                             // CI 报「cannot be called in this context with an implicit receiver」。
+                            // weight(1f) + fillMaxWidth（11-14 晚用户令「书名和章节名的框要把
+                            // 整行撑满，而不是右侧留空」）：书名框吃掉行内剩余宽度，
+                            // 与章名框合起来正好撑满整行。短书名时框照样宽、文字靠左——
+                            // "撑满"是**框**的规矩，不是文字的宽。
+                            // 章名不挂 weight ⇒ 它按自身宽度先排、永不被书名挤压（非 weight 子项先测）。
                             Box(Modifier.weight(1f)) {
                                 // 11-14：触发框改 PickerTrigger（参照 GitHub 的 main 按钮：
                                 // 圆角描边 + 内衬 + ▾，让"能点"一眼可辨）。
@@ -1757,6 +1823,8 @@ private fun PinnedLogHeader(
                                     // 两态切换只该变底/描边，文字色跳变会显得控件"换了个东西"
                                     textColor = MaterialTheme.colorScheme.onSurface,
                                     opened = bookMenu,
+                                    // 撑满 weight 槽（同未筛选态，见那边注释）
+                                    modifier = Modifier.fillMaxWidth(),
                                 )
                                 // 紧凑菜单（用户令「把这个框小一点……得和谐呀」）：
                                 // MD3 DropdownMenu 默认项 48dp 高/16sp 字，相对吸顶 11sp 小字巨大。
@@ -1784,6 +1852,8 @@ private fun PinnedLogHeader(
                             }
                             if (chapLabel.isNotBlank()) {
                                 // 章名下拉同理：锚点只贴触发框，菜单从它右缘展开
+                                // 章名宽度上限 1/3（与未筛选分支同口径，见那边注释）：
+                                // 两态切换时章名框不会忽然宽窄跳一格
                                 Box {
                                     PickerTrigger(
                                         text = chapLabel.trim() + playingProgressSuffix,
@@ -1791,6 +1861,7 @@ private fun PinnedLogHeader(
                                         // 同上：筛选态与未筛选态同色
                                         textColor = MaterialTheme.colorScheme.onSurface,
                                         opened = chapMenu,
+                                        modifier = Modifier.widthIn(max = chapMaxWidth),
                                     )
                                     // 章名菜单**居右**（用户定稿）：章名在书名之后、靠行右侧，
                                     // 若仍从左缘展开，220dp 宽会顶出屏幕右沿（用户原话
@@ -1858,6 +1929,10 @@ private fun PinnedLogHeader(
                             // 锚点=只包住触发文字的小 Box（见上方长注释：
                             // MD3 DropdownMenu 无 alignment 参数，位置只跟父布局节点走）。
                             // ⚠️ weight 挂 Box（同上方注释）：Box 在内层是 BoxScope 没有 weight。
+                            // weight(1f) + fillMaxWidth（11-14 晚用户令「书名和章节名的框要把
+                            // 整行撑满，而不是右侧留空」）：书名框吃掉行内剩余宽度，
+                            // 与章名框合起来正好撑满整行。短书名时框照样宽、文字靠左——
+                            // "撑满"是**框**的规矩，不是文字的宽。
                             Box(Modifier.weight(1f)) {
                             // 11-14：触发框改 PickerTrigger（带描边，见组件注释）
                             PickerTrigger(
@@ -1866,6 +1941,9 @@ private fun PinnedLogHeader(
                                 leadingIcon = Icons.Default.Book,
                                 onClick = { bookMenu2 = true },
                                 opened = bookMenu2,
+                                // 撑满 weight 槽：PickerTrigger 的 Row 是 wrap content，
+                                // 不显式 fillMaxWidth 时短书名会让框缩回文字宽度、右边留白
+                                modifier = Modifier.fillMaxWidth(),
                             )
                             // 书名菜单居左（锚点小 Box + offset 归零，从左缘展开）
                             BookChapterPickerMenu(
@@ -1881,12 +1959,23 @@ private fun PinnedLogHeader(
                             )
                             }
                             if (chapLabel.isNotBlank()) {
+                                // 11-14 晚定稿（两条要求合并，用户「以章节的完整度为先，因为它字数少，
+                                // 剩下的就都是书名的位置」+「结合那个 1/3 的限制，各种情况都要灵活变动」）：
+                                //   ① 章名框 = **自身宽度**，一、俩字也不拉伸成固定宽——"第9章"
+                                //      就只占四个字，书名因此能多拿宽度；
+                                //   ② 但要有**上限**：行可用宽的 1/3。章名一旦是长标题
+                                //      （"第9章 他把她锁进了柴房"）就会无限吃宽、把书名挤到只剩图标，
+                                //      这时才截断省略。上限是兜底，不是常态宽度；
+                                //   ③ 书名框 weight(1f, fill=false) 吃剩余宽度，装不下才省略；
+                                //   ④ 两框由父 Row 的 2dp 间距连成一条，宽度随内容灵活变，但不分离。
                                 Box {
                                 // 11-14：章名触发框同款（带描边）
                                 PickerTrigger(
                                     text = chapLabel.trim() + playingProgressSuffix,
                                     onClick = { chapMenu2 = true },
                                     opened = chapMenu2,
+                                    // 上限只作用在**框**：正常章名够不到它，长章名才在这里省略
+                                    modifier = Modifier.widthIn(max = chapMaxWidth),
                                 )
                                 // 章名菜单居右（同筛选态：offset 左推让右缘贴触发文字）
                                 BookChapterPickerMenu(
@@ -1905,6 +1994,7 @@ private fun PinnedLogHeader(
                         }
                     }
                 }
+            }
             }
 
             // 11-14 用户令「别加筛选书和跳章节了，书名和章节名做成能跳转的形式」：
@@ -2104,10 +2194,33 @@ private fun BookChapterPickerMenu(
         // 宽度沿用旧版口径（220dp，用户令「框小一点」）：min 与 max 都写 220，
         // 让书单/章单两个菜单等宽、切换时不跳，也避免窄屏（320dp）上被撑爆。
         modifier = Modifier.widthIn(min = 220.dp, max = 220.dp),
-        // 11-14 用户令「这个点开弹窗也得紧贴这个书籍框更好吧」。
-        // GitHub 真机截图核对：弹窗上沿几乎贴着按钮下沿，看起来是同一控件的一部分。
-        // MD3 DropdownMenu 默认在锚点下方留 8dp 空隙 → 用负 offset 吃掉。
-        offset = androidx.compose.ui.unit.DpOffset(0.dp, (-8).dp),
+        // 11-14 晚（用户令「弹窗对勾应该跟书籍左边距一致」）。
+        //
+        // 对勾左缘的**准确算式**（上一版算错过，这里写死不要重推）：
+        //   卡片左缘 = 锚点左缘 + offsetX
+        //   勾左缘   = 卡片左缘 + 条目左内衬
+        //   ⇒ 勾左缘 = 锚点左缘 + offsetX + 条目左内衬
+        // 只要令 **条目左内衬 = |offsetX|**，两项相消：
+        //   勾左缘 = 锚点左缘 = **触发框左缘**
+        // 于是无论未筛选态（锚点 8dp）还是筛选态（胶囊内锚点 17dp），
+        // 勾都自动落在**当前那个书籍框的左缘**上，不需要分态另算。
+        // 故：offsetX = −8dp、条目左内衬 = 8dp（原来 14dp，会把勾推到 14dp 处）。
+        //
+        // ⚠️ 别把 border 算进来：`Modifier.border` 是**在内容上绘制**、不占布局尺寸，
+        // 卡片左缘就是 offset 定位到的那个 x，没有额外的 1dp 偏移。
+        // ⚠️ 也别按 (18dp 勾位 − 14dp 图标)/2 = 2dp 去加内衬——`Box(Modifier.width(18.dp))`
+        // 没设 contentAlignment，默认 TopStart，图标**贴勾位左缘**，不是居中。
+        // 11-14 晚（用户令「弹窗不能覆盖上方书籍框，应该连着：书籍框在上方，下方贴着弹出框」）。
+        //
+        // ⚠️ 上一版这里是 y = −8dp，注释还写着「MD3 默认在锚点下方留 8dp 空隙」——
+        // **那个判断是错的**。MD3 DropdownMenuPositionProvider 的起点就是
+        // `y = anchorBounds.bottom + contentOffset.y`，contentOffset 默认 (0,0)，
+        // 即**天然贴着锚点底边、本来就没有空隙**。再减 8dp 等于把弹窗往上顶 8dp，
+        // 于是白卡上沿压进书籍框里，框被盖掉半个高（用户实报的那一幕）。
+        //
+        // 现在 y 归 0：弹窗顶边 = 书籍框底边，上下相邻、互不覆盖。
+        // x = −8dp 是另一条账：与条目左内衬 8dp 相消，让对勾落到书籍框左缘（见上一条注释）。
+        offset = androidx.compose.ui.unit.DpOffset((-8).dp, 0.dp),
         // 纯白卡片（surface）+ 12dp 圆角 + 轻投影：照 GitHub 那个弹窗的形态。
         // 不用 AppDropdownMenu——它写死了 surfaceContainerLow 灰白底，质感差一档。
         containerColor = MaterialTheme.colorScheme.surface,
@@ -2137,7 +2250,9 @@ private fun BookChapterPickerMenu(
                         .fillMaxWidth()
                         .clip(AppShapes.sm)
                         .clickable { onPick(name) }
-                        .padding(horizontal = 14.dp, vertical = 9.dp),
+                        // 左内衬 8dp：与上方 offsetX=−8dp 相消，对勾左缘 = 书籍框左缘
+                        //（推导见 BookChapterPickerMenu 的 offset 注释；右内衬同步收以保证条目不显窄）。
+                        .padding(horizontal = 8.dp, vertical = 9.dp),
                 ) {
                     // 打勾位（参照 GitHub 当前分支前的 ✓）：固定占宽 18dp，
                     // 非当前项也留白——不留白的话勾会顶得各条文字左缘参差。
@@ -2227,16 +2342,21 @@ private fun PickerTrigger(
     leadingIcon: androidx.compose.ui.graphics.vector.ImageVector? = null,
 ) {
     val shape = RoundedCornerShape(6.dp)
+    // 11-14 晚（用户令「书籍和章节的填充底色应该跟顶部胶囊一样，点击时才变色」）：
+    // 底色**归零**，常态只剩描边——与顶部未选中胶囊同款（透明 + outlineVariant 1dp）。
+    // 旧版常态铺 surfaceVariant 45% 的灰底，等于"每颗胶囊都按下了"，
+    // 与吸顶区"未选中=空心"的既定口径打架，也把书章框读成了灰控件。
+    // 展开时才上底色＝**现在的这个灰**（surfaceVariant 45%，用户原话
+    // 「点击时才变为现在的这个灰色」）；常态一颗透明框，与未选中胶囊同款。
     val bgColor = if (opened) {
-        // 展开态：主题主色的极淡底（8%），肉眼可见"框亮了"但不抢戏
-        MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
-    } else {
-        // 正常态：中性淡底（surfaceVariant 45%），与吸顶区其它控件同档
         MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+    } else {
+        Color.Transparent
     }
     val borderColor = if (opened) {
-        // 展开态：主色描边（55%），明确"这个框正连着弹窗"
-        MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
+        // 展开态：描边随底色一起变实（outlineVariant 满档），表达"这个框正连着弹窗"。
+        // 不上主色：用户要的开态是那个灰，颜色不引入新的绿相。
+        MaterialTheme.colorScheme.outlineVariant
     } else {
         MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.9f)
     }

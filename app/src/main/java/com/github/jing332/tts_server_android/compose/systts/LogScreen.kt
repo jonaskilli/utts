@@ -132,12 +132,6 @@ private val LOG_HEAD_SIZE = 14.sp   // 正文 / 请求主行（原 14sp，收档
 private val LOG_BODY_SIZE = 13.sp   // 裸行 / 成员行 / 前缀 / 声音信息（原本就是 13sp，未变）
 private val LOG_AUX_SIZE = 12.sp    // 时间 / 状态（原 12sp，收档时被压到 11）
 
-// 11-14「正在朗读」吸顶条高度（用户第二次纠正「依然无法吸顶」后的定稿）：
-// 吸顶条固定这个高度，列表用 contentPadding.top 让出同样高度，两者严丝合缝。
-// 内容=丸行(约20dp) + 正文两行(18sp×2≈48dp) + 上下内衬12dp ≈ 80dp，
-// 取 84dp 留 4dp 余量，避免正文第二行被裁。
-private val PLAYING_PINNED_HEIGHT = 84.dp
-
 // ⚠️ 恢复时踩过的坑，写下来免得后人重犯：
 // 收档前 "13sp" 这一个数值同时被**前缀**、**声音信息**、**裸行**、**成员行**四处使用，
 // 而 "12sp" 只被**时间**、**状态**使用。收档把两者并成了一个 LOG_AUX_SIZE(11)，
@@ -448,12 +442,45 @@ internal class LogGroups(
                 retryCount = 0
             }
             fun openCard(requestIdx: Int) {
+                // 11-14 深夜（用户实报「同一段落拆成旁白+对话两笔请求，被并成一张卡」）：
+                //
+                // 开新卡前先收旧卡——这一步本来就是对的。真正要防的是**反向**：
+                // 旧卡还没收到成功行就来了一个新请求，旧卡被 closeCard 收走时
+                // 会把「还没结果的请求行」当成一张卡留在流里，紧接着新卡的请求行
+                // 就显示在它下面，两行请求正文相邻 ⇒ 用户看到"二合一"。
+                //
+                // 同段落拆旁白/对话就是这个形态：两笔请求相隔 1ms，
+                // 只有其中一笔的成功行先到。此时**两张卡都是对的**，
+                // 只是第一张暂时没有成功丸（等待中）。
+                //
+                // 这里不改归组（改了会破坏 reqId 配对），只保证：
+                // 新请求一定开出**自己的**卡，绝不被塞进任何已有的 members。
+                // （members 的唯一入口是 indent>0 分支与 else 兜底，
+                //   两者都已加了"含请求音频前缀就改为 openCard"的硬闸。）
                 closeCard()
                 head = requestIdx
             }
 
             list.forEachIndexed { i, e ->
                 when {
+                    // ===== 11-14 晚（用户实报「又变二合一了」）=====
+                    // 请求行判据必须**提到最前面**，先于插件/indent/规则各分支。
+                    //
+                    // 真机日志实锤（20:56:05.515，两笔同毫秒、同段落 2/306）：
+                    //   rybobuz96ie5 旁白「他们的回答惊人的一致：」
+                    //   r11gt7fz96i8c 群众「“当对手已经恐惧…”」
+                    // 这是 produceSegments(concurrency=2) 把一段拆成旁白+对话两笔请求，
+                    // 属正常行为。但旧的判据顺序把「请求音频」放在 indent/else 之后，
+                    // 一旦某笔的 configId 因 MDC 并发时序被清成 0（前缀判据虽有，
+                    // 但只要有一环走岔），该行就会掉进成员分支 ⇒ 被画成上一张卡的
+                    // **成员行**（INFO→主题绿 + 13sp），视觉上就是「二合一」；
+                    // 连带它的成功行也挂错卡（卡头 32.7KB、下方裸行 22.9KB 的对不上）。
+                    //
+                    // 现在：只要正文以「请求音频」开头就开新卡，无论 indent/configId 如何。
+                    // 该前缀只由 logI("请求音频：…") 唯一调用点产生，不会误伤其他行
+                    //（插件/规则行正文不以它开头，故仍走各自分支）。
+                    // 请求行正文一定以「请求音频」开头；用去 HTML 后的原文判断更稳。
+                    e.message.replace(Regex("<[^>]*>"), "").trim().startsWith("请求音频") -> openCard(i)
                     // ⚠️ 插件日志判断必须在 indent 分支之前：插件行天然 indent=1（子行形态），
                     // 走 indent 分支会进组——与「一律独立裸行」的终令相悖
                     // 插件日志一律独立裸行（10-10 用户终令「插件日志要拆开，一条归一条，
@@ -498,19 +525,10 @@ internal class LogGroups(
                     // 悬置行等不到开卡就渲染不出来（表现为「勾了朗读规则也搜不到」）；
                     // 卡内也不再吸收规则行，避免分析行挂在无关请求卡顶造成误导
                     e.isSpeechRuleLog -> raw.add(Item.Bare(i))
-                    // "请求音频"主行：开新卡（旧卡先收）
-                    // 11-14 修「同毫秒双卡并成一坨」（用户截图实报三处混串：第二条请求行
-                    // 挤进前一张卡、整行变绿字 13sp、成功丸尾串与获取成功行字段错配）：
-                    // 旧判据只看 configId != 0。请求行的 configId 来自 logback MDC
-                    //（SystemTtsService 在 logI 前 put、finally 里 remove）——并发两笔
-                    // 同毫秒开卡时若某笔的 configId 意外为 0（MDC 时序窗口，真机截图
-                    // 复现过一次），该行就会掉进下面的 else 分支被当成前一张卡的
-                    // **成员行**渲染：成员行不传 isRequestHead → INFO 走主题绿 + 13sp，
-                    // 正是截图里「请求音频整行变绿、字号变小」的那一行。
-                    // 修法＝双判据取或：消息以「请求音频」开头也认定是主行。
-                    // 该前缀只由请求行产生（logI("请求音频：…") 唯一调用点），不会误伤；
-                    // configId 正常时行为不变，异常时兜回主行，最坏退化=多开一张卡。
-                    (e.configId != 0L || e.message.startsWith("请求音频")) -> openCard(i)
+                    // configId 非 0 的其他主行：同样开新卡（历史遗留判据，保留兼容）。
+                    // 请求行的主判据已提到 when 最前面（见该分支注释），这里只兜底
+                    // 那些正文被包了 HTML、前缀判据没命中的少见情形。
+                    (e.configId != 0L) -> openCard(i)
                     // 其他主行（重试/备用TTS/兜底发音人/系统消息）：有卡归卡，ERROR=失败
                     // 终点收卡（标记 groupFailed）；无卡落裸行——失败链不再悬置并组（10-10 终案）
                     else -> {
@@ -545,22 +563,40 @@ internal class LogGroups(
                                 }
                             }
                         } else if (head >= 0) {
-                            // 老版式失败全文条（10-11）：本条含请求全文（错误 + <br> +
-                            // 正文 + 发音人信息）时，让它当本组渲染主体（absorbError）——
-                            // 渲染侧改画它、不再画请求主行正文，避免同一段正文出现两遍。
-                            // ⚠️ 此时**不进 members**：absorbError 与成员区都会画一遍
-                            //（成员区只跳过 SUCCESS），进了就双重渲染。
-                            // 用「含 <br>」判别：配置为空/系统消息这类无正文的 ERROR
-                            // 不进吸收（保持原样：主行正文照旧显示）。
-                            val isFullFail = e.level == LogLevel.ERROR && e.message.contains("<br>")
-                            if (isFullFail) {
-                                groupFailed = true
-                                errMemberIdx = i
+                            // ===== 11-14 晚硬闸（用户实报「把第二个请求音频纳入第一个请求音频内，
+                            // 颜色也不对，不是本身请求音频和正文的颜色」）=====
+                            //
+                            // 这是**最后一道防线**：走到这个 else 说明前面所有判据都没命中
+                            // （configId 为 0、前缀判据也没中），但**内容明明是请求行**。
+                            // 此时绝不能把它当成员塞进上一张卡——成员区渲染不传 isRequestHead，
+                            // INFO 级会走主题绿 + 13sp，正是用户看到的"颜色不对"，
+                            // 而且它的成功行也会挂到上一张卡（卡头 32.7KB / 裸行 22.9KB 错配）。
+                            //
+                            // 判据用「去 HTML 后含『请求音频：』」而不是 startsWith：
+                            // 个别路径（插件包装、异常前缀）前面可能多出字符，
+                            // 但只要出现这个唯一前缀就一定是请求行（该前缀只有 logI 一处产生）。
+                            // 命中就开新卡，与正常请求行走完全相同的渲染与归组。
+                            val plain = e.message.replace(Regex("<[^>]*>"), "").trim()
+                            if (plain.contains("请求音频：") || plain.contains("请求音频:")) {
+                                openCard(i)
                             } else {
-                                members.add(i)
-                                if (e.level == LogLevel.ERROR) groupFailed = true
+                                // 老版式失败全文条（10-11）：本条含请求全文（错误 + <br> +
+                                // 正文 + 发音人信息）时，让它当本组渲染主体（absorbError）——
+                                // 渲染侧改画它、不再画请求主行正文，避免同一段正文出现两遍。
+                                // ⚠️ 此时**不进 members**：absorbError 与成员区都会画一遍
+                                //（成员区只跳过 SUCCESS），进了就双重渲染。
+                                // 用「含 <br>」判别：配置为空/系统消息这类无正文的 ERROR
+                                // 不进吸收（保持原样：主行正文照旧显示）。
+                                val isFullFail = e.level == LogLevel.ERROR && e.message.contains("<br>")
+                                if (isFullFail) {
+                                    groupFailed = true
+                                    errMemberIdx = i
+                                } else {
+                                    members.add(i)
+                                    if (e.level == LogLevel.ERROR) groupFailed = true
+                                }
+                                closeCard()
                             }
-                            closeCard()
                         } else raw.add(Item.Bare(i))
                     }
                 }
@@ -926,6 +962,60 @@ internal fun LogScreen(
     val dragBase = remember { mutableStateOf<Set<LogEntry>>(emptySet()) }
     val dragLastIdx = remember { mutableStateOf(0) }
 
+    // ===== 11-14 晚（用户定案：「放在列表最上面，跟着列表一起滑」）=====
+    //
+    // 用户的三条要求同时成立：
+    //   ① 全部日志的**时间顺序不变**（能上下滑找历史、也能看到最新在合成的）；
+    //   ② 正在朗读那一条**在列表最上面**，跟着列表一起滑（不做永远钉在屏顶的浮层）；
+    //   ③ 它跟别的日志行**长得一模一样**——唯一区别是最左侧多一个动态波形。
+    //
+    // 做法：把它在列表里的位置**提到第 0 项**，其余项顺次后移、相对顺序不变。
+    // 它自己仍走 Group 分支那套原渲染，所以成功丸 / 耗时体积 / 右侧段号 /
+    // 左绿轨 / 淡绿底全部自动一致，不会出现"另画一份导致漂移"。
+    //
+    // 为什么不用 stickyHeader / 悬浮副本：前者会让它脱离日志流压住内容，
+    // 后者是两套渲染（旧版副本只画了波形+时间+段号，缺成功丸和耗时体积、
+    // 段号还挤在时间后面靠左，用户图一实报「1/30 位置没有在最右，跟其他不统一」）。
+    val pinnedItemIndex = playingMatch?.listItem ?: -1
+    val reordered = pinnedItemIndex > 0 && pinnedItemIndex < builtGroups.items.size
+    val displayItems = remember(builtGroups, pinnedItemIndex) {
+        val src = builtGroups.items
+        if (!reordered) src
+        else buildList(src.size) {
+            add(src[pinnedItemIndex])
+            for (k in src.indices) if (k != pinnedItemIndex) add(src[k])
+        }
+    }
+    // 显示序 → 原下标的预计算表（toOriginalIndex 不能在 itemsIndexed 的 key lambda
+    // 里现算：那个 lambda 不是 @Composable 作用域，按值捕获最稳）
+    val displayKeyOf: (Int) -> Int = { d ->
+        if (!reordered) d
+        else when {
+            d == 0 -> pinnedItemIndex
+            d <= pinnedItemIndex -> d - 1
+            else -> d
+        }
+    }
+    // ⚠️ 置顶会让「屏幕上的第 k 项」不再等于「builtGroups.items 的第 k 项」。
+    // 所有拿 listState / visibleItemsInfo 的**显示下标**回查 items 的地方
+    //（多选落点、拖选区间、回原位、复位滚动）都必须先过这张表换算成原下标，
+    // 否则会误选/滚错一行。置顶只在第 0 项的时候，k>0 一律回退一位。
+    fun toOriginalIndex(displayIdx: Int): Int =
+        if (!reordered) displayIdx
+        else when {
+            displayIdx == 0 -> pinnedItemIndex
+            displayIdx <= pinnedItemIndex -> displayIdx - 1
+            else -> displayIdx
+        }
+    // 反向：原下标 → 显示下标（判断「某项是否在视野内 / 该滚到第几项」时用）
+    fun toDisplayIndex(originalIdx: Int): Int =
+        if (!reordered) originalIdx
+        else when {
+            originalIdx == pinnedItemIndex -> 0
+            originalIdx < pinnedItemIndex -> originalIdx + 1
+            else -> originalIdx
+        }
+
     // 指尖纵坐标 → 可视列表项下标；只认日志项（收尾 Spacer 不算），落在空档上就近取边界项
     fun logIndexAtY(y: Float): Int? {
         val items = listState.layoutInfo.visibleItemsInfo
@@ -942,8 +1032,12 @@ internal fun LogScreen(
     fun emitDragSelection() {
         val g = currentGroups
         if (g.items.isEmpty()) return
-        val lo = minOf(dragAnchor.value, dragLastIdx.value).coerceIn(0, g.items.lastIndex)
-        val hi = maxOf(dragAnchor.value, dragLastIdx.value).coerceIn(0, g.items.lastIndex)
+        // ⚠️ dragAnchor/dragLastIdx 是**显示下标**（来自 visibleItemsInfo），
+        // 置顶后必须换算回原下标再查 g.items，否则整段会偏一行（拖过朗读卡却勾中它下面那张）。
+        val lo0 = minOf(dragAnchor.value, dragLastIdx.value).coerceIn(0, g.items.lastIndex)
+        val hi0 = maxOf(dragAnchor.value, dragLastIdx.value).coerceIn(0, g.items.lastIndex)
+        val lo = minOf(toOriginalIndex(lo0), toOriginalIndex(hi0))
+        val hi = maxOf(toOriginalIndex(lo0), toOriginalIndex(hi0))
         var sel = dragBase.value
         for (k in lo..hi) {
             g.entriesOf(g.items[k]).forEach { idx ->
@@ -1028,11 +1122,28 @@ internal fun LogScreen(
         // 很远，翻完历史想回的多半是"耳朵的位置"；看最新合成记录走「最新日志」跟随。
         // 判定用 visibleItemsInfo（与 logIndexAtY 同源），比只看 firstVisibleItemIndex 准：
         // 目标卡被顶部吸顶区压住一半时 firstVisible 可能已越过它，但视觉上仍在屏内。
+        // 11-14 晚（用户终令）：「如果页面看不到这个正在朗读的日志，才出现按钮更合适吧」。
+        //
+        // 判据就一句话：**朗读行只要在屏幕里就不出钮，完全滑出视野才出钮**。
+        // 曾试过加"缓冲带"（离开顶部 2 行 / 48dp 才算走远），用户否掉——
+        // 那会让"其实已经看不见了、却不给按钮"的空窗，比偶尔闪一下更难受。
+        //
+        // 「在屏幕里」用**像素级**判断而不是"项是否在 visibleItemsInfo 里"：
+        // LazyColumn 会把只露出一两像素的项也算进可见列表（预取），
+        // 按项算会把"几乎看不见"误判成"看得见"，按钮就不出来。
+        // 所以取该项的 offset 与 viewportStart/Bottom 比，被裁掉多少一目了然。
         val playingVisible by remember {
             derivedStateOf {
                 val m = playingMatch
                 if (m == null) return@derivedStateOf true // 没在朗读：视作"可见"，让位给 ⇊
-                listState.layoutInfo.visibleItemsInfo.any { it.index == m.listItem }
+                val target = toDisplayIndex(m.listItem)
+                val info = listState.layoutInfo
+                val item = info.visibleItemsInfo.firstOrNull { it.index == target }
+                    ?: return@derivedStateOf false      // 不在可见项里 = 滑出去了
+                // 项的实际绘制区间 vs 视口区间：有重叠才算"看得见"
+                val itemTop = item.offset
+                val itemBottom = item.offset + item.size
+                itemBottom > info.viewportStartOffset && itemTop < info.viewportEndOffset
             }
         }
         val showResumePlaying = playingMatch != null && !playingVisible
@@ -1057,36 +1168,10 @@ internal fun LogScreen(
         LaunchedEffect(list.size, autoScrollToBottom, pendingJumpToBottom, currentGroups) {
             val wantScroll = autoScrollToBottom || pendingJumpToBottom
             if (wantScroll && currentGroups.items.isNotEmpty()) {
-                runCatching { listState.animateScrollToItem(currentGroups.items.lastIndex) }
+                runCatching { listState.animateScrollToItem(displayItems.lastIndex) }
                 if (pendingJumpToBottom) pendingJumpToBottom = false
             }
         }
-
-        // ===== 11-14「正在朗读」吸顶（用户第二次纠正，定稿）=====
-        //
-        // 上一版这里实现的是**滚动跟随**（段切换时把该行滚进视野），用户实报
-        // 「依然无法吸顶」——跟随不是吸顶：行仍随列表走、滚开就没了，还会抢用户滚动。
-        // 现改为**真吸顶**：内容副本固定在日志区顶部（见文件上方的 playingEntry /
-        // playingPinnedCard），列表在它下方自由滚动。故此处整段跟随逻辑删除。
-        //
-        // 只在目标卡**被筛掉/找不到**时不再特殊处理——吸顶条自己不依赖滚动位置。
-
-        // ===== 11-14「正在朗读」吸顶（用户第二次纠正，定稿）=====
-        //
-        // 用户原话：「图2，这个正在朗读依然无法吸顶，我希望直接能看到正在朗读的日志，
-        // 同时能上滑下滑去查看其他部分日志」。
-        //
-        // ⚠️ 先纠正上一版的方向错误：上一版实现的是**滚动跟随**（段切换时把那一行
-        // animateScrollToItem 到视野里），那不是吸顶——行还是跟着列表走，滚开就没了，
-        // 而且会抢用户滚动。用户要的是：**该行固定钉在日志区顶部不动，列表在它下面
-        // 自由上下滑**。
-        //
-        // 做法（不改 LazyColumn 内部，避免动到归组/多选/拖选那套热路径）：
-        //   · 在 Box 里叠一个「吸顶条」（playingPinnedCard），它渲染正在朗读那条的内容副本；
-        //   · 给 LazyColumn 加与吸顶条等高的 TopPadding，让列表内容从它下方开始；
-        //   · 原「滚动跟随」LaunchedEffect 整段删除——有了常驻吸顶条，跟随既多余又抢滚动。
-        // 吸顶条只在朗读中（playingMatch != null）显示；没在朗读时高度为 0，列表铺满。
-        val playingEntry = playingMatch?.let { m -> list.getOrNull(m.entryIndex) }
 
         if (list.isEmpty())
             Box(Modifier.align(Alignment.Center)) {
@@ -1218,14 +1303,20 @@ internal fun LogScreen(
             // ⚠️ 必须用 start/top/end/bottom 重载：PaddingValues 没有
             // (horizontal=, top=) 这种组合（CI 实锤 1205:30 "None of the following
             // candidates is applicable"），只有 all / horizontal+vertical / start+top+end+bottom。
-            contentPadding = PaddingValues(
-                start = 0.dp,
-                top = if (playingEntry != null) PLAYING_PINNED_HEIGHT else 0.dp,
-                end = 0.dp,
-                bottom = 0.dp,
-            )
+            // 11-14 晚：朗读行已改为「列表内提为第 0 项」，不再有悬浮副本，
+            // 因此顶部**不再需要让出 84dp**——它本身就是首项，自然在最上面。
+            contentPadding = PaddingValues(start = 0.dp, top = 0.dp, end = 0.dp, bottom = 0.dp)
         ) {
-                itemsIndexed(currentGroups.items, key = { index, _ -> index }) { _, item ->
+                // 11-14 晚：喂 displayItems（朗读项已提到首位）。
+                //
+                // ⚠️ key 必须用**原下标**（displayKeyOf），不能用显示序：
+                // 播放推进时「谁被置顶」会变（35→36），若 key 跟着显示序走，
+                // LazyColumn 会认为"第 0 项还是第 0 项、只是内容换了"，于是
+                // ① 内部 remembered 状态（展开/选中）错位到别的行
+                // ② 滚动锚点失效，视图会窜一下。
+                // 用原下标做 key，每项身份恒定，置顶只是"换了顺序"，
+                // 列表能按 key 把当前可见行锚住，播放推进时不会跳。
+                itemsIndexed(displayItems, key = { index, _ -> displayKeyOf(index) }) { _, item ->
                     when (item) {
                         // 11-11 用户令：书条/章条不再出现在日志流里，改为**吸顶**
                         //（在 TtsLogScreen 的 topBar 下方固定渲染）。此处保留分支只因
@@ -1248,9 +1339,14 @@ internal fun LogScreen(
                             // 日期文字用主色、不加底。语义上它就该是**分隔标记**（新的一天从这里
                             // 开始），不是可点控件——竖线正好表达"划一条线"。
                             // 也顺手解决了胶囊带来的边距问题：不再有底色块，文字直接落内容线。
+                            // 11-14 晚（用户令「日期那个竖线边距调到跟筛选边距一样，好像是 8dp」）：
+                            // 竖线**左缘落 8dp**，与吸顶筛选行的左缘同一条工具带；
+                            // 日期文字仍落 16dp 内容线 ⇒ 间距 = 16 − 8 − 3(线宽) = **5dp**。
+                            // 这两条是同一套账：竖线是装饰性刻度（允许比内容线更靠外），
+                            // 但它到文字的距离必须由 8/16 两个基准算出来，不能另拍一个 7。
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(start = 16.dp, top = 10.dp, bottom = 4.dp),
+                                modifier = Modifier.padding(start = 8.dp, top = 10.dp, bottom = 4.dp),
                             ) {
                                 Box(
                                     Modifier
@@ -1259,7 +1355,7 @@ internal fun LogScreen(
                                         .clip(RoundedCornerShape(2.dp))
                                         .background(MaterialTheme.colorScheme.primary)
                                 )
-                                Spacer(Modifier.width(7.dp))
+                                Spacer(Modifier.width(5.dp))
                                 Text(
                                     text = item.date,
                                     style = MaterialTheme.typography.labelSmall,
@@ -1815,66 +1911,18 @@ internal fun LogScreen(
         // 永远贴在日志区顶部；列表已通过 contentPadding.top 让出等高空间。
         // 三件视觉与列表里那行保持一致：正在朗读丸 + 时间 + 成功丸 + 段号（N/M），
         // 下方是正文与发音人信息；左缘绿轨 + 淡绿底（与行内三件套同源）。
-        playingEntry?.let { pe ->
-            // ⚠️ 这两个是 @Composable 函数（读主题色），drawBehind 的 lambda 不是
-            // @Composable 上下文，不能在里面调用——与章名竖标同一个坑，必须先取值。
-            val pinnedBg = playingRowBg()
-            val pinnedRail = playingRailColor()
-            Column(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .fillMaxWidth()
-                    .height(PLAYING_PINNED_HEIGHT)
-                    .background(pinnedBg)
-                    .drawBehind {
-                        drawLine(
-                            color = pinnedRail,
-                            strokeWidth = 3.dp.toPx(),
-                            start = Offset(0f, 0f),
-                            end = Offset(0f, size.height),
-                        )
-                    }
-                    .padding(horizontal = 16.dp, vertical = 6.dp),
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    // 同列表行：吸顶条也用播放图标，两处形态一致
-                    PlayingIndicator()
-                    Text(
-                        text = pe.time.substringAfterLast(' '),
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(start = 6.dp),
-                    )
-                    // 段号（N/M）：与列表内写法统一（用户令「改（1/23）这种格式」）
-                    val segTxt = playingSnapshot?.let { s ->
-                        if (s.totalSegs > 0 && s.segIndex >= 0)
-                            "（${(s.segIndex + 1).coerceAtMost(s.totalSegs)}/${s.totalSegs}）"
-                        else ""
-                    } ?: ""
-                    if (segTxt.isNotEmpty()) {
-                        Text(
-                            text = segTxt,
-                            fontSize = LOG_AUX_SIZE,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            softWrap = false,
-                            modifier = Modifier.padding(start = 8.dp),
-                        )
-                    }
-                }
-                // 正文：吸顶条只留两行（高度固定，超出省略）——它是"一眼看到在念哪句"，
-                // 详细信息仍在下面列表里的完整行中。
-                Text(
-                    text = boldBodyOf(pe).ifBlank { pe.message },
-                    fontSize = 13.5.sp,
-                    lineHeight = 18.sp,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 2.dp),
-                )
-            }
-        }
+        // ===== 11-14 晚：原来的「正在朗读」悬浮副本**整段删除** =====
+        //
+        // 用户定案：「它跟其他的日志完全是一模一样的，除了最左顶部加了一个动态波形。
+        // 但是它的位置永远是在顶部的……并不是说要另外给他设一个吸顶区，日志就只有一个日志」。
+        //
+        // 旧实现（此处原有 60 行）在列表之上叠了一份内容副本：柱状图 + 时间 + 「（39/306）」
+        // + 两行正文截断。它和真实日志行是**两套渲染**，于是必然漂移——
+        // 副本没有「成功」丸、没有耗时体积、段号还挤在时间后面靠左（用户图一实报
+        // 「正在朗读那个 1/30 位置没有在最右，跟其他不统一」）。
+        // 现在朗读行由 displayItems 提到列表第 0 项、走 Group 分支的原渲染，
+        // 天然带着成功丸 / 耗时体积 / 右侧段号 / 左绿轨 / 淡绿底，一处改两处对。
+        // 波形仍由 Group 分支里的 isPlayingHead 插在最左（见 PlayingIndicator 调用）。
 
         // 侧边浮动键（用户 1002）：右下浮动 ↓=回底部；回顶部走双击标题栏空白区
         // 排版实验 1008（①已拍板）：56dp 标准键 → 40dp 小键，原地缩小少盖正文
@@ -1916,7 +1964,8 @@ internal fun LogScreen(
                                 val m = playingMatch
                                 if (showResumePlaying && m != null) {
                                     // 一键复位：滚回正在朗读那张卡（用户令「点它就回到那个位置」）
-                                    listState.animateScrollToItem(m.listItem)
+                                    // 置顶后朗读行显示在第 0 项（toDisplayIndex 会算成 0）
+                                    listState.animateScrollToItem(toDisplayIndex(m.listItem))
                                     // 短暂高亮 2 秒后清除（与搜索定位 locateHighlight 同节奏）
                                     resumeHighlightEntry = currentList.getOrNull(m.entryIndex)
                                     scope.launch {
@@ -1924,7 +1973,8 @@ internal fun LogScreen(
                                         resumeHighlightEntry = null
                                     }
                                 } else {
-                                    listState.scrollToItem(currentGroups.items.lastIndex)
+                                    // 滚到底：显示序末位（置顶后末位仍是原来的末项）
+                                    listState.scrollToItem(displayItems.lastIndex)
                                 }
                             }
                         }
