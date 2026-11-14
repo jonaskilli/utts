@@ -62,7 +62,34 @@ object StringUtils {
             merged.add(piece)
         }
 
-        return merged.filter { it.replace("”", "").isNotBlank() }
+        // 11-14 用户实报（问「一句话后面有三个感叹号，这种它是怎么分割的？」）：
+        // 旧写法 `filter { it.replace("”","").isNotBlank() }` 只挡住"纯右引号"的碎片，
+        // **只含标点的碎片会漏过**——`好啊！！！` 被切成 ["好啊！", "！", "！"]，
+        // 后两片各触发一次独立合成请求，念出来是两个孤立的"叹号"。
+        // 不只看感叹号：`？？？`、`……`、`！！！？` 全中招，且每种都是白花几次 API。
+        //
+        // 修法：把"只含标点/空白"的碎片**并回前一片**，而不是留下或丢弃。
+        //   · 并回而不是丢弃 —— 标点本身不发音，但它是语气的一部分，丢掉会让
+        //     日志里的正文与实际朗读对不上（用户此前就因"右引号消失"报过同类问题）；
+        //   · 排除右引号单列处理的情况已经在上面处理过，这里只看纯标点。
+        // 判据用 Character 类别：任何 letter/digit 都算"有内容"，否则是纯标点。
+        val punctuationOnly = { s: String ->
+            s.none { c -> c.isLetterOrDigit() }
+        }
+        val cleaned = ArrayList<String>(merged.size)
+        for (piece in merged) {
+            if (piece.isBlank()) continue
+            if (cleaned.isNotEmpty() && punctuationOnly(piece)) {
+                // 纯标点碎片：并回上一片（"好啊！" + "！" → "好啊！！"）
+                cleaned[cleaned.size - 1] = cleaned.last() + piece
+            } else if (cleaned.isNotEmpty() && punctuationOnly(cleaned.last())) {
+                // 上一片是纯标点（极少见，如开头的省略号）：把本片接上去
+                cleaned[cleaned.size - 1] = cleaned.last() + piece
+            } else {
+                cleaned.add(piece)
+            }
+        }
+        return cleaned.filter { it.replace("”", "").isNotBlank() }
     }
 
     /**

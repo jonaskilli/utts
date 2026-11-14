@@ -480,7 +480,17 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
             }.value
 
             val exceptionHandler = CoroutineExceptionHandler { _, e ->
-                Log.e(TAG, "Synthesize Crash Caught: ${e.message}", e)
+                // 11-14（④ 落盘配套）：这里是协程未捕获异常的兜底（真实崩溃级）。
+                // 以前只 Log.e → 只进 logcat，进程一死证据全丢。
+                // 走 logE → logger.error → logback 落盘，带完整栈。
+                // ⚠️ 取消异常也会投递到 handler（父 Job 被 cancel 时），
+                // 同样要排除，否则跳段会刷满"崩溃"日志。
+                val isCancel = e is kotlinx.coroutines.CancellationException
+                if (isCancel) {
+                    Log.d(TAG, "Synthesize job cancelled: ${e.message}")
+                } else {
+                    logE("Synthesize Crash Caught: ${e.javaClass.simpleName}: ${e.message}", e)
+                }
                 callback.error(TextToSpeech.ERROR_SYNTHESIS)
                 callback.done()
             }
@@ -529,7 +539,24 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                         handleSynthesisError(it, callback)
                     }
                 } catch (e: Exception) {
-                    Log.e(TAG, "Synthesize Interrupted: ${e.message}")
+                    // 11-14 用户令（④「合成异常只进 logcat 不落盘」，挂起清单 11-13 记）：
+                    // 这段异常处理以前**只 Log.e**，而 Log.e 只进 logcat——进程重启即丢、
+                    // 也无法从文件管理器导出。真机出现「合成失败/卡住/-3」时拿不到
+                    // 当时的错误详情，11-13 冻结那次就因此排查了很久（只能靠猜）。
+                    //
+                    // 现在分两档，**取消不对待成错误**（否则跳段时会刷满假错误）：
+                    //   · CancellationException / TimeoutCancellationException：跳段、切章、
+                    //     破窗导致的正常中断，只打 debug（不进 error 级日志文件）；
+                    //   · 其余异常：走 logE → logger.error → logback 落盘，
+                    //     同时带上异常栈（logE 的 throwable 参数会拼进日志）。
+                    val isCancel = e is kotlinx.coroutines.CancellationException ||
+                            e is kotlinx.coroutines.TimeoutCancellationException
+                    if (isCancel) {
+                        // 正常中断：保留 logcat 一行便于对时序，但不污染落盘日志
+                        Log.d(TAG, "Synthesize Interrupted (cancel/timeout): ${e.message}")
+                    } else {
+                        logE("Synthesize Interrupted: ${e.javaClass.simpleName}: ${e.message}", e)
+                    }
                     callback.error(TextToSpeech.ERROR_SYNTHESIS)
                 } finally {
                     // 🛠️ 结案铁律：确保必须调用 done()，防止队列挂起
