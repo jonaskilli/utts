@@ -1202,9 +1202,14 @@ internal fun LogScreen(
             //（比日期签还左），页面出现三条左线。此为那次改卡片漏掉的对齐。
             // 11-14 吸顶：朗读中时顶部叠了一条「正在朗读」副本，列表要让出它的高度，
             // 否则首行会被压在这条吸顶卡下面看不见。没在朗读时 = 0，行为与旧版一致。
+            // ⚠️ 必须用 start/top/end/bottom 重载：PaddingValues 没有
+            // (horizontal=, top=) 这种组合（CI 实锤 1205:30 "None of the following
+            // candidates is applicable"），只有 all / horizontal+vertical / start+top+end+bottom。
             contentPadding = PaddingValues(
-                horizontal = 0.dp,
-                top = if (playingEntry != null) PLAYING_PINNED_HEIGHT else 0.dp
+                start = 0.dp,
+                top = if (playingEntry != null) PLAYING_PINNED_HEIGHT else 0.dp,
+                end = 0.dp,
+                bottom = 0.dp,
             )
         ) {
                 itemsIndexed(currentGroups.items, key = { index, _ -> index }) { _, item ->
