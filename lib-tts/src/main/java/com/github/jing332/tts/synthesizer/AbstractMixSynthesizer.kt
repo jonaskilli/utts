@@ -584,9 +584,10 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
         params: SystemParams, forceConfigId: Long?, callback: SynthesisCallback,
         // 11-14：段落位置（用户令「每个请求音频日志都标 1/5」）。U阅 每段一次
         // synthesize 调用，段号随入口传入，一路透传到 TextSegment → RequestPayload
-        // → 日志行。默认 -1/0 = 调用方没带（第三方/旧版），全链不标。
-        paraIndex: Int = -1,
-        paraTotal: Int = 0,
+        // → 日志行。-1/0 = 调用方没带（第三方/旧版），全链不标。
+        // ⚠️ override 不能带默认值（Kotlin 规则，CI 实锤 588:26），默认值由接口声明。
+        paraIndex: Int,
+        paraTotal: Int,
     ): Result<Unit, SynthesisError> = mutex.withLock {
         logger.atTrace {
             message = "synthesize"
