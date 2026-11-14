@@ -1833,6 +1833,7 @@ private fun PinnedLogHeader(
                                     // 而"这是一本书"靠图标表达更快——省宽又更直观。
                                     text = shownBook,
                                     leadingIcon = Icons.Default.Book,
+                                    stretchText = true,
                                     onClick = { bookMenu = true },
                                     // 11-14：筛选态也改 onSurface（与未筛选态同色）——
                                     // 两态切换只该变底/描边，文字色跳变会显得控件"换了个东西"
@@ -1976,6 +1977,7 @@ private fun PinnedLogHeader(
                                 // 同上：书名号 → 书图标
                                 text = shownBook,
                                 leadingIcon = Icons.Default.Book,
+                                stretchText = true,
                                 onClick = { bookMenu2 = true },
                                 opened = bookMenu2,
                                 // 撑满 weight 槽：PickerTrigger 的 Row 是 wrap content，
@@ -2390,6 +2392,13 @@ private fun PickerTrigger(
     // 书名用图标（书=这是什么），章名不加（"第9章"文字本身已自解释，加图标是噪音）。
     // 图标尺寸跟箭头统一 14dp（用户同批要求「连箭头都统一」）。
     leadingIcon: androidx.compose.ui.graphics.vector.ImageVector? = null,
+    // 11-15 用户令「书籍框下拉箭头没有在最右」：
+    //   · 书框本身 fillMaxWidth，文字若 fill=false（按内容宽）箭头就紧贴文字，
+    //     右边空一截——书框传 stretchText=true，文字吃满剩余宽度，箭头顶到框右缘；
+    //   · 章框是自适应宽（widthIn 上限封顶），**必须保持 fill=false**：
+    //     章框的 Row 没有固定宽，weight fill=true 会把整框撑到上限宽，
+    //     "第9章"四个字也占满 1/3 行宽，与「章名框=自身宽度」的定稿冲突。
+    stretchText: Boolean = false,
 ) {
     val shape = RoundedCornerShape(6.dp)
     // 11-14 晚（用户令「书籍和章节的填充底色应该跟顶部胶囊一样，点击时才变色」）：
@@ -2446,7 +2455,7 @@ private fun PickerTrigger(
             color = textColor,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f, fill = false),
+            modifier = if (stretchText) Modifier.weight(1f) else Modifier.weight(1f, fill = false),
         )
         Icon(
             imageVector = Icons.Default.KeyboardArrowDown,
