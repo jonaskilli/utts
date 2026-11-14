@@ -119,6 +119,12 @@ private val LOG_HEAD_SIZE = 14.sp   // 正文 / 请求主行（原 14sp，收档
 private val LOG_BODY_SIZE = 13.sp   // 裸行 / 成员行 / 前缀 / 声音信息（原本就是 13sp，未变）
 private val LOG_AUX_SIZE = 12.sp    // 时间 / 状态（原 12sp，收档时被压到 11）
 
+// 11-14「正在朗读」吸顶条高度（用户第二次纠正「依然无法吸顶」后的定稿）：
+// 吸顶条固定这个高度，列表用 contentPadding.top 让出同样高度，两者严丝合缝。
+// 内容=丸行(约20dp) + 正文两行(18sp×2≈48dp) + 上下内衬12dp ≈ 80dp，
+// 取 84dp 留 4dp 余量，避免正文第二行被裁。
+private val PLAYING_PINNED_HEIGHT = 84.dp
+
 // ⚠️ 恢复时踩过的坑，写下来免得后人重犯：
 // 收档前 "13sp" 这一个数值同时被**前缀**、**声音信息**、**裸行**、**成员行**四处使用，
 // 而 "12sp" 只被**时间**、**状态**使用。收档把两者并成了一个 LOG_AUX_SIZE(11)，
@@ -1043,44 +1049,31 @@ internal fun LogScreen(
             }
         }
 
-        // ===== 11-14「正在朗读置顶跟随」（用户令「让当前朗读的日志保持置顶」）=====
+        // ===== 11-14「正在朗读」吸顶（用户第二次纠正，定稿）=====
         //
-        // 上一场落码的是「复位浮钮」：朗读卡滚出视野才出现 ⟲，点一下滚回去——
-        // 那是**手动**复位。装机后用户指出当初要的是**保持**置顶：朗读进行中，
-        // 每换一段，视图自动跟到那张卡上，不用手点。
+        // 上一版这里实现的是**滚动跟随**（段切换时把该行滚进视野），用户实报
+        // 「依然无法吸顶」——跟随不是吸顶：行仍随列表走、滚开就没了，还会抢用户滚动。
+        // 现改为**真吸顶**：内容副本固定在日志区顶部（见文件上方的 playingEntry /
+        // playingPinnedCard），列表在它下方自由滚动。故此处整段跟随逻辑删除。
         //
-        // 实现：LaunchedEffect 盯 playingMatch 的 listItem（段切换=匹配卡变化），
-        // 变化时滚过去。两条约束防「抢用户」：
-        //   ① 只在**匹配目标变化**时滚（新段=新卡），不是每帧都拉——用户在历史
-        //      里停留期间若没换段，视图不被打扰；
-        //   ② 用户**主动滚动**后暂停 5 秒跟随（isScrollByUser 置位）：正在翻历史
-        //      时硬拉回去等于抢滚动，5 秒无操作视为看完、恢复跟随。
-        //      （判定用 firstVisibleItemIndex 在 LaunchedEffect 中的变化+当前无
-        //      程序滚动，简单可靠。）
-        // 没在朗读（playingMatch=null）不跟随，浮钮/⇊ 行为照旧。
-        var suppressFollowUntil by remember { mutableStateOf(0L) }
-        LaunchedEffect(listState) {
-            var lastFirst = -1
-            snapshotFlow { listState.firstVisibleItemIndex to listState.isScrollInProgress }
-                .collect { (idx, scrolling) ->
-                    // 用户手动滚动（滚动中且首项在变且不是我们的 animateScroll 所为——
-                    // animateScroll 期间 isScrollInProgress 也为 true，用时间窗区分：
-                    // 程序滚动刚结束时 300ms 内不算用户滚动）
-                    if (scrolling && idx != lastFirst) {
-                        lastFirst = idx
-                        suppressFollowUntil = System.currentTimeMillis() + 5000L
-                    }
-                }
-        }
-        LaunchedEffect(playingMatch?.listItem, playingMatch?.entryIndex) {
-            val m = playingMatch ?: return@LaunchedEffect
-            if (System.currentTimeMillis() < suppressFollowUntil) return@LaunchedEffect
-            // 目标已在视野内就不用滚（避免每段都小幅拉动，画面稳定）
-            val visible = listState.layoutInfo.visibleItemsInfo.any { it.index == m.listItem }
-            if (!visible) {
-                runCatching { listState.animateScrollToItem(m.listItem) }
-            }
-        }
+        // 只在目标卡**被筛掉/找不到**时不再特殊处理——吸顶条自己不依赖滚动位置。
+
+        // ===== 11-14「正在朗读」吸顶（用户第二次纠正，定稿）=====
+        //
+        // 用户原话：「图2，这个正在朗读依然无法吸顶，我希望直接能看到正在朗读的日志，
+        // 同时能上滑下滑去查看其他部分日志」。
+        //
+        // ⚠️ 先纠正上一版的方向错误：上一版实现的是**滚动跟随**（段切换时把那一行
+        // animateScrollToItem 到视野里），那不是吸顶——行还是跟着列表走，滚开就没了，
+        // 而且会抢用户滚动。用户要的是：**该行固定钉在日志区顶部不动，列表在它下面
+        // 自由上下滑**。
+        //
+        // 做法（不改 LazyColumn 内部，避免动到归组/多选/拖选那套热路径）：
+        //   · 在 Box 里叠一个「吸顶条」（playingPinnedCard），它渲染正在朗读那条的内容副本；
+        //   · 给 LazyColumn 加与吸顶条等高的 TopPadding，让列表内容从它下方开始；
+        //   · 原「滚动跟随」LaunchedEffect 整段删除——有了常驻吸顶条，跟随既多余又抢滚动。
+        // 吸顶条只在朗读中（playingMatch != null）显示；没在朗读时高度为 0，列表铺满。
+        val playingEntry = playingMatch?.let { m -> list.getOrNull(m.entryIndex) }
 
         if (list.isEmpty())
             Box(Modifier.align(Alignment.Center)) {
@@ -1207,7 +1200,12 @@ internal fun LogScreen(
             // 卡内文字在 24dp，裸行 4dp 属「贴边族」合理；10-10 卡片改底色通边（撤外边距、
             // 内衬 16）后卡内文字落到 16dp，裸行却没跟着动 ⇒ 裸行成了全页最靠左的一列
             //（比日期签还左），页面出现三条左线。此为那次改卡片漏掉的对齐。
-            contentPadding = PaddingValues(horizontal = 0.dp)
+            // 11-14 吸顶：朗读中时顶部叠了一条「正在朗读」副本，列表要让出它的高度，
+            // 否则首行会被压在这条吸顶卡下面看不见。没在朗读时 = 0，行为与旧版一致。
+            contentPadding = PaddingValues(
+                horizontal = 0.dp,
+                top = if (playingEntry != null) PLAYING_PINNED_HEIGHT else 0.dp
+            )
         ) {
                 itemsIndexed(currentGroups.items, key = { index, _ -> index }) { _, item ->
                     when (item) {
@@ -1625,16 +1623,33 @@ internal fun LogScreen(
                                         // paraIndex<0 = 旧版 U阅/第三方没带 → 不标，老日志不变。
                                         // 正在朗读卡的动态段号丸（第 N 段）保留在下方——两者互补：
                                         // 静态段号=这笔请求属于哪段；动态丸=现在正读到哪段。
+                                        // 11-14 用户实报（第二次）「图1，那个34/306放那里无法区分，
+                                        // 也不好看」：
+                                        // 旧版是裸数字紧贴耗时后面（`1.6s, 29.1 KB 34/306`），
+                                        // 与耗时连成一片、读不出来是"段号"；链长时还会被折行
+                                        // （图 2 的「11/10 4」折成两行，更难看）。
+                                        // 现在统一三件事：
+                                        //  ① 加浅底胶囊（softFillBarColor，与筛选选中态同档）——
+                                        //     独立视觉块，一眼看出这是"段落位置"而不是耗时的一部分；
+                                        //  ② 括号式（34/306），与朗读行/书章行写法完全一致；
+                                        //  ③ 锁单行 + 不换行，链过长时整块折到下一行而不是拆开数字。
                                         if (head.paraIndex >= 0) {
+                                            val paraTxt = if (head.paraTotal > 0)
+                                                "（${head.paraIndex + 1}/${head.paraTotal}）"
+                                            else
+                                                "（第 ${head.paraIndex + 1} 段）"
                                             Text(
-                                                text = if (head.paraTotal > 0)
-                                                    "${head.paraIndex + 1}/${head.paraTotal}"
-                                                else
-                                                    "第 ${head.paraIndex + 1} 段",
+                                                text = paraTxt,
                                                 style = MaterialTheme.typography.bodySmall,
                                                 fontSize = LOG_AUX_SIZE,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                modifier = Modifier.padding(start = 8.dp)
+                                                maxLines = 1,
+                                                softWrap = false,
+                                                modifier = Modifier
+                                                    .padding(start = 8.dp)
+                                                    .clip(RoundedCornerShape(50))
+                                                    .background(softFillBarColor())
+                                                    .padding(horizontal = 7.dp, vertical = 1.dp)
                                             )
                                         }
                                         // 11-14 用户实报「末尾第几段改为（1/23）这种格式，
@@ -1759,6 +1774,81 @@ internal fun LogScreen(
                     Spacer(Modifier.height(8.dp))
                 }
             }
+
+        // ===== 11-14「正在朗读」吸顶条（用户第二次纠正，最终定稿）=====
+        //
+        // 用户原话：「图2，这个正在朗读依然无法吸顶，我希望直接能看到正在朗读的日志，
+        // 同时能上滑下滑去查看其他部分日志」。
+        //
+        // 之前两版都没做到真正的吸顶：
+        //   第一版=手动复位浮钮（⟲ 滚出视野才出现，点它滚回去）；
+        //   第二版=滚动跟随（段切换时 animateScrollToItem 把行拉进视野）。
+        // 两者都是"行跟着列表走"，滚开就看不到，且会抢用户滚动。用户要的是
+        // **固定钉在顶部不动**，下面的列表照常上下滑。
+        //
+        // 做法：在 Box 里叠一张内容副本（本组件）。它不参与列表滚动，
+        // 永远贴在日志区顶部；列表已通过 contentPadding.top 让出等高空间。
+        // 三件视觉与列表里那行保持一致：正在朗读丸 + 时间 + 成功丸 + 段号（N/M），
+        // 下方是正文与发音人信息；左缘绿轨 + 淡绿底（与行内三件套同源）。
+        playingEntry?.let { pe ->
+            // ⚠️ 这两个是 @Composable 函数（读主题色），drawBehind 的 lambda 不是
+            // @Composable 上下文，不能在里面调用——与章名竖标同一个坑，必须先取值。
+            val pinnedBg = playingRowBg()
+            val pinnedRail = playingRailColor()
+            Column(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .height(PLAYING_PINNED_HEIGHT)
+                    .background(pinnedBg)
+                    .drawBehind {
+                        drawLine(
+                            color = pinnedRail,
+                            strokeWidth = 3.dp.toPx(),
+                            start = Offset(0f, 0f),
+                            end = Offset(0f, size.height),
+                        )
+                    }
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    StatusPill(LogPill(LogPillKind.PLAYING, "正在朗读"))
+                    Text(
+                        text = pe.time.substringAfterLast(' '),
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 6.dp),
+                    )
+                    // 段号（N/M）：与列表内写法统一（用户令「改（1/23）这种格式」）
+                    val segTxt = playingSnapshot?.let { s ->
+                        if (s.totalSegs > 0 && s.segIndex >= 0)
+                            "（${(s.segIndex + 1).coerceAtMost(s.totalSegs)}/${s.totalSegs}）"
+                        else ""
+                    } ?: ""
+                    if (segTxt.isNotEmpty()) {
+                        Text(
+                            text = segTxt,
+                            fontSize = LOG_AUX_SIZE,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            softWrap = false,
+                            modifier = Modifier.padding(start = 8.dp),
+                        )
+                    }
+                }
+                // 正文：吸顶条只留两行（高度固定，超出省略）——它是"一眼看到在念哪句"，
+                // 详细信息仍在下面列表里的完整行中。
+                Text(
+                    text = boldBodyOf(pe).ifBlank { pe.message },
+                    fontSize = 13.5.sp,
+                    lineHeight = 18.sp,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
+        }
 
         // 侧边浮动键（用户 1002）：右下浮动 ↓=回底部；回顶部走双击标题栏空白区
         // 排版实验 1008（①已拍板）：56dp 标准键 → 40dp 小键，原地缩小少盖正文
