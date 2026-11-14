@@ -863,6 +863,12 @@ internal fun LogScreen(
     // 而列表滚动状态只在本组件内，故用回调把结果抛给上层。
     // 只在**值变化**时回调一次（内部做了比较），不会逐帧触发。
     onViewChanged: ((book: String, chapter: String) -> Unit)? = null,
+    // 是否停在列表最底部（11-15 新增）：给吸顶书章的「跟随最新 vs 跟随视线」判据用。
+    // 背景：「最新日志」胶囊删掉后，原来的开关（autoFollow）没了，但这条映射本身
+    // 仍成立——用户 11-13 要「顶部章节名，两个都要：又要最新又要滚动」。语义从
+    // "勾选了实时"退化成"你此刻是不是就在底部"：在底部=在看最新，顶部显示最新
+    // 那条的书章；往回翻=顶部跟视线。判据免费，不需要新控件。
+    onAtBottomChanged: ((atBottom: Boolean) -> Unit)? = null,
     // 「切过去」触发计数（11-11）：每次点提示条 +1，用来强制重启自动滚底的 LaunchedEffect。
     // 见下方 autoScrollToBottom 的 LaunchedEffect 注释：只靠 list.size/autoScrollToBottom
     // 两个 key 时，"本来就开着实时最新"的情况不会滚动。
@@ -1101,6 +1107,13 @@ internal fun LogScreen(
                 //（点 ⟲ 是另一条解除路径，见浮钮点击处。）
                 followPaused = false
             }
+        }
+        // 11-15：把「是否在底部」抛给吸顶区（见 onAtBottomChanged 参数的注释）。
+        // ⚠️ 必须定义在 isAtBottom 之后（局部变量，前向引用编译不过）。
+        // ⚠️ rememberUpdatedState 包一层：防止以后回调改成非稳定实例时退化成逐帧重启。
+        val currentOnAtBottomChanged by rememberUpdatedState(onAtBottomChanged)
+        LaunchedEffect(isAtBottom) {
+            currentOnAtBottomChanged?.invoke(isAtBottom)
         }
         val hasNewBelow = list.size > lastSeenSizeAtBottom && !isAtBottom
         val showJumpToBottom = isFarFromBottom || hasNewBelow
