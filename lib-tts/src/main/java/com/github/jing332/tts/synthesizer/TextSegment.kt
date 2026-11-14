@@ -10,4 +10,8 @@ data class TextSegment(
     val roleName: String = "",
     val bookName: String = "",
     val chapterTitle: String = "",
+    // 11-14：段落位置（用户令「每个请求音频日志都标 1/5 这种段落标记」）。
+    // 由调用方（U阅）随请求传入，本类只透传；-1/0=没带，日志不标。
+    val paraIndex: Int = -1,
+    val paraTotal: Int = 0,
 ) {}

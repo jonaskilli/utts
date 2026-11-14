@@ -137,6 +137,10 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
 
         const val DEFAULT_VOICE_NAME = "DEFAULT_默认"
         const val PARAM_BGM_ENABLED = "bgm_enabled"
+        // 11-14：段落位置（用户令「每个请求音频日志都标 1/5」）。U阅 Bundle 写入，
+        // paraIndex 0-based；paraTotal=本章总段数。旧调用方不带 → -1/0，全链跳过。
+        const val PARAM_PARA_INDEX = "para_index"
+        const val PARAM_PARA_TOTAL = "para_total"
 
         /**
          * 更新配置
@@ -400,6 +404,14 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
     // finally 清空（见 normalEvent 的 finally），所以必须在这里另存一份。
     private var currentReqBook: String = ""
     private var currentReqChapter: String = ""
+    // 11-14：本笔请求的段落位置（onSynthesizeText 从 Bundle 读出）。
+    // 传递路径：Bundle → 成员变量 → SystemParams 没有位置 → 由 synthesize 协程
+    // 在发 NormalEvent.Request 前临时读走（见 mTtsManager.synthesize 包装处）。
+    // index=-1/total=0 表示调用方没带（旧版 U阅/第三方），落盘与渲染全部跳过。
+    @Volatile
+    internal var currentParaIndex: Int = -1
+    @Volatile
+    internal var currentParaTotal: Int = 0
     private var mNotificationJob: Job? = null
 
     // 🛠️ 记住上一个 callback，解决系统队列死锁
@@ -451,6 +463,13 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
 
         val enabledBgm = request.params.getBoolean(PARAM_BGM_ENABLED, true)
         mTtsManager?.context?.cfg?.bgmEnabled = { enabledBgm }
+        // 11-14：段落位置（用户令「每个请求音频日志都标 1/5 这种段落标记」）。
+        // U阅 synthesizeToFile 的 Bundle 带 paraIndex(0-based)/paraTotal(本章总段数)；
+        // 旧版 U阅/其他调用方不带 → 默认 -1/0，落盘与渲染全部跳过（老日志行为不变）。
+        // 读出后存成员变量：synthesize() 入口只有 SystemParams，段号不在其中，
+        // 只能在这里暂存、由 synthesize 内的 NormalEvent.Request 处理时取用（见 currentPara*）。
+        currentParaIndex = request.params.getInt(PARAM_PARA_INDEX, -1)
+        currentParaTotal = request.params.getInt(PARAM_PARA_TOTAL, 0)
 
         runBlocking {
             var cfgId: Long? = getConfigIdFromVoiceName(request.voiceName ?: "").onFailure {
@@ -479,6 +498,11 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                             requestTimeout = SysTtsConfig.requestTimeout.toLong()
                         ),
                             forceConfigId = cfgId,
+                            // 11-14：段落位置接力（onSynthesizeText 从 Bundle 读的成员变量）。
+                            // 本协程处理的就是这一笔请求，读一次快照即可；
+                            // 下一笔请求进来时成员变量已被覆盖，互不干扰。
+                            paraIndex = currentParaIndex,
+                            paraTotal = currentParaTotal,
                             callback = object :
                                 com.github.jing332.tts.synthesizer.SynthesisCallback {
                                 override fun onSynthesizeStart(sampleRate: Int) {
@@ -811,7 +835,10 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                 val safeChapter = mdcChapter.replace("§", "Ｓ").replace("|", "｜")
                 FileWriter(logFile, true).use {
                     // 11-13：第五段加 reqId（空串=旧版/无关联），子行据此挂回自己的请求卡
-                    it.append("$time | SUCCESS |  |  | §$safeBook | $safeChapter | $reqId | $msg\n")
+                    // 11-14：对齐主行新格式，尾部补 paraIndex/paraTotal 两段（子行恒空占位）——
+                    // 主行 logback pattern 已加这两段，子行若不加会少两个字段位，
+                    // 回读解析把 message 前两段吞掉（reqId 之后全是正文）。
+                    it.append("$time | SUCCESS |  |  | §$safeBook | $safeChapter | $reqId |  |  | $msg\n")
                 }
             }
         }.onFailure { Log.e(TAG, "logS write file: ", it) }
@@ -1069,6 +1096,13 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                         // 「他说，」的 0.9s/50.7KB），自己的成功行掉成孤立裸行。
                         if (e.request.reqId.isNotBlank())
                             org.slf4j.MDC.put("reqId", e.request.reqId)
+                        // 11-14：段落位置随行落盘（用户令「每个请求音频日志都标 1/5」）。
+                        // paraIndex 0-based；没带（旧版 U阅/第三方）时不写 MDC，
+                        // 落盘该段为空、解析为 -1，渲染层不标段号——老日志行为不变。
+                        if (e.request.paraIndex >= 0)
+                            org.slf4j.MDC.put("paraIndex", e.request.paraIndex.toString())
+                        if (e.request.paraTotal > 0)
+                            org.slf4j.MDC.put("paraTotal", e.request.paraTotal.toString())
                         // 11-13：登记在途请求 id —— 被打断时（破窗/onStop）据此补「已取消」子行
                         if (e.request.reqId.isNotBlank()) {
                             currentReqId = e.request.reqId

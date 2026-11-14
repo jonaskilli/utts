@@ -122,13 +122,16 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
     private suspend fun textProcess(
         params: SystemParams,
         presetConfigId: Long?,
+        // 11-14：段落位置透传（U阅 Bundle 带入，见 ITextProcessor.process 注释）
+        paraIndex: Int = -1,
+        paraTotal: Int = 0,
     ): Result<List<TextSegment>, SynthesisError> {
         val presetConfig: TtsConfiguration? = presetConfigId?.run { repo.getTts(this) }
         if (presetConfigId != null && presetConfig == null) {
             return Err(SynthesisError.PresetMissing(presetConfigId))
         }
         textProcessor
-            .process(params.text, presetConfig)
+            .process(params.text, presetConfig, paraIndex, paraTotal)
             .onSuccess { list -> return Ok(list.filterNot { StringUtils.isSilent(it.text) }) }
             .onFailure { err: TextProcessorError ->
                 event(ErrorEvent.TextProcessor(err))
@@ -219,10 +222,16 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
         // 11-13：请求实例 id（空串=自己生成）。重试/备用递归必须原样透传同一 id，
         // 否则同一条失败链在日志里会拆成两张卡。
         reqId: String = "",
+        // 11-14：段落位置（用户令「每个请求音频日志都标 1/5」）。随片段透传，
+        // 重试/备用递归原样带——失败链上的日志段号不能丢。
+        paraIndex: Int = -1,
+        paraTotal: Int = 0,
     ) {
         val request = RequestPayload(
             params, config, roleName, failoverFromTag, bookName, chapterTitle,
-            reqId = reqId.ifEmpty { "r" + System.identityHashCode(params).toString(36) + System.nanoTime().toString(36).takeLast(6) }
+            reqId = reqId.ifEmpty { "r" + System.identityHashCode(params).toString(36) + System.nanoTime().toString(36).takeLast(6) },
+            paraIndex = paraIndex,
+            paraTotal = paraTotal,
         )
         suspend fun retry() {
             CachedEngineManager.removeEngine(config.source)
@@ -249,6 +258,7 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
                     roleName = roleName, failoverFromTag = fromTag,
                     bookName = bookName, chapterTitle = chapterTitle,
                     reqId = request.reqId,
+                    paraIndex = paraIndex, paraTotal = paraTotal,
                 )
             } else {
                 val next = retries + 1
@@ -266,6 +276,7 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
                     roleName = roleName, failoverFromTag = failoverFromTag,
                     bookName = bookName, chapterTitle = chapterTitle,
                     reqId = request.reqId,
+                    paraIndex = paraIndex, paraTotal = paraTotal,
                 )
             }
         }
@@ -379,6 +390,8 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
                     roleName = segment.roleName,
                     bookName = segment.bookName,
                     chapterTitle = segment.chapterTitle,
+                    paraIndex = segment.paraIndex,
+                    paraTotal = segment.paraTotal,
                 )
                 insertSegmentPause(channel, index, list.size)
             }
@@ -421,6 +434,8 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
                             roleName = segment.roleName,
                             bookName = segment.bookName,
                             chapterTitle = segment.chapterTitle,
+                            paraIndex = segment.paraIndex,
+                            paraTotal = segment.paraTotal,
                         )
                     } catch (e: CancellationException) {
                         throw e
@@ -496,6 +511,9 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
     @OptIn(ExperimentalCoroutinesApi::class)
     private suspend fun executeSynthesis(
         params: SystemParams, callback: SynthesisCallback, presetConfigId: Long?,
+        // 11-14：段落位置透传（见 synthesize 注释）
+        paraIndex: Int = -1,
+        paraTotal: Int = 0,
     ): Result<Unit, SynthesisError> = coroutineScope {
         if (mConfigs.isEmpty()) return@coroutineScope Err(SynthesisError.ConfigEmpty)
 
@@ -503,7 +521,7 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
 
         val channel =
             produce<ChannelPayload>(CoroutineName("Synthesis producer"), PROCUDE_CAPACITY) {
-                textProcess(params, presetConfigId)
+                textProcess(params, presetConfigId, paraIndex, paraTotal)
                     .onSuccess { list ->
                         try {
                             produceSegments(channel, params, list)
@@ -564,6 +582,11 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
 
     override suspend fun synthesize(
         params: SystemParams, forceConfigId: Long?, callback: SynthesisCallback,
+        // 11-14：段落位置（用户令「每个请求音频日志都标 1/5」）。U阅 每段一次
+        // synthesize 调用，段号随入口传入，一路透传到 TextSegment → RequestPayload
+        // → 日志行。默认 -1/0 = 调用方没带（第三方/旧版），全链不标。
+        paraIndex: Int = -1,
+        paraTotal: Int = 0,
     ): Result<Unit, SynthesisError> = mutex.withLock {
         logger.atTrace {
             message = "synthesize"
@@ -579,7 +602,7 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
 
         withMain { bgmPlayer.play() }
         try {
-            executeSynthesis(params, callback, forceConfigId)
+            executeSynthesis(params, callback, forceConfigId, paraIndex, paraTotal)
         } finally {
             logger.debug { "synthesize done" }
             withContext(NonCancellable) {

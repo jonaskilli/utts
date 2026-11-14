@@ -21,10 +21,17 @@ internal class TextProcessor(val context: SynthesizerContext) : ITextProcessor {
 
     override fun process(
         text: String,
-        forceConfigId: TtsConfiguration?
+        forceConfigId: TtsConfiguration?,
+        // 11-14：段落位置（见 ITextProcessor.process 注释）。默认实现不分级，
+        // 原样挂到每个分句上，保持链路一致。
+        paraIndex: Int,
+        paraTotal: Int,
     ): Result<List<TextSegment>, TextProcessorError> {
         return StringUtils.splitSentences(text).map {
-            TextSegment(text = it, tts = configs.values.random())
+            TextSegment(
+                text = it, tts = configs.values.random(),
+                paraIndex = paraIndex, paraTotal = paraTotal,
+            )
         }.run { Ok(this) }
     }
 }

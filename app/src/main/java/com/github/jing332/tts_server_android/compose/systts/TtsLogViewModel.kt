@@ -507,18 +507,24 @@ class TtsLogViewModel : ViewModel() {
         // reqId 列可为空（旧行/无关联行）。判别：§ 段之后的第一个 " | " 分出的第 3 段
         // 是一个短 token（r+字母数字，或无字符）。为免误判正文里的 " | "，只认
         // 「以 r 开头且长度 3~24 的字母数字」或空串——不匹配就落回下面的老格式。
+        // 11-14：再补 paraIndex/paraTotal 两段（用户令「每个请求音频日志都标 1/5」）。
+        // 两段可为空（旧格式行/子行占位）——reqId 后允许接「 |  |  | 正文」或
+        // 「 | 数字 | 数字 | 正文」；为兼容 reqId 老格式（reqId 后直接是正文），
+        // para 两段整体可选：先试八段新式，不中再落回六段老式。
         Regex(
-            "^(\\d{4}-\\d\\d-\\d\\d \\d\\d:\\d\\d:\\d\\d\\.\\d{3}) \\|\\s*([A-Z]+)\\s*\\|\\s*(\\d*)\\s*\\|\\s*(.*?)\\s*\\|\\s*§(.*?)\\s*\\|\\s*(.*?)\\s*\\|\\s*(r[0-9a-z]{2,23}|)\\s*\\|\\s*(.*)$"
+            "^(\\d{4}-\\d\\d-\\d\\d \\d\\d:\\d\\d:\\d\\d\\.\\d{3}) \\|\\s*([A-Z]+)\\s*\\|\\s*(\\d*)\\s*\\|\\s*(.*?)\\s*\\|\\s*§(.*?)\\s*\\|\\s*(.*?)\\s*\\|\\s*(r[0-9a-z]{2,23}|)\\s*\\|\\s*(\\d*)\\s*\\|\\s*(\\d*)\\s*\\|\\s*(.*)$"
         ).find(line)?.let { m ->
             return LogEntry(
                 level = m.groupValues[2].toLogLevel(),
                 time = m.groupValues[1],
-                message = m.groupValues[8],
+                message = m.groupValues[10],
                 configId = m.groupValues[3].toLongOrNull() ?: 0L,
                 roleName = m.groupValues[4],
                 bookName = m.groupValues[5],
                 chapterTitle = m.groupValues[6],
                 reqId = m.groupValues[7],
+                paraIndex = m.groupValues[8].toIntOrNull() ?: -1,
+                paraTotal = m.groupValues[9].toIntOrNull() ?: 0,
                 indent = if (isAcquiredSuffix) 1 else 0,
             )
         }

@@ -113,6 +113,12 @@ class TextProcessor : ITextProcessor {
     override fun process(
         text: String,
         presetConfig: TtsConfiguration?,
+        // 11-14：段落位置（用户令「每个请求音频日志都标 1/5」）。U阅每段一次请求，
+        // 本笔的 (paraIndex, paraTotal) 原样挂到产出的每个 TextSegment——
+        // 规则分析可能把一段拆成多句（多角色），它们同属一个段落，段号相同。
+        // 默认 -1/0 = 调用方没带（旧版/第三方），透传后落盘渲染自然跳过。
+        paraIndex: Int = -1,
+        paraTotal: Int = 0,
     ): Result<List<TextSegment>, TextProcessorError> {
         val resultList = mutableListOf<TextSegment>()
         val replacedText = replace(text, ReplaceExecution.BEFORE)
@@ -128,6 +134,8 @@ class TextProcessor : ITextProcessor {
                         roleName = f.roleName,
                         bookName = f.bookName,
                         chapterTitle = f.chapterTitle,
+                        paraIndex = paraIndex,
+                        paraTotal = paraTotal,
                     )
                 )
             }

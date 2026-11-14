@@ -58,6 +58,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -1042,6 +1043,45 @@ internal fun LogScreen(
             }
         }
 
+        // ===== 11-14「正在朗读置顶跟随」（用户令「让当前朗读的日志保持置顶」）=====
+        //
+        // 上一场落码的是「复位浮钮」：朗读卡滚出视野才出现 ⟲，点一下滚回去——
+        // 那是**手动**复位。装机后用户指出当初要的是**保持**置顶：朗读进行中，
+        // 每换一段，视图自动跟到那张卡上，不用手点。
+        //
+        // 实现：LaunchedEffect 盯 playingMatch 的 listItem（段切换=匹配卡变化），
+        // 变化时滚过去。两条约束防「抢用户」：
+        //   ① 只在**匹配目标变化**时滚（新段=新卡），不是每帧都拉——用户在历史
+        //      里停留期间若没换段，视图不被打扰；
+        //   ② 用户**主动滚动**后暂停 5 秒跟随（isScrollByUser 置位）：正在翻历史
+        //      时硬拉回去等于抢滚动，5 秒无操作视为看完、恢复跟随。
+        //      （判定用 firstVisibleItemIndex 在 LaunchedEffect 中的变化+当前无
+        //      程序滚动，简单可靠。）
+        // 没在朗读（playingMatch=null）不跟随，浮钮/⇊ 行为照旧。
+        var suppressFollowUntil by remember { mutableStateOf(0L) }
+        LaunchedEffect(listState) {
+            var lastFirst = -1
+            snapshotFlow { listState.firstVisibleItemIndex to listState.isScrollInProgress }
+                .collect { (idx, scrolling) ->
+                    // 用户手动滚动（滚动中且首项在变且不是我们的 animateScroll 所为——
+                    // animateScroll 期间 isScrollInProgress 也为 true，用时间窗区分：
+                    // 程序滚动刚结束时 300ms 内不算用户滚动）
+                    if (scrolling && idx != lastFirst) {
+                        lastFirst = idx
+                        suppressFollowUntil = System.currentTimeMillis() + 5000L
+                    }
+                }
+        }
+        LaunchedEffect(playingMatch?.listItem, playingMatch?.entryIndex) {
+            val m = playingMatch ?: return@LaunchedEffect
+            if (System.currentTimeMillis() < suppressFollowUntil) return@LaunchedEffect
+            // 目标已在视野内就不用滚（避免每段都小幅拉动，画面稳定）
+            val visible = listState.layoutInfo.visibleItemsInfo.any { it.index == m.listItem }
+            if (!visible) {
+                runCatching { listState.animateScrollToItem(m.listItem) }
+            }
+        }
+
         if (list.isEmpty())
             Box(Modifier.align(Alignment.Center)) {
                 Text(
@@ -1546,9 +1586,27 @@ internal fun LogScreen(
                                                 modifier = Modifier.padding(start = 8.dp)
                                             )
                                         }
-                                        // 11-14 段号丸（链尾⑤，浅灰小字）：只正在朗读那条显示——
-                                        // 历史行没人需要知道第几段；数据来自 readProgress.json
-                                        // 的 segIndex（随快照传入），链长时与耗时体积一起折行。
+                                        // 11-14 段号丸（链尾⑤，浅灰小字）：
+                                        // 每张请求卡都标自己的段落位置「N/M」（用户令，2026-11-14：
+                                        // 「每一个请求音频日志都得标1/5这种段落标记，现在只有
+                                        // 当前朗读卡片有」）。数据来自本卡请求行自带的
+                                        // paraIndex/paraTotal（U阅 每段一次请求时随 Bundle 带入，
+                                        // MDC 落盘；组头=请求行，取 head 的字段即可）。
+                                        // paraIndex<0 = 旧版 U阅/第三方没带 → 不标，老日志不变。
+                                        // 正在朗读卡的动态段号丸（第 N 段）保留在下方——两者互补：
+                                        // 静态段号=这笔请求属于哪段；动态丸=现在正读到哪段。
+                                        if (head.paraIndex >= 0) {
+                                            Text(
+                                                text = if (head.paraTotal > 0)
+                                                    "${head.paraIndex + 1}/${head.paraTotal}"
+                                                else
+                                                    "第 ${head.paraIndex + 1} 段",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                fontSize = LOG_AUX_SIZE,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.padding(start = 8.dp)
+                                            )
+                                        }
                                         if (isPlayingHead && playingSnapshot != null &&
                                             playingSnapshot.segIndex >= 0
                                         ) {

@@ -36,6 +36,11 @@ data class LogEntry(
     // 此前只按出现顺序就近挂，实测「爷爷，」卡上挂着「他说，」的 0.9s/50.7KB，
     // 自己的成功行反而掉成孤立裸行。空串=旧日志行/无关联行，退回顺序配对。
     val reqId: String = "",
+    // 11-14：段落位置（用户令「每个请求音频日志都标 1/5 这种段落标记」）。
+    // U阅 每段一次请求，段号随请求进 Bundle → MDC 落盘 → 此处解析。
+    // paraIndex 0-based；paraIndex<0 = 没带（旧格式行/子行占位），渲染不标。
+    val paraIndex: Int = -1,
+    val paraTotal: Int = 0,
 ) :
     Parcelable {
     fun getLevelChar(): String = level.toLogLevelChar()

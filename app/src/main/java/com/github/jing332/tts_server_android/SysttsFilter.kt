@@ -66,6 +66,12 @@ class SysttsFilter : Filter<ILoggingEvent>() {
                     // 把前一张顶掉，成功行挂到别人的卡上，另一条成功行落成裸行。
                     // 主行与子行（logS 直传 reqId）同源，补上这一行两路径才一致。
                     reqId = event.mdcPropertyMap["reqId"] ?: "",
+                    // 11-14：段落位置同走 MDC（用户令「每个请求音频日志都标 1/5」）。
+                    // 落盘侧回读能带上（logback.xml 已加两列），实时这条路径必须同样补——
+                    // 否则实时页所有卡段号恒空、只有重启回读后才出现，两条路径不一致。
+                    // 无值（旧版 U阅/子行）时 MDC 无该键 → 默认 -1/0，渲染不标。
+                    paraIndex = event.mdcPropertyMap["paraIndex"]?.toIntOrNull() ?: -1,
+                    paraTotal = event.mdcPropertyMap["paraTotal"]?.toIntOrNull() ?: 0,
                 )
             )
 
