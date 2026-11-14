@@ -1742,7 +1742,6 @@ private fun PinnedLogHeader(
                                 BookChapterPickerMenu(
                                     expanded = bookMenu,
                                     onDismissRequest = { bookMenu = false },
-                                    title = "选择书籍",
                                     items = knownBooks.map { b ->
                                         Triple(
                                             b,
@@ -1774,7 +1773,6 @@ private fun PinnedLogHeader(
                                     BookChapterPickerMenu(
                                         expanded = chapMenu,
                                         onDismissRequest = { chapMenu = false },
-                                        title = "选择章节",
                                         items = chaptersOf(shownBook).map { (name, count) ->
                                             Triple(name, count, name == shownChapter)
                                         },
@@ -1841,7 +1839,6 @@ private fun PinnedLogHeader(
                             BookChapterPickerMenu(
                                 expanded = bookMenu2,
                                 onDismissRequest = { bookMenu2 = false },
-                                title = "选择书籍",
                                 items = knownBooks.map { b ->
                                     Triple(b, null, b == shownBook)
                                 },
@@ -1862,7 +1859,6 @@ private fun PinnedLogHeader(
                                 BookChapterPickerMenu(
                                     expanded = chapMenu2,
                                     onDismissRequest = { chapMenu2 = false },
-                                    title = "选择章节",
                                     items = chaptersOf(shownBook).map { (name, count) ->
                                         Triple(name, count, name == shownChapter)
                                     },
@@ -2073,7 +2069,6 @@ private fun shortChapterLabel(chapter: String): String {
 private fun BookChapterPickerMenu(
     expanded: Boolean,
     onDismissRequest: () -> Unit,
-    title: String,
     items: List<Triple<String, Int?, Boolean>>,
     onPick: (String) -> Unit,
 ) {
@@ -2085,20 +2080,15 @@ private fun BookChapterPickerMenu(
         // 让书单/章单两个菜单等宽、切换时不跳，也避免窄屏（320dp）上被撑爆。
         modifier = Modifier.widthIn(min = 220.dp, max = 220.dp),
     ) {
-        // 标题行（参照 GitHub 弹窗的「Switch branches/tags」字样）
-        Text(
-            text = title,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Medium,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = 8.dp, bottom = 6.dp),
-        )
-        // ⚠️ 不放搜索框：用户 11-14 明确「不需要搜索，我只说说 main 框和点开这个
-        // 出来的弹窗框值得借鉴」——只借鉴形态，不要功能。
-        HorizontalDivider(
-            thickness = 0.5.dp,
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f),
-        )
+        // ⚠️ 不加标题行（用户 11-14 质疑「有必要加选择书籍和选择章节这个标题吗」，
+        // 结论=没必要，已删）。判断依据：
+        //   · GitHub 那个弹窗（Switch branches/tags）需要标题，是因为它的触发器是
+        //     **一个分支图标**，图标本身不带语义，得靠标题说明"点开是什么"；
+        //   · 我们是**书名/章名文字本身**当触发器——点书名显然在选书，点章名显然
+        //     在选章节，条目也全是同类内容，标题等于把刚说过的再说一遍；
+        //   · 220dp 小弹窗里那行白占高度（标题 14dp+分隔线），把列表挤短 1~2 条，
+        //     与用户「框小一点、别臃肿」的一贯口径冲突。
+        // 同理保留「不放搜索框」（用户明说不需要）。
         Column(
             Modifier
                 .heightIn(max = 300.dp)
