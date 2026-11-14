@@ -6,6 +6,13 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkOut
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -37,6 +44,7 @@ import androidx.compose.material.icons.filled.CheckBox
 import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
@@ -64,7 +72,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -102,6 +114,7 @@ import com.github.jing332.tts_server_android.compose.LocalBottomBarBehavior
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.abs
+import kotlin.math.sin
 
 // SystemTtsService 拼接次级信息所用哨兵色，此处按主题重映射
 // ===================== 日志字号阶梯 =====================
@@ -1224,39 +1237,37 @@ internal fun LogScreen(
                         // 本分支保留仅为 sealed class 穷举。
                         is LogGroups.Item.ChapterBar -> Unit
                         is LogGroups.Item.Header -> {
-                            // 日期签：每天第一条上方出现一次（10-06：日期不再逐行重复）。
-                            // 签盒 start 7 + 签内衬 9 = 签文字 16，与裸行/卡内正文同线
-                            Text(
-                                text = item.date,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier
-                                    .padding(start = 7.dp, top = 10.dp, bottom = 4.dp)
-                                    .background(
-                                        // 日期签底色（11-10 十二改，用户令「三处都恢复以前的绿」）。
-                                        //
-                                        // 直接取 surfaceContainerHighest 是错的：该槽在 04:39
-                                        // 中性化后四套主题全被压成 C=0.002 的灰（绿 #E4E6E5 /
-                                        // 紫 #E6E5E7 / 蓝 #E5E5E7 / 黑 #E5E5E5），以前是
-                                        // 绿 #DAF1E1 / 紫 #F0DEFB，彩度差 13 倍。
-                                        //
-                                        // 但**不能改 Highest 槽本身**——它还同时供给
-                                        // TtsLogScreen 的 UNKNOWN 级别色、VoicePickerDialog 的
-                                        // 只读字段底，一改三处一起变。故日期签单独推导：
-                                        // secondaryContainer（主题浅容器档）往卡底混 10%，
-                                        // 绿 → #DAF2E2（L=0.939 / C=0.033，与旧值 #DAF1E1
-                                        // L=0.937 / C=0.032 基本重合）。
-                                        // 四套主题同一算式，各自带自己的色相（紫 #EFE7FE /
-                                        // 蓝 #E1ECFE / 深灰 #EBECEF 仍近中性，符合深灰主题无彩定位）。
-                                        lerp(
-                                            MaterialTheme.colorScheme.secondaryContainer,
-                                            MaterialTheme.colorScheme.surfaceContainerLow,
-                                            0.10f
-                                        ),
-                                        AppShapes.md
-                                    )
-                                    .padding(horizontal = 9.dp, vertical = 2.dp)
-                            )
+                            // ===== 11-14 用户令：日期不再用胶囊 =====
+                            //
+                            // 用户原话：「还有日期的胶囊我不喜欢，有其他方式吗？」
+                            // 胶囊的问题：①它和筛选胶囊、成功丸、绿框控件撞形态——同一页
+                            // 四种胶囊，日期那个最没有"可点/可选"的语义，却长得像个按钮；
+                            // ②一个纯日期标签加上底色块+9dp内衬，视觉重量远超它的信息量。
+                            //
+                            // 换成「短竖线 + 日期」：左侧一道 3dp 高的主题色竖线当作"分段刻度"，
+                            // 日期文字用主色、不加底。语义上它就该是**分隔标记**（新的一天从这里
+                            // 开始），不是可点控件——竖线正好表达"划一条线"。
+                            // 也顺手解决了胶囊带来的边距问题：不再有底色块，文字直接落内容线。
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(start = 16.dp, top = 10.dp, bottom = 4.dp),
+                            ) {
+                                Box(
+                                    Modifier
+                                        .width(3.dp)
+                                        .height(12.dp)
+                                        .clip(RoundedCornerShape(2.dp))
+                                        .background(MaterialTheme.colorScheme.primary)
+                                )
+                                Spacer(Modifier.width(7.dp))
+                                Text(
+                                    text = item.date,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                            }
                         }
 
                         is LogGroups.Item.Bare -> {
@@ -1538,9 +1549,16 @@ internal fun LogScreen(
                                 // ⚠️ FlowRow 没有 verticalAlignment 参数（CI 37959867285 实锤，
                                 // 静守卫盲区），主轴对齐走 verticalArrangement=Arrangement.Center；
                                 // 丸与文字垂直同轴另由丸内衬对齐（labelSmall 自身高度小）
+                                // 11-14 用户令（①「34/306 放那里无法区分也不好看」）：
+                                // 段号**靠右单独站**，不再贴在耗时体积后面。
+                                // 做法：Row 把这一行切成「左侧内容槽 + 右侧段号」，
+                                // 左侧 FlowRow 用 weight(1f) 吃掉剩余宽度（链长时它自己折行），
+                                // 右侧段号固定最右、不参与折行——所以永远不会被拆成
+                                // 「21/10」+「4」两截。
+                                Row(verticalAlignment = Alignment.CenterVertically) {
                                 FlowRow(
                                     verticalArrangement = Arrangement.Center,
-                                    modifier = Modifier.fillMaxWidth()
+                                    modifier = Modifier.weight(1f)
                                 ) {
                                     // 行内元素套 Row(CenterVertically)（10-11 用户令「药丸内的文字
                                     // 和时间不在一个水平线上」）：FlowRow 的 verticalArrangement
@@ -1564,13 +1582,12 @@ internal fun LogScreen(
                                         //playingMatch 捕获的是 remember 快照，这里用当前值判断
                                         val isPlayingHead = playingMatch?.entryIndex == item.head
                                         if (isPlayingHead) {
-                                            // 11-14 用户实报「正在朗读这个胶囊直接紧挨左侧，不要留
-                                            // 那么多距离，不然这一行放不下」：原来这里 padding(start=6)
-                                            // 叠在容器 16dp 外衬上，视觉上离左轨 22dp，白占宽度。
-                                            // 现改为 0——胶囊贴齐行内容左缘（即容器 16dp 处），
-                                            // 与下方正文同线，链上省出 6dp 给后面的段号。
+                                            // 11-14 用户令：文字胶囊 → **彩色播放图标**（见
+                                            // PlayingIndicator 注释：省 58dp，是从根上解决
+                                            // "这一行放不下"，不是靠压边距凑）。
+                                            // 贴齐行内容左缘（容器 16dp 处），与下方正文同线。
                                             Box {
-                                                StatusPill(LogPill(LogPillKind.PLAYING, "正在朗读"))
+                                                PlayingIndicator()
                                             }
                                         }
                                         Text(
@@ -1649,30 +1666,12 @@ internal fun LogScreen(
                                         // 动态=现在读到哪段；朗读中两者恒等）。
                                         // 非朗读行无动态丸，静态段号照常显示（用户令「每张请求卡
                                         // 都得标段落标记」）。
-                                        if (head.paraIndex >= 0 && !isPlayingHead) {
-                                            val paraTxt = if (head.paraTotal > 0)
-                                                "（${head.paraIndex + 1}/${head.paraTotal}）"
-                                            else
-                                                "（第 ${head.paraIndex + 1} 段）"
-                                            Text(
-                                                text = paraTxt,
-                                                style = MaterialTheme.typography.bodySmall,
-                                                fontSize = LOG_AUX_SIZE,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                maxLines = 1,
-                                                softWrap = false,
-                                                modifier = Modifier
-                                                    .padding(start = 8.dp)
-                                                    .clip(RoundedCornerShape(50))
-                                                    .background(softFillBarColor())
-                                                    .padding(horizontal = 7.dp, vertical = 1.dp)
-                                            )
-                                        }
-                                        // ⚠️ 动态段号丸（原「（21/104）」）已从这里**移除**：
-                                        // 用户实报「正在朗读的日志第一行放不下」，这一行已有
-                                        // 正在朗读丸+时间+成功丸+耗时体积，第五件必然挤爆。
-                                        // 现改为把段号挪到**正文行末尾**（见下方正文 Text 后的
-                                        // playingSegLabel），第一行只留四件、宽松不折行。
+                                        // 11-14 用户令（①「34/306 放那里无法区分也不好看」）：
+                                        // 段号已从 FlowRow 内部**移出**，改为外层 Row 的最右端
+                                        // （见下方 FlowRow 结束后的 Text）。原因：放在链尾时
+                                        // 它与「耗时体积」首尾相接，读成一个数字串；且参与折行
+                                        // 会被拆成「21/10」+「4」。移出后它固定靠右、永不被拆。
+                                        // 朗读行照旧不显示静态段号（动态段号已经在胶囊里）。
                                     }
                                     // 「回原位」定位键（筛选/搜索态）：弹簧顶到最右，动作留右手位。
                                     // 10-11 换显示：淡紫底胶囊（与裸行同口径）
@@ -1691,6 +1690,32 @@ internal fun LogScreen(
                                         )
                                     }
                                 }
+                                // 11-14 段号（用户令 ①+③）：**靠右单独站**，且**所有日志行统一**
+                                // ——朗读行也一样走这里（用户第三次纠正：「右侧 1/32 跟其他日志
+                                // 都要统一」）。不再有"朗读行特殊处理"这条分叉。
+                                //   · 位置：Row 最右端，与左侧链之间靠 padding 留白隔开，
+                                //     不再与「耗时体积」首尾相接读成一个数字串；
+                                //   · 不参与 FlowRow 折行 ⇒ 永远不会被拆成「21/10」+「4」；
+                                //   · 颜色与耗时体积同档灰（onSurfaceVariant）——同属辅助数据，
+                                //     单独给色会让人以为它另有含义。
+                                // 朗读行的空间由此腾出：第一行只放「正在朗读丸 + 时间 +
+                                // 成功丸 + 耗时体积」四件，段号移到右端，一行放得下。
+                                val segText = if (head.paraIndex >= 0) {
+                                    if (head.paraTotal > 0) "${head.paraIndex + 1}/${head.paraTotal}"
+                                    else "${head.paraIndex + 1}"
+                                } else ""
+                                if (segText.isNotEmpty()) {
+                                    Text(
+                                        text = segText,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontSize = LOG_AUX_SIZE,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        modifier = Modifier.padding(start = 10.dp),
+                                    )
+                                }
+                                }   // ← 关闭「左侧链 + 右侧段号」的 Row
                                 // 老版式失败条（10-11 定稿）：渲染主体换成被吸收的源错误/
                                 // 超时条目（服务端已拼请求全文），请求主行正文不再重复——
                                 // 成功组不变（head 请求行照旧）。13sp 与成员行/裸行同档
@@ -1812,7 +1837,8 @@ internal fun LogScreen(
                     .padding(horizontal = 16.dp, vertical = 6.dp),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    StatusPill(LogPill(LogPillKind.PLAYING, "正在朗读"))
+                    // 同列表行：吸顶条也用播放图标，两处形态一致
+                    PlayingIndicator()
                     Text(
                         text = pe.time.substringAfterLast(' '),
                         fontSize = 12.sp,
@@ -2093,6 +2119,75 @@ internal data class LogPill(val kind: LogPillKind, val text: String)
  */
 internal data class BuiltPlayingMatch(val entryIndex: Int, val listItem: Int)
 
+/**
+ * 「正在播放」图标（11-14 用户令：「改名你改为一个正在播放的图标吧，
+ * 或者 emoji，彩色的，不要文字了」）。
+ *
+ * 为什么换图标而不只是改名：这一行放不下的**根因**就是「正在朗读」文字胶囊
+ * 占了约 76dp。缩成「朗读中」省 26dp 仍然紧张（346→320，可用 328 只差 8dp）；
+ * 11-14 用户第二次改口：「不需要跟列表试听那里的正在播放图标一致，那里的图标小，
+ * 不够突出，你出个大众经常用的播放中的图标，动态的咋样，就波形一动一动的那种」。
+ * 故最终形态 = **动态波形**（三根柱子高度按正弦轮动），这是播放器/音乐 App 里
+ * 「正在播放」最通用的语言，比静态三角更"活"，也足够醒目。
+ *
+ * 为什么是波形而不是别的：它表达的是「声音正在流动」，与这一行"正在朗读"的语义
+ * 天然对应；三角只表示"可以播"，波形表示"正在播"。
+ *
+ * 实现：rememberInfiniteTransition 驱动一个 0..1 循环相位，Canvas 画三根圆角柱，
+ * 每根相位错开 1/3 周期 ⇒ 看起来像波浪推过去。动画只在可见时消耗（Composable
+ * 卸载即停），列表里同时最多一条，开销可忽略。
+ *
+ * 尺寸 18dp（与三角版本同宽，宽度收益不变）；颜色跟主题主色，不写死绿/红。
+ * 语义由 contentDescription 兜住（读屏念「正在播放」）。
+ *
+ * ⚠️ 与状态丸 StatusPill 的分工：这是**身份标识**（这条是当前朗读的），
+ * 状态丸是**结果标识**（成功/失败/重试）。两者视觉不能长一样，否则又混回去。
+ */
+@Composable
+private fun PlayingIndicator() {
+    val transition = rememberInfiniteTransition(label = "playingWave")
+    val phase by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1200, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "phase",
+    )
+    val color = MaterialTheme.colorScheme.primary
+    Canvas(
+        modifier = Modifier
+            .size(18.dp)
+            .semantics {
+                contentDescription = "正在播放"
+            }
+    ) {
+        // 三根柱：等宽、等距，高度按 sin(phase*2π + i*2π/3) 在 40%~100% 之间摆动。
+        // 用 0.4 作为下限而非 0：柱不会"消失"，始终读得出是一组波形。
+        val barCount = 3
+        val gapRatio = 0.45f                      // 柱间空隙占单柱宽的比例
+        val barW = size.width / (barCount + (barCount - 1) * gapRatio)
+        val gap = barW * gapRatio
+        val totalH = size.height
+        val minRatio = 0.4f
+        for (i in 0 until barCount) {
+            val t = phase + i / barCount.toFloat()
+            // sin 值域 -1..1 → 归一到 0..1，再映射到 minRatio..1
+            val wave = (sin(2f * Math.PI.toFloat() * t) + 1f) / 2f
+            val hRatio = minRatio + (1f - minRatio) * wave
+            val h = totalH * hRatio
+            val x = i * (barW + gap)
+            drawRoundRect(
+                color = color,
+                topLeft = Offset(x, totalH - h),
+                size = Size(barW, h),
+                cornerRadius = CornerRadius(barW / 2f, barW / 2f),
+            )
+        }
+    }
+}
+
 // 状态药丸（10-10 行流定稿；11-10 四改：成功改主题主色，其余三态不变）：丸只装状态字；
 // 丸后灰字（耗时·大小/失败原因）由调用方另排。
 // ⚠️ 不用 Pair 解构（when 分支混用 to 与 if 表达式时编译器推成 Any）——分两个 when
@@ -2219,7 +2314,12 @@ private fun LogEntryBody(
                 base.spanStyles.forEach { r ->
                     var item = r.item
                     if (r.start < prefixEnd) {
-                        // 前缀：染深绿 + 13sp（原值 13，不是 12——见常量区注释）
+                        // 前缀「请求音频：」：**中性灰**（不是绿！）——10-08 用户拍板
+                        // 「撤吧，灰」：每卡必有的词信息量为零，不该占最显眼的级别绿；
+                        // 取 RequestPrefixColorLight/Dark（#79747E/#938F99），与时间行同档。
+                        // 字号 13sp（LOG_BODY_SIZE，原值 13 不是 12——见常量区注释）。
+                        // ⚠️ 本行注释曾写「染深绿」与代码不符（11-14 发现），已改正。
+                        // 前缀后面的**正文**走 bodyColor 的 isRequestHead 分支 = onSurface 黑。
                         item = item.copy(
                             color = if (darkTheme) RequestPrefixColorDark else RequestPrefixColorLight,
                             fontSize = LOG_BODY_SIZE,

@@ -37,6 +37,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.DeleteOutline
@@ -1553,7 +1554,14 @@ private fun PinnedLogHeader(
             modifier = Modifier
                 .fillMaxWidth()
                 // 外衬 24→16：左右各收 4dp（删掉 DEBUG 后每颗已很宽裕，这两处保留不动）
-                .padding(start = 10.dp, end = 6.dp, top = 6.dp, bottom = 5.dp),
+                // 11-14 用户令（看关系而非只统一数值）：「筛选这个按键左边距顶格排是不是更
+                // 合适？」——是。这排是 fillMaxWidth 的**等分工具条**，整条本身就是页面的
+                // 工具栏，不参与下方内容的竖线；硬拉到 16dp 内容线反而像"被缩进一截的
+                // 按钮条"，左侧多出 6dp 空白显得多余。故取 8dp「接近顶格」：
+                // 比内容线更靠外（读作工具条），又不像 0 那样贴死屏幕边。
+                // 左右同为 8dp，四颗胶囊等分后每颗约 69dp（四字仅需 56dp，余量充足）。
+                // bottom 5→9：与「书章/进度」拉开分组（间距账见书章行注释）。
+                .padding(start = 8.dp, end = 8.dp, top = 6.dp, bottom = 9.dp),
             verticalAlignment = Alignment.CenterVertically,
             // 间距回 3dp：删掉 DEBUG 只剩 4 颗，每颗分到 71.8dp（四字只需 61dp 含内衬），
             // 不必再挤成 2dp。
@@ -1635,7 +1643,19 @@ private fun PinnedLogHeader(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 14.dp, end = 10.dp, bottom = 5.dp),
+                // 11-14 用户终令：「章节那一排应该跟筛选左右边距一样」→ 8/8。
+                //
+                // 这一改推翻了本轮上一版的 16/16，理由要记清楚（否则下次又会来回改）：
+                //   · **筛选行与书章行同属"吸顶控件带"**——都在日志流之上、都带交互
+                //     （筛选是开关、书章是下拉），视觉上要彼此对齐成一条带；
+                //   · 进度行、日期签、日志正文才是**内容**，落 16dp 内容线；
+                //   · 若控件带也压到 16，会跟下方的正文同线，反而分不出"上面是控件、
+                //     下面是内容"，且筛选行为了当工具条已经取 8，两排不齐更显眼。
+                // 连带的竖线关系（见 PickerTrigger 的内衬注释）：
+                //   框**边线** 8 = 与筛选图标同线；框**内文字** 14。
+                // bottom 5→0：与进度行贴成一组。
+                // 间距账：筛选 bottom9 + 这里 top0 = 9dp；这里 bottom0 + 进度 top1 = 1dp。
+                .padding(start = 8.dp, end = 8.dp, bottom = 0.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(5.dp),
         ) {
@@ -1727,9 +1747,15 @@ private fun PinnedLogHeader(
                                 // 11-14：触发框改 PickerTrigger（参照 GitHub 的 main 按钮：
                                 // 圆角描边 + 内衬 + ▾，让"能点"一眼可辨）。
                                 PickerTrigger(
-                                    text = "《$shownBook》",
+                                    // 11-14 用户令：「把书名号删掉，前面改为书图标」。
+                                    // 书名号占了 2 个字宽（《》各约 11.5dp，合计≈23dp），
+                                    // 而"这是一本书"靠图标表达更快——省宽又更直观。
+                                    text = shownBook,
+                                    leadingIcon = Icons.Default.Book,
                                     onClick = { bookMenu = true },
-                                    textColor = MaterialTheme.colorScheme.primary,
+                                    // 11-14：筛选态也改 onSurface（与未筛选态同色）——
+                                    // 两态切换只该变底/描边，文字色跳变会显得控件"换了个东西"
+                                    textColor = MaterialTheme.colorScheme.onSurface,
                                     opened = bookMenu,
                                 )
                                 // 紧凑菜单（用户令「把这个框小一点……得和谐呀」）：
@@ -1762,7 +1788,8 @@ private fun PinnedLogHeader(
                                     PickerTrigger(
                                         text = chapLabel.trim() + playingProgressSuffix,
                                         onClick = { chapMenu = true },
-                                        textColor = MaterialTheme.colorScheme.primary,
+                                        // 同上：筛选态与未筛选态同色
+                                        textColor = MaterialTheme.colorScheme.onSurface,
                                         opened = chapMenu,
                                     )
                                     // 章名菜单**居右**（用户定稿）：章名在书名之后、靠行右侧，
@@ -1834,7 +1861,9 @@ private fun PinnedLogHeader(
                             Box(Modifier.weight(1f)) {
                             // 11-14：触发框改 PickerTrigger（带描边，见组件注释）
                             PickerTrigger(
-                                text = "《$shownBook》",
+                                // 同上：书名号 → 书图标
+                                text = shownBook,
+                                leadingIcon = Icons.Default.Book,
                                 onClick = { bookMenu2 = true },
                                 opened = bookMenu2,
                             )
@@ -1922,63 +1951,50 @@ private fun PinnedLogHeader(
             // 用户定稿两分支：
             //   同章：后台合成 3/25        ← 书章行已显示当前章，第二行不重复
             //   跨章：后台合成 第6章 1/35  ← 括号不再带播放进度（播放进度已在书章行的（3/25）里）
-            val text = buildString {
-                // 11-14 修「正在朗读时后台合成偶尔显示第 0 章」（用户实报）：
-                // synthChapterIndex 无有效值时是 -1（ReadProgressReader 默认值，
-                // U阅 还没上报合成前沿就会是它），而旧代码写 `第${synthIdx + 1}章`
-                // ⇒ **-1 + 1 = 0 ⇒ 「第 0 章」**。
-                // 修法：先把「合成章是否有效」单独判出来（>=0 才有效），
-                // 无效时**整段不显示章号**——宁可不写章名，也不能印出「第 0 章」
-                // 这种不存在的章节误导用户。
-                //
-                // 11-14 用户第二次改口（格式定稿）：
-                // 「我想把章节名后的（1/25）换到第二行，比如后台合成：第六章 10/20；
-                //   当前朗读：第五章 5/10，你看能放下吗？另外这个文字和格式还得再细调下」
-                // 新格式（两段并列，同章时省掉重复的后半段）：
-                //   跨章：后台合成：第六章 10/20 ｜ 当前朗读：第五章 5/10
-                //   同章：后台合成：第五章 5/10   （合成章==朗读章，写两遍是冗余）
-                // 用「｜」细竖线分隔而不是「；」：中文字宽，一号全角分号太占地方，
-                // 11.5sp 小字下一行放不下（用户已问「你看能放下吗」）。
-                val synthIdxValid = synthIdx >= 0
-                val synthNameOrNum = when {
-                    synthName.isNotBlank() -> synthName
-                    synthIdxValid -> "第${synthIdx + 1}章"
-                    else -> ""   // 无效：绝不出现「第 0 章」
-                }
-                val synthPart = buildString {
-                    if (synthNameOrNum.isNotBlank()) append(synthNameOrNum).append(' ')
-                    if (synthTotal > 0) {
-                        append(synthDone.coerceAtMost(synthTotal)).append('/').append(synthTotal)
-                    }
-                }.trim()
-                val playNameOrNum = when {
-                    playName.isNotBlank() -> playName
-                    snap.chapterIndex >= 0 -> "第${snap.chapterIndex + 1}章"
-                    else -> ""
-                }
-                val playPart = buildString {
-                    if (playNameOrNum.isNotBlank()) append(playNameOrNum).append(' ')
-                    if (playTotal > 0) {
-                        append(playDone.coerceAtMost(playTotal)).append('/').append(playTotal)
-                    }
-                }.trim()
-
-                if (synthPart.isNotBlank()) {
-                    append("后台合成：").append(synthPart)
-                    // 同章且两边进度一致时不重复写「当前朗读」（同一个数写两遍是噪音）；
-                    // 跨章（预取跑在前）或进度不同才并列展示。
-                    if (playPart.isNotBlank() && !sameChapter) {
-                        append(" ｜ 当前朗读：").append(playPart)
-                    }
-                } else if (playPart.isNotBlank()) {
-                    // 没有合成侧数据（合成还没开始/未上报）：只报当前朗读位置
-                    append("当前朗读：").append(playPart)
-                }
+            // 11-14 用户令（② 定稿）：「那就不要当前朗读了，只留合成进度，把后台合成
+            // 改为这个，不管是否跨章，都要加章节名」。
+            //
+            // 定稿格式（单段，不再并列播放位置）：
+            //   合成进度：第六章 10/20
+            // 要点三条：
+            //   ① 「后台合成」→「合成进度」（用户 11-14 纠正：「②文字是合成进度啊」：
+            //      这一行报的是合成这件事，前缀就该点名"合成进度"，不是只写"合成"）；
+            //   ② **恒带章名**（不再分同章/跨章两套）：用户明确「不管是否跨章都要加」。
+            //      同章时章名与书章行重复，但用户要的是"一眼看出合成到哪一章"，
+            //      重复可接受；
+            //   ③ 播放位置彻底移除（用户：「不要当前朗读了」）——播放进度看段号
+            //      与书章行的读数即可，第二行只负责"合成到哪了"。
+            //
+            // 11-14 修「第 0 章」（保留）：synthChapterIndex 未上报时是 -1，
+            // 旧代码 `第${-1+1}章` 会印出「第 0 章」。现在索引无效就不写章号，
+            // 只写进度——宁缺勿错。
+            val synthIdxValid = synthIdx >= 0
+            val synthNameOrNum = when {
+                synthName.isNotBlank() -> synthName
+                synthIdxValid -> "第${synthIdx + 1}章"
+                else -> ""
             }
+            val text = buildString {
+                append("合成进度：")
+                if (synthNameOrNum.isNotBlank()) append(synthNameOrNum).append(' ')
+                if (synthTotal > 0) {
+                    append(synthDone.coerceAtMost(synthTotal)).append('/').append(synthTotal)
+                }
+            }.trim()
+            // 合成侧完全没数据（没开播/未上报）时这一行**整行不渲染**——否则只剩
+            // 「合成进度：」四个字挂在那里，没有信息量还占 24dp。
+            // ⚠️ 必须真用上这个门控（11-14 自查发现：上一版只声明没使用）。
+            // 顺带影响：书章行 bottom 已改成 0（为与进度行贴成一组），
+            // 若此时仍渲染空进度行不会有问题；但若整行隐藏，书章行会直接贴在
+            // 列表首行上——故隐藏时把书章行的呼吸补回来，见下方 else 分支。
+            val showProgLine = synthTotal > 0 || synthNameOrNum.isNotBlank()
+            if (showProgLine) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 17.dp, end = 16.dp, bottom = 7.dp),
+                    // 11-14：纯文字信息行，等同正文——左 17→16 归到内容线
+                    // （原 17 比正文多 1dp，是历史零头）。top 2→1 让它紧贴书章成一组。
+                    .padding(start = 16.dp, end = 16.dp, top = 1.dp, bottom = 7.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
@@ -1993,6 +2009,11 @@ private fun PinnedLogHeader(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
+            }
+            } else {
+                // 没有合成数据：进度行整行隐藏，补一笔呼吸高度，
+                // 否则书章框会直接压在日志列表首行的分隔线上。
+                Spacer(Modifier.height(7.dp))
             }
         }
 
@@ -2173,7 +2194,22 @@ private fun PickerTrigger(
     text: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    textColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    // 11-14 用户实报「书章现在是灰色，不太合适，改为黑色，跟请求音频的颜色一样」。
+    // 采纳理由（不是照做）：
+    //   · onSurfaceVariant（灰）在本页的语义是**辅助信息**（耗时/体积/发音人），
+    //     而书名/章名是**导航**（点它要跳转），错用了低一级的颜色；
+    //   · 它俩现在还是唯二带描边的可点控件——描边在说"能点"、灰字在说"别注意我"，
+    //     两个信号打架；改 onSurface（正文同档）后自洽；
+    //   · 不会抢正文重心：书名 11.5sp、正文 14sp 加粗，字号与字重仍差两档。
+    // 注：用户说的「跟请求音频一样」指的是它**后面的正文黑**（#onSurface），
+    // 不是「请求音频：」这个前缀——前缀是 10-08 用户拍板改的中性灰 #79747E。
+    // 11-14 用户定稿（第三轮）：「正文太黑是因为黑+加粗，书章不确定啥样，你推荐啥颜色」
+    // → 取 onSurface 的 78% 不透明度（≈45% 亮度）。
+    // 依据：与用户认可的「请求音频：」前缀同档（47% 亮度），明显亮于原 onSurfaceVariant
+    // 的 28%（发闷），又远不到正文的 11%（过重）。
+    // 用 alpha 而不是硬编码色值：换主题/深色主题自动跟随，不会出现固定色在深底上发黑。
+    // 与正文的区分靠三重：色浓度 78% vs 100%、字重 Normal vs Bold、字号 11.5 vs 14。
+    textColor: Color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.78f),
     bordered: Boolean = true,
     // 11-14 用户令（第三次澄清后定稿）：「1、2 说的都是一个意思，就是点击 main
     // 分支框这个框的变化，颜色可以看看，但不需要一样，因为咱们有自己的颜色」。
@@ -2185,6 +2221,10 @@ private fun PickerTrigger(
     // 颜色不照抄 GitHub 的冷灰蓝，改用本项目主题：展开时底色走 primary 的极淡混合、
     // 描边走 primary 半透明——与「正在朗读」左轨/筛选选中同源，不引入新色相。
     opened: Boolean = false,
+    // 11-14 用户令：「把书名号删掉，前面改为书图标，章节不用加图标吧？」
+    // 书名用图标（书=这是什么），章名不加（"第9章"文字本身已自解释，加图标是噪音）。
+    // 图标尺寸跟箭头统一 14dp（用户同批要求「连箭头都统一」）。
+    leadingIcon: androidx.compose.ui.graphics.vector.ImageVector? = null,
 ) {
     val shape = RoundedCornerShape(6.dp)
     val bgColor = if (opened) {
@@ -2217,6 +2257,19 @@ private fun PickerTrigger(
             .clickable(onClick = onClick)
             .padding(start = 6.dp, end = 3.dp, top = 2.dp, bottom = 2.dp),
     ) {
+        // 前置图标（书名=书本图标）：放在文字之前，与文字同色系、略淡一档，
+        // 避免图标比字还抢眼。尺寸 14dp 与右侧箭头一致。
+        leadingIcon?.let { v ->
+            Icon(
+                imageVector = v,
+                contentDescription = null,
+                tint = textColor.copy(alpha = 0.8f),
+                modifier = Modifier
+                    .size(14.dp)
+                    .padding(end = 0.dp),
+            )
+            Spacer(Modifier.width(3.dp))
+        }
         Text(
             text = text,
             fontSize = 11.5.sp,
@@ -2231,7 +2284,9 @@ private fun PickerTrigger(
             // 展开时箭头也跟着主色，三处（底/描边/箭头）同源，整体是一件事
             tint = if (opened) MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
             else textColor.copy(alpha = 0.7f),
-            modifier = Modifier.size(13.dp),
+            // 11-14 用户令「14，连箭头都统一」：图标尺寸全站统一到 14dp。
+            // 原 13dp 与筛选图标的 12dp 各差 1dp，肉眼看得出"两个图标不一样大"。
+            modifier = Modifier.size(14.dp),
         )
     }
 }
@@ -2272,8 +2327,13 @@ private fun PinnedChip(
     }
     val fg = when {
         selected && error -> cs.onErrorContainer
+        // 选中 = 主色：这是**状态色**（选中了），必须与书章那个**身份色**区分开，
+        // 否则整排分不出哪颗亮着。用户 11-14 明确「选中态保持主色不变」。
         selected -> cs.primary
-        else -> cs.onSurfaceVariant
+        // 未选中：与书章联动到同一档（onSurface 78% ≈45% 亮度）——
+        // 两排同属吸顶区，一个 45% 一个 28% 站在一起会"一亮一闷"。
+        // 原 28%（onSurfaceVariant）在 11sp 小字上偏弱，四字标签读着吃力。
+        else -> cs.onSurface.copy(alpha = 0.78f)
     }
     Text(
         text = label,
@@ -2327,18 +2387,27 @@ private fun PinnedFilterLabel() {
         modifier = Modifier.padding(end = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        // 11-14：图标与文字同步提到 onSurface 78%（与右侧四颗胶囊、下方书章同一档）。
+        // 不这么做的话：标签停在 28%、胶囊 45%、书章 45%——同一行里
+        // "筛选"最暗，看着像掉出去的一截，整排不成立。
         Icon(
             Icons.Default.FilterList,
             contentDescription = null,
-            tint = cs.onSurfaceVariant,
-            modifier = Modifier.size(12.dp),
+            tint = cs.onSurface.copy(alpha = 0.78f),
+            // 11-14 用户实报「筛选图标是不是太小了」→ 12dp 确实偏小：
+            // Material 图标在 12dp 下 FilterList 三条横线快糊成一块，且它是整排的
+            // 标识符（"这排是什么"全靠它 + 两个字），比例上应接近文字高度。
+            // 定 14dp（用户拍板）：与 11sp 文字的视觉高度协调；16dp 会顶到胶囊上下、
+            // 18dp 会与胶囊等高变成"图标主导"，比例失衡。
+            modifier = Modifier.size(14.dp),
         )
         Spacer(Modifier.width(2.dp))
         Text(
             text = "筛选",
             style = MaterialTheme.typography.labelSmall,
             fontSize = 11.sp,
-            color = cs.onSurfaceVariant,
+            // 同图标：与胶囊/书章统一到 78% 档（理由见上方 Icon 注释）
+            color = cs.onSurface.copy(alpha = 0.78f),
             maxLines = 1,
         )
         Spacer(Modifier.width(4.dp))
