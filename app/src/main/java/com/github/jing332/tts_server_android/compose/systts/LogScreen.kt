@@ -976,46 +976,6 @@ internal fun LogScreen(
     // 为什么不用 stickyHeader / 悬浮副本：前者会让它脱离日志流压住内容，
     // 后者是两套渲染（旧版副本只画了波形+时间+段号，缺成功丸和耗时体积、
     // 段号还挤在时间后面靠左，用户图一实报「1/30 位置没有在最右，跟其他不统一」）。
-    val pinnedItemIndex = playingMatch?.listItem ?: -1
-    val reordered = pinnedItemIndex > 0 && pinnedItemIndex < builtGroups.items.size
-    val displayItems = remember(builtGroups, pinnedItemIndex) {
-        val src = builtGroups.items
-        if (!reordered) src
-        else buildList(src.size) {
-            add(src[pinnedItemIndex])
-            for (k in src.indices) if (k != pinnedItemIndex) add(src[k])
-        }
-    }
-    // 显示序 → 原下标的预计算表（toOriginalIndex 不能在 itemsIndexed 的 key lambda
-    // 里现算：那个 lambda 不是 @Composable 作用域，按值捕获最稳）
-    val displayKeyOf: (Int) -> Int = { d ->
-        if (!reordered) d
-        else when {
-            d == 0 -> pinnedItemIndex
-            d <= pinnedItemIndex -> d - 1
-            else -> d
-        }
-    }
-    // ⚠️ 置顶会让「屏幕上的第 k 项」不再等于「builtGroups.items 的第 k 项」。
-    // 所有拿 listState / visibleItemsInfo 的**显示下标**回查 items 的地方
-    //（多选落点、拖选区间、回原位、复位滚动）都必须先过这张表换算成原下标，
-    // 否则会误选/滚错一行。置顶只在第 0 项的时候，k>0 一律回退一位。
-    fun toOriginalIndex(displayIdx: Int): Int =
-        if (!reordered) displayIdx
-        else when {
-            displayIdx == 0 -> pinnedItemIndex
-            displayIdx <= pinnedItemIndex -> displayIdx - 1
-            else -> displayIdx
-        }
-    // 反向：原下标 → 显示下标（判断「某项是否在视野内 / 该滚到第几项」时用）
-    fun toDisplayIndex(originalIdx: Int): Int =
-        if (!reordered) originalIdx
-        else when {
-            originalIdx == pinnedItemIndex -> 0
-            originalIdx < pinnedItemIndex -> originalIdx + 1
-            else -> originalIdx
-        }
-
     // 指尖纵坐标 → 可视列表项下标；只认日志项（收尾 Spacer 不算），落在空档上就近取边界项
     fun logIndexAtY(y: Float): Int? {
         val items = listState.layoutInfo.visibleItemsInfo
@@ -1032,12 +992,8 @@ internal fun LogScreen(
     fun emitDragSelection() {
         val g = currentGroups
         if (g.items.isEmpty()) return
-        // ⚠️ dragAnchor/dragLastIdx 是**显示下标**（来自 visibleItemsInfo），
-        // 置顶后必须换算回原下标再查 g.items，否则整段会偏一行（拖过朗读卡却勾中它下面那张）。
-        val lo0 = minOf(dragAnchor.value, dragLastIdx.value).coerceIn(0, g.items.lastIndex)
-        val hi0 = maxOf(dragAnchor.value, dragLastIdx.value).coerceIn(0, g.items.lastIndex)
-        val lo = minOf(toOriginalIndex(lo0), toOriginalIndex(hi0))
-        val hi = maxOf(toOriginalIndex(lo0), toOriginalIndex(hi0))
+        val lo = minOf(dragAnchor.value, dragLastIdx.value).coerceIn(0, g.items.lastIndex)
+        val hi = maxOf(dragAnchor.value, dragLastIdx.value).coerceIn(0, g.items.lastIndex)
         var sel = dragBase.value
         for (k in lo..hi) {
             g.entriesOf(g.items[k]).forEach { idx ->
@@ -1136,9 +1092,8 @@ internal fun LogScreen(
             derivedStateOf {
                 val m = playingMatch
                 if (m == null) return@derivedStateOf true // 没在朗读：视作"可见"，让位给 ⇊
-                val target = toDisplayIndex(m.listItem)
                 val info = listState.layoutInfo
-                val item = info.visibleItemsInfo.firstOrNull { it.index == target }
+                val item = info.visibleItemsInfo.firstOrNull { it.index == m.listItem }
                     ?: return@derivedStateOf false      // 不在可见项里 = 滑出去了
                 // 项的实际绘制区间 vs 视口区间：有重叠才算"看得见"
                 val itemTop = item.offset
@@ -1165,10 +1120,39 @@ internal fun LogScreen(
         LaunchedEffect(jumpToLiveTick) {
             if (jumpToLiveTick > 0) pendingJumpToBottom = true
         }
+        // ===== 11-15「正在朗读」滚动跟随（替代已删除的置顶方案）=====
+        //
+        // 用户定案：日志顺序一点不动，只把**视口**滚到正在朗读那一行，让它出现在顶部。
+        // 这样上下两侧就是它真正的前文/后文（提到第 0 项的做法做不到这点）。
+        //
+        // ⚠️ 三条必须遵守的纪律，否则会变成"抢用户滚动"：
+        //   ① 只在**朗读段变了**（key 用 listItem + entryIndex）时滚一次，
+        //      不是每来一条日志都滚；
+        //   ② 用户正在手动滑动时**绝不插一脚**——由 listState.isScrollInProgress 判定；
+        //   ③ 不打断手势：用 animateScrollToItem 平滑位移。
+        //
+        // 与「实时最新」勾选的关系：那个滚到底（跟最新合成），这个滚到朗读位置（跟耳朵）。
+        // 语义不同，但同样遵守"用户手在动时不动"。
+        //
+        // 用户手动滑走后不会自动回来——这是要有意的：他正在看别处，抢视口很烦。
+        // 想回到耳朵的位置，点右下角的 ⟲ 复位钮（见 showResumePlaying 那段）。
+        LaunchedEffect(playingMatch?.listItem, playingMatch?.entryIndex) {
+            val m = playingMatch ?: return@LaunchedEffect
+            val target = m.listItem
+            if (target <= 0 || target >= currentGroups.items.size) return@LaunchedEffect
+            // 用户手正压在列表上：这次不跟，别抢。
+            // （isScrollInProgress 在手势拖动与惯性滑动期间都为 true）
+            if (listState.isScrollInProgress) return@LaunchedEffect
+            runCatching {
+                // 0 偏移 = 让朗读行落到视口最上方；它上方的前文仍在上面（可上滑看到）
+                listState.animateScrollToItem(target)
+            }
+        }
+
         LaunchedEffect(list.size, autoScrollToBottom, pendingJumpToBottom, currentGroups) {
             val wantScroll = autoScrollToBottom || pendingJumpToBottom
             if (wantScroll && currentGroups.items.isNotEmpty()) {
-                runCatching { listState.animateScrollToItem(displayItems.lastIndex) }
+                runCatching { listState.animateScrollToItem(currentGroups.items.lastIndex) }
                 if (pendingJumpToBottom) pendingJumpToBottom = false
             }
         }
@@ -1307,16 +1291,7 @@ internal fun LogScreen(
             // 因此顶部**不再需要让出 84dp**——它本身就是首项，自然在最上面。
             contentPadding = PaddingValues(start = 0.dp, top = 0.dp, end = 0.dp, bottom = 0.dp)
         ) {
-                // 11-14 晚：喂 displayItems（朗读项已提到首位）。
-                //
-                // ⚠️ key 必须用**原下标**（displayKeyOf），不能用显示序：
-                // 播放推进时「谁被置顶」会变（35→36），若 key 跟着显示序走，
-                // LazyColumn 会认为"第 0 项还是第 0 项、只是内容换了"，于是
-                // ① 内部 remembered 状态（展开/选中）错位到别的行
-                // ② 滚动锚点失效，视图会窜一下。
-                // 用原下标做 key，每项身份恒定，置顶只是"换了顺序"，
-                // 列表能按 key 把当前可见行锚住，播放推进时不会跳。
-                itemsIndexed(displayItems, key = { index, _ -> displayKeyOf(index) }) { _, item ->
+                itemsIndexed(currentGroups.items, key = { index, _ -> index }) { _, item ->
                     when (item) {
                         // 11-11 用户令：书条/章条不再出现在日志流里，改为**吸顶**
                         //（在 TtsLogScreen 的 topBar 下方固定渲染）。此处保留分支只因
@@ -1911,18 +1886,21 @@ internal fun LogScreen(
         // 永远贴在日志区顶部；列表已通过 contentPadding.top 让出等高空间。
         // 三件视觉与列表里那行保持一致：正在朗读丸 + 时间 + 成功丸 + 段号（N/M），
         // 下方是正文与发音人信息；左缘绿轨 + 淡绿底（与行内三件套同源）。
-        // ===== 11-14 晚：原来的「正在朗读」悬浮副本**整段删除** =====
+        // ===== 11-15：「正在朗读」的呈现方式定案 =====
         //
-        // 用户定案：「它跟其他的日志完全是一模一样的，除了最左顶部加了一个动态波形。
-        // 但是它的位置永远是在顶部的……并不是说要另外给他设一个吸顶区，日志就只有一个日志」。
+        // 用户要求同时成立四条：①全部日志时间顺序不变 ②朗读那条在顶部看得见
+        // ③能往上翻到它真正的前文、往下翻到后文 ④日志只有一个流
         //
-        // 旧实现（此处原有 60 行）在列表之上叠了一份内容副本：柱状图 + 时间 + 「（39/306）」
-        // + 两行正文截断。它和真实日志行是**两套渲染**，于是必然漂移——
-        // 副本没有「成功」丸、没有耗时体积、段号还挤在时间后面靠左（用户图一实报
-        // 「正在朗读那个 1/30 位置没有在最右，跟其他不统一」）。
-        // 现在朗读行由 displayItems 提到列表第 0 项、走 Group 分支的原渲染，
-        // 天然带着成功丸 / 耗时体积 / 右侧段号 / 左绿轨 / 淡绿底，一处改两处对。
-        // 波形仍由 Group 分支里的 isPlayingHead 插在最左（见 PlayingIndicator 调用）。
+        // 试过并否掉的两种：
+        //   · 顶部叠内容副本 —— 两套渲染必然漂移（副本缺成功丸/耗时体积、段号靠左），
+        //     且它是"另一个东西"，违反④；
+        //   · 把该项提到列表第 0 项 —— 被抽走后它原位置空一格，
+        //     下面接的是乱序内容，③做不到。
+        //
+        // 现做法：**滚动定位**。数据顺序一点不动，只在段切换时把视口滚到朗读行。
+        // 于是它出现在顶部，上下两侧就是它真正的前文/后文，整个列表仍是唯一一条流。
+        // 用户手动滑走就停在原处（不抢视口）——想回去点右下 ⟲ 复位钮。
+        // 波形由 Group 分支的 isPlayingHead 插在最左（见 PlayingIndicator 调用）。
 
         // 侧边浮动键（用户 1002）：右下浮动 ↓=回底部；回顶部走双击标题栏空白区
         // 排版实验 1008（①已拍板）：56dp 标准键 → 40dp 小键，原地缩小少盖正文
@@ -1964,8 +1942,7 @@ internal fun LogScreen(
                                 val m = playingMatch
                                 if (showResumePlaying && m != null) {
                                     // 一键复位：滚回正在朗读那张卡（用户令「点它就回到那个位置」）
-                                    // 置顶后朗读行显示在第 0 项（toDisplayIndex 会算成 0）
-                                    listState.animateScrollToItem(toDisplayIndex(m.listItem))
+                                    listState.animateScrollToItem(m.listItem)
                                     // 短暂高亮 2 秒后清除（与搜索定位 locateHighlight 同节奏）
                                     resumeHighlightEntry = currentList.getOrNull(m.entryIndex)
                                     scope.launch {
@@ -1973,8 +1950,7 @@ internal fun LogScreen(
                                         resumeHighlightEntry = null
                                     }
                                 } else {
-                                    // 滚到底：显示序末位（置顶后末位仍是原来的末项）
-                                    listState.scrollToItem(displayItems.lastIndex)
+                                    listState.scrollToItem(currentGroups.items.lastIndex)
                                 }
                             }
                         }
