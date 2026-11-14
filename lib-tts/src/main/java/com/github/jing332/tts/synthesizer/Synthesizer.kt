@@ -14,6 +14,10 @@ interface Synthesizer {
         params: SystemParams,
         forceConfigId: Long? = null,
         callback: SynthesisCallback,
+        // 11-14：段落位置（用户令「每个请求音频日志都标 1/5」）。U阅 每段一次请求
+        // 时随入口传入，一路透传到日志行；-1/0 = 调用方没带，全链不标。
+        paraIndex: Int = -1,
+        paraTotal: Int = 0,
     ): Result<Unit, SynthesisError>
 }
 
