@@ -1638,7 +1638,18 @@ internal fun LogScreen(
                                         //     独立视觉块，一眼看出这是"段落位置"而不是耗时的一部分；
                                         //  ② 括号式（34/306），与朗读行/书章行写法完全一致；
                                         //  ③ 锁单行 + 不换行，链过长时整块折到下一行而不是拆开数字。
-                                        if (head.paraIndex >= 0) {
+                                        // 11-14 用户实报（第三次）「正在朗读的日志第一行放不下，
+                                        // 你看看咋处理」：这一行已并列「正在朗读丸 + 时间 +
+                                        // 成功丸 + 耗时体积」四件，再加段号必然挤爆
+                                        //（旧版就是挤成「21/10 4」两行）。
+                                        //
+                                        // 修法：**朗读行不显示静态段号**——它下面的动态段号丸
+                                        // （playingSnapshot.segIndex）本来就表示"现在读到第几段"，
+                                        // 两个段号在这张卡上是重复信息（静态=这笔请求属于哪段，
+                                        // 动态=现在读到哪段；朗读中两者恒等）。
+                                        // 非朗读行无动态丸，静态段号照常显示（用户令「每张请求卡
+                                        // 都得标段落标记」）。
+                                        if (head.paraIndex >= 0 && !isPlayingHead) {
                                             val paraTxt = if (head.paraTotal > 0)
                                                 "（${head.paraIndex + 1}/${head.paraTotal}）"
                                             else
@@ -1657,27 +1668,11 @@ internal fun LogScreen(
                                                     .padding(horizontal = 7.dp, vertical = 1.dp)
                                             )
                                         }
-                                        // 11-14 用户实报「末尾第几段改为（1/23）这种格式，
-                                        // 之前我也提过这种格式了」：与书章行进度后缀
-                                        // （playingProgressSuffix 的「（1/23）」）统一——
-                                        // 同一个概念（章内第几段/共几段）不能有两种写法。
-                                        // 原来这里是「第 7 段」，又长又占宽（图上被挤成两行）。
-                                        if (isPlayingHead && playingSnapshot != null &&
-                                            playingSnapshot.segIndex >= 0 &&
-                                            playingSnapshot.totalSegs > 0
-                                        ) {
-                                            val seg = (playingSnapshot.segIndex + 1)
-                                                .coerceAtMost(playingSnapshot.totalSegs)
-                                            Text(
-                                                text = "（$seg/${playingSnapshot.totalSegs}）",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                fontSize = LOG_AUX_SIZE,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                maxLines = 1,
-                                                softWrap = false,
-                                                modifier = Modifier.padding(start = 8.dp)
-                                            )
-                                        }
+                                        // ⚠️ 动态段号丸（原「（21/104）」）已从这里**移除**：
+                                        // 用户实报「正在朗读的日志第一行放不下」，这一行已有
+                                        // 正在朗读丸+时间+成功丸+耗时体积，第五件必然挤爆。
+                                        // 现改为把段号挪到**正文行末尾**（见下方正文 Text 后的
+                                        // playingSegLabel），第一行只留四件、宽松不折行。
                                     }
                                     // 「回原位」定位键（筛选/搜索态）：弹簧顶到最右，动作留右手位。
                                     // 10-11 换显示：淡紫底胶囊（与裸行同口径）

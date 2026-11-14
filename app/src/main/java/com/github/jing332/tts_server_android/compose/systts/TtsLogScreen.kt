@@ -37,6 +37,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.FilterList
@@ -1723,116 +1724,65 @@ private fun PinnedLogHeader(
                             // 而 Box 内部是 BoxScope（没有 weight）——挂在内层 Row 上
                             // CI 报「cannot be called in this context with an implicit receiver」。
                             Box(Modifier.weight(1f)) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier
-                                        .clickable { bookMenu = true },
-                                ) {
-                                    Text(
-                                        text = "《$shownBook》",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontSize = 11.sp,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        fontWeight = FontWeight.Medium,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                    Icon(
-                                        imageVector = Icons.Default.KeyboardArrowDown,
-                                        contentDescription = "选择书籍",
-                                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.65f),
-                                        modifier = Modifier.size(12.dp),
-                                    )
-                                }
+                                // 11-14：触发框改 PickerTrigger（参照 GitHub 的 main 按钮：
+                                // 圆角描边 + 内衬 + ▾，让"能点"一眼可辨）。
+                                PickerTrigger(
+                                    text = "《$shownBook》",
+                                    onClick = { bookMenu = true },
+                                    textColor = MaterialTheme.colorScheme.primary,
+                                )
                                 // 紧凑菜单（用户令「把这个框小一点……得和谐呀」）：
                                 // MD3 DropdownMenu 默认项 48dp 高/16sp 字，相对吸顶 11sp 小字巨大。
                                 // 自定义项：11.5sp、36dp 高、内衬 12×6，与吸顶区同视觉密度；
                                 // 触发字本身不动（仍是 11sp 原样式，不加箭头/不加框）。
                                 // 书名菜单**居左**（用户定稿）：锚点=书名文字小 Box，
                                 // offset 归零即从文字左缘向右展开，与行首自然对齐。
-                                androidx.compose.material3.DropdownMenu(
+                                // 11-14：改用 BookChapterPickerMenu（参照 GitHub 分支切换器：
+                                // 搜索框 + 当前项打勾 + 标题行）。旧版是一长串无搜索的列表。
+                                BookChapterPickerMenu(
                                     expanded = bookMenu,
                                     onDismissRequest = { bookMenu = false },
-                                    modifier = Modifier.widthIn(max = 220.dp),
-                                ) {
-                                    knownBooks.forEach { b ->
-                                        DropdownMenuItem(
-                                            text = {
-                                                Text(
-                                                    b,
-                                                    fontSize = 11.5.sp,
-                                                    color = MaterialTheme.colorScheme.onSurface,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis,
-                                                )
-                                            },
-                                            onClick = {
-                                                bookMenu = false
-                                                onSwitchBook(b)
-                                            },
-                                            modifier = Modifier.height(36.dp),
-                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                    title = "选择书籍",
+                                    items = knownBooks.map { b ->
+                                        Triple(
+                                            b,
+                                            null,
+                                            b == shownBook,
                                         )
-                                    }
-                                }
+                                    },
+                                    onPick = { b ->
+                                        bookMenu = false
+                                        onSwitchBook(b)
+                                    },
+                                )
                             }
                             if (chapLabel.isNotBlank()) {
-                                // 章名下拉同理：包一层只贴文字的 Box 当锚点（见书名处注释）
+                                // 章名下拉同理：锚点只贴触发框，菜单从它右缘展开
                                 Box {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier
-                                            .clickable { chapMenu = true },
-                                    ) {
-                                        Text(
-                                            text = chapLabel + playingProgressSuffix,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontSize = 11.sp,
-                                            color = MaterialTheme.colorScheme.primary,
-                                            fontWeight = FontWeight.Medium,
-                                            maxLines = 1,
-                                        )
-                                        Icon(
-                                            imageVector = Icons.Default.KeyboardArrowDown,
-                                            contentDescription = "选择章节",
-                                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.65f),
-                                            modifier = Modifier.size(12.dp),
-                                        )
-                                    }
+                                    PickerTrigger(
+                                        text = chapLabel.trim() + playingProgressSuffix,
+                                        onClick = { chapMenu = true },
+                                        textColor = MaterialTheme.colorScheme.primary,
+                                    )
                                     // 章名菜单**居右**（用户定稿）：章名在书名之后、靠行右侧，
                                     // 若仍从左缘展开，220dp 宽会顶出屏幕右沿（用户原话
                                     // 「如果居下，位置应该也不够吧」）。故把锚点左缘向左推
                                     // 一个菜单宽度减去触发区宽度的距离，让菜单**右缘贴着触发文字右缘**。
                                     // 用 offset 的 x 负值实现（MD3 DropdownMenu 没有 alignment 参数）。
-                                    androidx.compose.material3.DropdownMenu(
+                                    // 11-14：改用 BookChapterPickerMenu（与书名菜单同款：
+                                    // 标题行 + 当前项打勾；不放假搜索框——用户明确说不需要）
+                                    BookChapterPickerMenu(
                                         expanded = chapMenu,
                                         onDismissRequest = { chapMenu = false },
-                                        modifier = Modifier.widthIn(max = 220.dp),
-                                        offset = androidx.compose.ui.unit.DpOffset(
-                                            x = (-188).dp, // 220 宽 - 约 32 宽触发区 ≈ 右对齐
-                                            y = 0.dp
-                                        ),
-                                    ) {
-                                    chaptersOf(shownBook).forEach { (name, count) ->
-                                        DropdownMenuItem(
-                                            text = {
-                                                Text(
-                                                    "$name · $count 条",
-                                                    fontSize = 11.5.sp,
-                                                    color = MaterialTheme.colorScheme.onSurface,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis,
-                                                )
-                                            },
-                                            onClick = {
-                                                chapMenu = false
-                                                onSwitchChapter(shownBook, name)
-                                            },
-                                            modifier = Modifier.height(36.dp),
-                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                                        )
-                                    }
-                                    }
+                                        title = "选择章节",
+                                        items = chaptersOf(shownBook).map { (name, count) ->
+                                            Triple(name, count, name == shownChapter)
+                                        },
+                                        onPick = { name ->
+                                            chapMenu = false
+                                            onSwitchChapter(shownBook, name)
+                                        },
+                                    )
                                 }
                             }
                             // 「取消」与书名之间一道浅竖线分隔（视觉上表明这是两段，不是书名的一部分）
@@ -1882,106 +1832,45 @@ private fun PinnedLogHeader(
                             // MD3 DropdownMenu 无 alignment 参数，位置只跟父布局节点走）。
                             // ⚠️ weight 挂 Box（同上方注释）：Box 在内层是 BoxScope 没有 weight。
                             Box(Modifier.weight(1f)) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier
-                                    .clip(AppShapes.sm)
-                                    .clickable { bookMenu2 = true },
-                            ) {
-                                Text(
-                                    text = "《$shownBook》",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    fontSize = 11.5.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                                Icon(
-                                    imageVector = Icons.Default.KeyboardArrowDown,
-                                    contentDescription = "选择书籍",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
-                                    modifier = Modifier.size(12.dp),
-                                )
-                            }
+                            // 11-14：触发框改 PickerTrigger（带描边，见组件注释）
+                            PickerTrigger(
+                                text = "《$shownBook》",
+                                onClick = { bookMenu2 = true },
+                            )
                             // 书名菜单居左（锚点小 Box + offset 归零，从左缘展开）
-                            androidx.compose.material3.DropdownMenu(
+                            BookChapterPickerMenu(
                                 expanded = bookMenu2,
                                 onDismissRequest = { bookMenu2 = false },
-                                modifier = Modifier.widthIn(max = 220.dp),
-                            ) {
-                                knownBooks.forEach { b ->
-                                    DropdownMenuItem(
-                                        text = {
-                                            Text(
-                                                b,
-                                                fontSize = 11.5.sp,
-                                                color = MaterialTheme.colorScheme.onSurface,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                            )
-                                        },
-                                        onClick = {
-                                            bookMenu2 = false
-                                            onSwitchBook(b)
-                                        },
-                                        modifier = Modifier.height(36.dp),
-                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                                    )
-                                }
-                            }
+                                title = "选择书籍",
+                                items = knownBooks.map { b ->
+                                    Triple(b, null, b == shownBook)
+                                },
+                                onPick = { b ->
+                                    bookMenu2 = false
+                                    onSwitchBook(b)
+                                },
+                            )
                             }
                             if (chapLabel.isNotBlank()) {
                                 Box {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier
-                                        .clip(AppShapes.sm)
-                                        .clickable { chapMenu2 = true },
-                                ) {
-                                    Text(
-                                        text = chapLabel + playingProgressSuffix,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        fontSize = 11.5.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1,
-                                    )
-                                    Icon(
-                                        imageVector = Icons.Default.KeyboardArrowDown,
-                                        contentDescription = "选择章节",
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
-                                        modifier = Modifier.size(12.dp),
-                                    )
-                                }
+                                // 11-14：章名触发框同款（带描边）
+                                PickerTrigger(
+                                    text = chapLabel.trim() + playingProgressSuffix,
+                                    onClick = { chapMenu2 = true },
+                                )
                                 // 章名菜单居右（同筛选态：offset 左推让右缘贴触发文字）
-                                androidx.compose.material3.DropdownMenu(
+                                BookChapterPickerMenu(
                                     expanded = chapMenu2,
                                     onDismissRequest = { chapMenu2 = false },
-                                    modifier = Modifier.widthIn(max = 220.dp),
-                                    offset = androidx.compose.ui.unit.DpOffset(
-                                        x = (-188).dp,
-                                        y = 0.dp
-                                    ),
-                                ) {
-                                    chaptersOf(shownBook).forEach { (name, count) ->
-                                        DropdownMenuItem(
-                                            text = {
-                                                Text(
-                                                    "$name · $count 条",
-                                                    fontSize = 11.5.sp,
-                                                    color = MaterialTheme.colorScheme.onSurface,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis,
-                                                )
-                                            },
-                                            onClick = {
-                                                chapMenu2 = false
-                                                onSwitchChapter(shownBook, name)
-                                            },
-                                            modifier = Modifier.height(36.dp),
-                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                                        )
-                                    }
-                                }
+                                    title = "选择章节",
+                                    items = chaptersOf(shownBook).map { (name, count) ->
+                                        Triple(name, count, name == shownChapter)
+                                    },
+                                    onPick = { name ->
+                                        chapMenu2 = false
+                                        onSwitchChapter(shownBook, name)
+                                    },
+                                )
                                 }
                             }
                         }
@@ -2166,6 +2055,153 @@ private fun shortChapterLabel(chapter: String): String {
     return if (chapter.length > 6) chapter.take(6) else chapter
 }
 
+
+/**
+ * 书单 / 章节单下拉菜单（11-14 用户指定参照 GitHub 分支切换器改造）。
+ *
+ * 用户原话：「书籍和章节筛选和弹窗可以参照这个，我感觉他做的挺好的」，
+ * 参照对象是 GitHub「Switch branches/tags」弹层。它好用的三个点正好是旧版缺的：
+ *  1. **顶部搜索框**——旧版只有一长串可滚列表，这书 104 章、书架 37 本，
+ *     找某章只能一路翻；现在打字即过滤（contains，忽略大小写）。
+ *  2. **当前项打勾**——旧版看不出"我现在在哪本书/哪一章"，只能靠记忆比对；
+ *     现在当前项前面 ✓、字色主题主色，一眼定位。
+ *  3. **标题行 + 紧凑密度**——对应参照图的「Switch branches/tags」标题，
+ *     条目仍 36dp/11.5sp（用户令「框小一点」的口径不变）。
+ * 四处（筛选/未筛选 × 书名/章名）共用本组件，改一次全生效。
+ */
+@Composable
+private fun BookChapterPickerMenu(
+    expanded: Boolean,
+    onDismissRequest: () -> Unit,
+    title: String,
+    items: List<Triple<String, Int?, Boolean>>,
+    onPick: (String) -> Unit,
+) {
+    if (!expanded) return
+    androidx.compose.material3.DropdownMenu(
+        expanded = true,
+        onDismissRequest = onDismissRequest,
+        // 宽度沿用旧版口径（220dp，用户令「框小一点」）：min 与 max 都写 220，
+        // 让书单/章单两个菜单等宽、切换时不跳，也避免窄屏（320dp）上被撑爆。
+        modifier = Modifier.widthIn(min = 220.dp, max = 220.dp),
+    ) {
+        // 标题行（参照 GitHub 弹窗的「Switch branches/tags」字样）
+        Text(
+            text = title,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = 8.dp, bottom = 6.dp),
+        )
+        // ⚠️ 不放搜索框：用户 11-14 明确「不需要搜索，我只说说 main 框和点开这个
+        // 出来的弹窗框值得借鉴」——只借鉴形态，不要功能。
+        HorizontalDivider(
+            thickness = 0.5.dp,
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f),
+        )
+        Column(
+            Modifier
+                .heightIn(max = 300.dp)
+                .verticalScroll(rememberScrollState())
+                .padding(vertical = 4.dp)
+        ) {
+            items.forEach { (name, count, isCurrent) ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(AppShapes.sm)
+                        .clickable { onPick(name) }
+                        .padding(horizontal = 14.dp, vertical = 9.dp),
+                ) {
+                    // 打勾位（参照 GitHub 当前分支前的 ✓）：固定占宽 18dp，
+                    // 非当前项也留白——不留白的话勾会顶得各条文字左缘参差。
+                    Box(Modifier.width(18.dp)) {
+                        if (isCurrent) {
+                            Icon(
+                                imageVector = Icons.Default.Check,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(14.dp),
+                            )
+                        }
+                    }
+                    Text(
+                        text = name,
+                        fontSize = 12.sp,
+                        color = if (isCurrent) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurface,
+                        fontWeight = if (isCurrent) FontWeight.Medium else FontWeight.Normal,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (count != null) {
+                        Text(
+                            text = "$count 条",
+                            fontSize = 10.5.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(start = 8.dp),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 书章行的「下拉触发框」（11-14 用户指定参照 GitHub 的 main 分支按钮）。
+ *
+ * 用户原话：「不需要搜索，我只说说 main 框和点开这个出来的弹窗框值得借鉴」。
+ * 参照的 main 按钮有什么、这里就有什么：
+ *  · **一圈圆角描边**——让"这是个能点的控件"一眼可辨。旧版是裸文字 + ▾，
+ *    在 11sp 小字里和旁边的信息文字混成一片，用户实报「看不出来能点击选择」；
+ *  · **内衬**——左右 6dp、上下 2dp，文字不贴边，形成可见的按钮体积；
+ *  · **右侧 ▾**——与原实现一致，展开语义。
+ * 描边取 outlineVariant（与筛选胶囊同档灰），不抢吸顶区的主次。
+ *
+ * 已筛选态仍用胶囊底（11-11 定稿 B 方案：胶囊=筛选生效的状态表达），
+ * 此处只服务"未筛选/筛选态里各自的可点触发"，由调用方决定配色入参。
+ */
+@Composable
+private fun PickerTrigger(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    textColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    bordered: Boolean = true,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = modifier
+            .clip(RoundedCornerShape(6.dp))
+            .then(
+                if (bordered) Modifier.border(
+                    width = 0.8.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.9f),
+                    shape = RoundedCornerShape(6.dp),
+                ) else Modifier
+            )
+            .clickable(onClick = onClick)
+            .padding(start = 6.dp, end = 3.dp, top = 2.dp, bottom = 2.dp),
+    ) {
+        Text(
+            text = text,
+            fontSize = 11.5.sp,
+            color = textColor,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false),
+        )
+        Icon(
+            imageVector = Icons.Default.KeyboardArrowDown,
+            contentDescription = null,
+            tint = textColor.copy(alpha = 0.7f),
+            modifier = Modifier.size(13.dp),
+        )
+    }
+}
 
 /**
  * 吸顶筛选开关（11-11 用户令定稿）。
