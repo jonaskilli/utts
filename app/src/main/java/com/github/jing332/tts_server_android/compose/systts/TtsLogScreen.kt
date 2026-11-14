@@ -1,18 +1,5 @@
 package com.github.jing332.tts_server_android.compose.systts
 
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
-import kotlin.math.sin
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -2189,59 +2176,6 @@ private fun PinnedLogHeader(
             }
         }
 
-        // ===== ③-c 常驻「正在朗读」行（11-15 用户终令）=====
-        //
-        // 用户原话：「正在朗读并不是一直能看见……我就想让他一直流动出现在当前日志
-        // 界面上，不管你是上面也好，下面也好，中间也好，就是想让他一直在页面上」。
-        //
-        // 前两版方案（顶部叠内容副本、提到列表第 0 项）都想把**列表里那一行**钉住，
-        // 分别死于两套渲染漂移 / 原位置乱序（见 LogScreen 里那段否案记录）。
-        // 本版换思路：列表里那行**保持原样**（它的波形、绿底、绿轨全不动），
-        // 吸顶区另立一条**只读摘要行**——它天然钉在屏幕上（topBar 内），
-        // 段落变化时内容自己流动更新，列表怎么滚都在。
-        //
-        // 与列表行的分工：吸顶=常驻位置信息（读到哪了），列表行=完整上下文
-        //（想看前后文就点日志里那行或往回翻）。不抢职责。
-        //
-        // 点击行为：滚到列表里那一行（复用 jumpToChapter 的滚动口径——但那是按章，
-        // 这里要按段，简单做法=只提示；滚动定位已在自动跟随里做过了，暂停时用户
-        // 自己找。先给纯信息行，无点击）。
-        playingSnap?.let { snap ->
-            if (snap.playing && snap.segText.isNotBlank()) {
-                val playName = shortChapterLabel(snap.chapterTitle)
-                // 快照 segText 截 60 字，展示取前 22 字避免换行（正文加粗强调）
-                val segShow = snap.segText.take(22)
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        // 与进度行同线 8/8；淡绿底=「正在朗读」语义色（与列表行绿底同源）
-                        .padding(start = 8.dp, end = 8.dp, top = 1.dp, bottom = 2.dp)
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f))
-                        .padding(horizontal = 6.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    // 动态波形小图标：与列表行同款组件（复用 PlayingIndicator 不行——
-                    // 它在 LogScreen.kt 且是 private；此处用同形三柱简化版内联实现）
-                    PlayingWaveMini()
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        text = buildString {
-                            append("正在朗读 ")
-                            if (playName.isNotBlank()) append(playName).append(' ')
-                            append(segShow)
-                        },
-                        style = MaterialTheme.typography.labelSmall,
-                        fontSize = 11.5.sp,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-            }
-        }
-
         // ===== ④ 跳转提示条：筛着 A 书、却在读 B =====
         // 用户：「如果正在朗读其他的再来一个跳转」。只在"有筛选 且 正在读的不是筛选的那本"时出现。
         val readingMismatch = !scopeBook.isNullOrBlank() &&
@@ -2703,53 +2637,4 @@ private fun PinnedSwitchKey(label: String, onClick: () -> Unit) {
             .clickable(onClick = onClick)
             .padding(horizontal = 8.dp, vertical = 1.dp),
     )
-}
-
-/**
- * 常驻「正在朗读」行的迷你动态波形（11-15）。
- *
- * 与 LogScreen 的 PlayingIndicator（18dp 三柱）同形，尺寸缩到 14dp——吸顶行高矮，
- * 18dp 会把行撑高。动画参数/柱形/下限比例完全同源，观感一致；
- * 单独实现而不是抽共用组件：PlayingIndicator 是 private 且跨文件可见性要动两处，
- * 这版 14dp 尺寸本就不同，共用收益为零。
- * 颜色跟主题主色（与列表行绿底同语义），动画只在可见时消耗。
- */
-@Composable
-private fun PlayingWaveMini() {
-    val transition = rememberInfiniteTransition(label = "pinnedWave")
-    val phase by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1200, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart,
-        ),
-        label = "phase",
-    )
-    val color = MaterialTheme.colorScheme.primary
-    Canvas(
-        modifier = Modifier
-            .size(14.dp)
-            .semantics { contentDescription = "正在播放" }
-    ) {
-        val barCount = 3
-        val gapRatio = 0.45f
-        val barW = size.width / (barCount + (barCount - 1) * gapRatio)
-        val gap = barW * gapRatio
-        val totalH = size.height
-        val minRatio = 0.4f
-        for (i in 0 until barCount) {
-            val t = phase + i / barCount.toFloat()
-            val wave = (sin(2f * Math.PI.toFloat() * t) + 1f) / 2f
-            val hRatio = minRatio + (1f - minRatio) * wave
-            val h = totalH * hRatio
-            val x = i * (barW + gap)
-            drawRoundRect(
-                color = color,
-                topLeft = Offset(x, totalH - h),
-                size = Size(barW, h),
-                cornerRadius = CornerRadius(barW / 2f, barW / 2f),
-            )
-        }
-    }
 }
