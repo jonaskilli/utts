@@ -215,6 +215,17 @@ private fun AnnotatedString.remapMetaColor(
 internal class LogGroups(
     val items: List<Item>,
     val entryToList: IntArray,
+    /**
+     * ⚠️ **渲染必须用这一份，不能用外面传进来的原始 list**（11-15 二合一真正的根因）。
+     *
+     * build() 内部先跑 `regroupByReqId(input)` 做稳定重排（把同一 reqId 的行聚到一起），
+     * 之后所有 `Item.head` / `members` / `Bare.index` 记的都是**重排后的下标**。
+     * 但调用方（TtsLogScreen）传进来的是**原始顺序**的 list，渲染处 `list[item.head]`
+     * 拿原始表按下标去取 ⇒ 只要重排真的发生了（并发/交错落盘时），下标整体错位，
+     * 就会出现「两条请求挤进一张卡、第二条被画成绿字成员、成功丸张冠李戴」。
+     * 早已聚好（重排是恒等变换）时下标一致，所以这个 bug 是**偶发**的。
+     */
+    val entries: List<LogEntry> = emptyList(),
     // 以失败收场的组头行下标（10-10 行级丸配套）：请求行本身是 INFO，失败丸「失败」的
     // 依据是「该组以失败收场」——ERROR 子行/主行收卡时由 build 记入
     val failedHeads: Set<Int> = emptySet(),
@@ -787,6 +798,8 @@ internal class LogGroups(
 
             return LogGroups(
                 items = finalItems,
+                // ⚠️ 传**重排后**的 list（不是入参 input）：items 里的下标全是按它算的
+                entries = list,
                 entryToList = map,
                 failedHeads = failedHeads,
                 pinnedBook = pBook,
@@ -869,7 +882,6 @@ internal fun LogScreen(
     }
     // 长按拖动手势要用到的最新值（pointerInput(Unit) 不随重组重启，一律走 State 读）
     val haptics by rememberUpdatedState(LocalHapticFeedback.current)
-    val currentList by rememberUpdatedState(list)
     val currentChecked by rememberUpdatedState(checkedEntries)
     val currentOnEnterSelection by rememberUpdatedState(onEnterSelection)
     val currentOnCheckedChange by rememberUpdatedState(onCheckedChange)
@@ -877,6 +889,17 @@ internal fun LogScreen(
     // 归组结果：外部传入优先，否则内部构建（缓存随列表重建）
     val builtGroups = remember(list, groups) { groups ?: LogGroups.build(list) }
     val currentGroups by rememberUpdatedState(builtGroups)
+
+    // ⚠️ 11-15 二合一真正的根因（用户两张图实锤）：
+    // LogGroups.build() 内部会 `regroupByReqId(input)` 做稳定重排，返回的
+    // Item.head / members / Bare.index **全是重排后的下标**；而调用方传进来的 `list`
+    // 是**原始顺序**。此前渲染一律写成 `list[item.head]`，只要重排真的发生
+    //（并发交错落盘时才会发生），下标就整体错位 ⇒ 出现「两条请求并进一张卡、
+    // 第二条被画成绿字成员、成功丸张冠李戴」。早已聚好时重排是恒等变换、下标一致，
+    // 所以这个 bug 表现为**偶发**，一直没被抓到。
+    // 现在统一走 renderList：它就是 build 内部那份重排后的列表。
+    val renderList: List<LogEntry> =
+        if (builtGroups.entries.isNotEmpty()) builtGroups.entries else list
 
     // ===== 11-14「正在朗读」卡片匹配 + 复位高亮 =====
     //
@@ -887,17 +910,19 @@ internal fun LogScreen(
     //
     // ⚠️ 匹配在 remember(list, playingSnapshot) 里做：日志每秒追加，重算成本
     // O(n)，n≈几百行可接受；不能用 derivedStateOf（playingSnapshot 非快照态对象）。
-    val playingMatch = remember(builtGroups, list, playingSnapshot) {
+    val playingMatch = remember(builtGroups, renderList, playingSnapshot) {
         val snap = playingSnapshot
         if (snap == null || !snap.playing || snap.segText.isBlank()) {
             null
         } else {
             val segKey = snap.segText.trim().take(12)
-            val entry = list.lastOrNull { e ->
+            // ⚠️ 这里必须用 renderList（重排后的那份）：listItemFor 返回的是
+            // 按 build 内部重排下标算出来的列表项位置，拿原始 list 的下标去配会错位。
+            val entry = renderList.lastOrNull { e ->
                 e.chapterTitle == snap.chapterTitle && boldBodyOf(e).startsWith(segKey)
             }
             if (entry != null) {
-                val entryIdx = list.indexOf(entry)
+                val entryIdx = renderList.indexOf(entry)
                 BuiltPlayingMatch(
                     entryIndex = entryIdx,
                     listItem = builtGroups.listItemFor(entryIdx),
@@ -997,7 +1022,8 @@ internal fun LogScreen(
         var sel = dragBase.value
         for (k in lo..hi) {
             g.entriesOf(g.items[k]).forEach { idx ->
-                if (idx in currentList.indices) sel = sel + currentList[idx]
+                // entriesOf 给的是**重排后**的下标，必须从 renderList 取（同渲染口径）
+                if (idx in renderList.indices) sel = sel + renderList[idx]
             }
         }
         currentOnCheckedChange(sel)
@@ -1342,7 +1368,7 @@ internal fun LogScreen(
                         }
 
                         is LogGroups.Item.Bare -> {
-                            val log = list[item.index]
+                            val log = renderList[item.index]
                             val checked = log in checkedEntries
                             val isMatch = isMatchEntry(log, searchQuery)
                             // 裸行内容一份定义，滑删/非滑删两分支共用（避免复制整段 Column）
@@ -1478,16 +1504,16 @@ internal fun LogScreen(
                         }
 
                         is LogGroups.Item.Group -> {
-                            val head = list[item.head]
-                            val memberEntries = item.members.map { list[it] }
-                            val groupLogs = currentGroups.entriesOf(item).map { list[it] }
+                            val head = renderList[item.head]
+                            val memberEntries = item.members.map { renderList[it] }
+                            val groupLogs = currentGroups.entriesOf(item).map { renderList[it] }
                             val groupChecked = groupLogs.all { it in checkedEntries }
                             // 老版式失败条（10-11 用户定稿「拿不准就按老版本，毕竟是起源」）：
                             // absorbError≥0 = 本组以源错误收场，渲染主体换成源错误条目
                             //（服务端已拼回请求全文：错误+正文粗+发音人信息）——
                             // 胶囊「源错误」+英文错误红+正文红粗+发音人信息不红，
                             // 请求主行正文不再重复（同一次失败一条说完，老版观感）
-                            val absorbed = if (item.absorbError >= 0) list[item.absorbError] else null
+                            val absorbed = if (item.absorbError >= 0) renderList[item.absorbError] else null
                             // 行级丸：成功=「成功」（从组内 SUCCESS 成员推导——成功子行隐藏
                             // 信息上头行，主行是 INFO 推不出，aad9867 修）；失败=「源错误」
                             //（有吸收条）/「失败」（其他死法：超时/获取失败等，文案跟错误类型走）。
@@ -1835,7 +1861,7 @@ internal fun LogScreen(
                                 // 独立成裸行，见裸行分支）
                                 if (showMembers) {
                                     item.members.forEach { mIdx ->
-                                        val m = list[mIdx]
+                                        val m = renderList[mIdx]
                                         if (m.level == LogLevel.SUCCESS) return@forEach
                                         Column(Modifier.padding(top = 2.dp)) {
                                             LogEntryBody(
@@ -1944,7 +1970,8 @@ internal fun LogScreen(
                                     // 一键复位：滚回正在朗读那张卡（用户令「点它就回到那个位置」）
                                     listState.animateScrollToItem(m.listItem)
                                     // 短暂高亮 2 秒后清除（与搜索定位 locateHighlight 同节奏）
-                                    resumeHighlightEntry = currentList.getOrNull(m.entryIndex)
+                                    // entryIndex 是 renderList 里的下标，取行必须同源
+                                    resumeHighlightEntry = renderList.getOrNull(m.entryIndex)
                                     scope.launch {
                                         kotlinx.coroutines.delay(2000)
                                         resumeHighlightEntry = null
@@ -2380,9 +2407,18 @@ private fun LogEntryBody(
         // 第三段（发音人信息）保持哨兵重映射色不红。段界=换行符在文本中的下标
         //（fromHtml 后 <br> 变 '\n'）
         if (oldStyleFail) {
+            // ⚠️ 11-15 修（用户图二实报「错误日志的颜色不对」）：
+            // 服务端的失败条格式是 `源错误：<原因><br><请求全文>`——**只有一个 <br>**。
+            // 旧实现要求 nl1、nl2 两个换行都存在才染色，于是单 <br> 的失败条整条不染，
+            // 掉回 bodyColor 变成普通黑字（且发音人段还会被当成正文的一部分）。
+            // 现在：只要有一个换行就染色，段界按「第一个换行」和「最后一个换行」取。
             val nl1 = s.text.indexOf('\n')
-            val nl2 = if (nl1 >= 0) s.text.indexOf('\n', nl1 + 1) else -1
-            if (nl1 >= 0 && nl2 > nl1) {
+            // 发音人段起点 = **最后一个**换行（其后是发音人信息）。
+            // 单 <br> 时它等于 nl1，此时正文段为空、发音人段从 nl1 起——
+            // 也就是说整条「源错误：…」染红、请求全文按正文处理。
+            val lastNl = s.text.lastIndexOf('\n')
+            val nl2 = if (lastNl > nl1) lastNl else -1
+            if (nl1 >= 0) {
                 val failRed = if (darkTheme) Color(0xFFE57373) else Color(0xFFF44336)
                 s = buildAnnotatedString {
                     append(s.text)
@@ -2393,11 +2429,14 @@ private fun LogEntryBody(
                     // 同一份源错误同屏两种正文字号。三段规格自此全局唯一：
                     // 错误串 13 / 正文 14 粗 / 发音人 13，与调用方基础字号无关。
                     // 11-11 恢复：正文段回到 14（LOG_HEAD_SIZE），与注释里的三段规格一致。
-                    addStyle(SpanStyle(color = failRed, fontWeight = FontWeight.Bold, fontSize = LOG_HEAD_SIZE), nl1 + 1, nl2)
+                    // 正文段终点：有两个换行时取 nl2，只有一个换行时取整条末尾
+                    //（单 <br> = 源错误+请求全文，全文都该按正文红粗处理）。
+                    val bodyEnd = if (nl2 > nl1) nl2 else s.text.length
+                    addStyle(SpanStyle(color = failRed, fontWeight = FontWeight.Bold, fontSize = LOG_HEAD_SIZE), nl1 + 1, bodyEnd)
                     // 字号分层（10-13 用户令「源错误这一句字号忽大忽小」根修）：
                     // 错误串段 0..nl1 与发音人段 nl2.. 全 13sp（与成员行/成功行同档）
                     addStyle(SpanStyle(fontSize = LOG_BODY_SIZE), 0, nl1)
-                    addStyle(SpanStyle(fontSize = LOG_BODY_SIZE), nl2, s.text.length)
+                    if (nl2 > nl1) addStyle(SpanStyle(fontSize = LOG_BODY_SIZE), nl2, s.text.length)
                 }
             }
         }
