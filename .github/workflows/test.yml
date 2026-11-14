@@ -5,8 +5,8 @@ on:
     # 11-14 用户把仓库主分支从 mumu_tts_github 改名为 main（GitHub 网页操作），
     # 本文件原来写死旧名 ⇒ 切到 main 后编译验证会**静默不跑**（我们的规矩是
     # 编译必须盯 CI 到绿，等于失去唯一验证手段）。故同步改为主分支名。
-    # 两个都留着：万一还有别的分支在推，行为与以前一致，不会漏检。
-    branches: [ main, mumu_tts_github ]
+    # 11-14 晚：旧分支已按用户令删除（远端只剩 main），故只留 main。
+    branches: [ main ]
     paths:
       - 'lib-script/**'
       - 'lib-tts/**'

@@ -1730,6 +1730,7 @@ private fun PinnedLogHeader(
                                     text = "《$shownBook》",
                                     onClick = { bookMenu = true },
                                     textColor = MaterialTheme.colorScheme.primary,
+                                    opened = bookMenu,
                                 )
                                 // 紧凑菜单（用户令「把这个框小一点……得和谐呀」）：
                                 // MD3 DropdownMenu 默认项 48dp 高/16sp 字，相对吸顶 11sp 小字巨大。
@@ -1762,6 +1763,7 @@ private fun PinnedLogHeader(
                                         text = chapLabel.trim() + playingProgressSuffix,
                                         onClick = { chapMenu = true },
                                         textColor = MaterialTheme.colorScheme.primary,
+                                        opened = chapMenu,
                                     )
                                     // 章名菜单**居右**（用户定稿）：章名在书名之后、靠行右侧，
                                     // 若仍从左缘展开，220dp 宽会顶出屏幕右沿（用户原话
@@ -1834,6 +1836,7 @@ private fun PinnedLogHeader(
                             PickerTrigger(
                                 text = "《$shownBook》",
                                 onClick = { bookMenu2 = true },
+                                opened = bookMenu2,
                             )
                             // 书名菜单居左（锚点小 Box + offset 归零，从左缘展开）
                             BookChapterPickerMenu(
@@ -1854,6 +1857,7 @@ private fun PinnedLogHeader(
                                 PickerTrigger(
                                     text = chapLabel.trim() + playingProgressSuffix,
                                     onClick = { chapMenu2 = true },
+                                    opened = chapMenu2,
                                 )
                                 // 章名菜单居右（同筛选态：offset 左推让右缘贴触发文字）
                                 BookChapterPickerMenu(
@@ -2079,6 +2083,16 @@ private fun BookChapterPickerMenu(
         // 宽度沿用旧版口径（220dp，用户令「框小一点」）：min 与 max 都写 220，
         // 让书单/章单两个菜单等宽、切换时不跳，也避免窄屏（320dp）上被撑爆。
         modifier = Modifier.widthIn(min = 220.dp, max = 220.dp),
+        // 11-14 用户令「这个点开弹窗也得紧贴这个书籍框更好吧」。
+        // GitHub 真机截图核对：弹窗上沿几乎贴着按钮下沿，看起来是同一控件的一部分。
+        // MD3 DropdownMenu 默认在锚点下方留 8dp 空隙 → 用负 offset 吃掉。
+        offset = androidx.compose.ui.unit.DpOffset(0.dp, (-8).dp),
+        // 纯白卡片（surface）+ 12dp 圆角 + 轻投影：照 GitHub 那个弹窗的形态。
+        // 不用 AppDropdownMenu——它写死了 surfaceContainerLow 灰白底，质感差一档。
+        containerColor = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(12.dp),
+        tonalElevation = 0.dp,
+        shadowElevation = 6.dp,
     ) {
         // ⚠️ 不加标题行（用户 11-14 质疑「有必要加选择书籍和选择章节这个标题吗」，
         // 结论=没必要，已删）。判断依据：
@@ -2161,16 +2175,43 @@ private fun PickerTrigger(
     modifier: Modifier = Modifier,
     textColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
     bordered: Boolean = true,
+    // 11-14 用户令（第三次澄清后定稿）：「1、2 说的都是一个意思，就是点击 main
+    // 分支框这个框的变化，颜色可以看看，但不需要一样，因为咱们有自己的颜色」。
+    //
+    // 参照 GitHub 那个 main 按钮的行为（真机截图核对）：
+    //   · 正常态：淡底 + 淡描边，安静待着；
+    //   · 点开后：框本身给出反馈——底色加深、描边变清晰，像"活起来"了；
+    //   · **形状、尺寸、位置全都不变**，只有颜色到位——所以点开不跳、不位移。
+    // 颜色不照抄 GitHub 的冷灰蓝，改用本项目主题：展开时底色走 primary 的极淡混合、
+    // 描边走 primary 半透明——与「正在朗读」左轨/筛选选中同源，不引入新色相。
+    opened: Boolean = false,
 ) {
+    val shape = RoundedCornerShape(6.dp)
+    val bgColor = if (opened) {
+        // 展开态：主题主色的极淡底（8%），肉眼可见"框亮了"但不抢戏
+        MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
+    } else {
+        // 正常态：中性淡底（surfaceVariant 45%），与吸顶区其它控件同档
+        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+    }
+    val borderColor = if (opened) {
+        // 展开态：主色描边（55%），明确"这个框正连着弹窗"
+        MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
+    } else {
+        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.9f)
+    }
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = modifier
-            .clip(RoundedCornerShape(6.dp))
+            .clip(shape)
+            .then(if (bordered) Modifier.background(bgColor) else Modifier)
             .then(
                 if (bordered) Modifier.border(
-                    width = 0.8.dp,
-                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.9f),
-                    shape = RoundedCornerShape(6.dp),
+                    // 描边略微加粗（0.8→1.2dp）参与"展开了"的反馈，但幅度克制，
+                    // 不做发光/阴影——吸顶区是信息区，不该有装饰性特效。
+                    width = if (opened) 1.2.dp else 0.8.dp,
+                    color = borderColor,
+                    shape = shape,
                 ) else Modifier
             )
             .clickable(onClick = onClick)
@@ -2187,7 +2228,9 @@ private fun PickerTrigger(
         Icon(
             imageVector = Icons.Default.KeyboardArrowDown,
             contentDescription = null,
-            tint = textColor.copy(alpha = 0.7f),
+            // 展开时箭头也跟着主色，三处（底/描边/箭头）同源，整体是一件事
+            tint = if (opened) MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+            else textColor.copy(alpha = 0.7f),
             modifier = Modifier.size(13.dp),
         )
     }
