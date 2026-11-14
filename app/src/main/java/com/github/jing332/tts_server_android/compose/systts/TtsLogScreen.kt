@@ -1674,17 +1674,14 @@ private fun PinnedLogHeader(
                 else -> viewChapter.ifBlank { chapter }
             }
             val chapLabel = shortChapterLabel(shownChapter).let { if (it.isBlank()) "" else " $it" }
-            // 11-14 播放进度后缀（用户定稿：书章行章名后加「（3/25）」）：
-            // 只在书章行显示的章 == 播放章时才挂（筛选到别的书/翻到别的章时
-            // 对不上，宁可隐藏也不张冠李戴）。playingSnap 由调用方传入。
-            val playingProgressSuffix = playingSnap?.let { snap ->
-                val isPlayChapter = shownBook == snap.book &&
-                    shortChapterLabel(shownChapter) == shortChapterLabel(snap.chapterTitle)
-                if (snap.playing && isPlayChapter && snap.totalSegs > 0 && snap.segIndex >= 0) {
-                    val done = (snap.segIndex + 1).coerceAtMost(snap.totalSegs)
-                    "（${done}/${snap.totalSegs}）"
-                } else ""
-            } ?: ""
+            // 11-14 用户第二次改口：章名后的「（1/25）」**挪到第二行的进度行**去
+            //（「我想把章节名后的（1/25）换到第二行」）。
+            // 理由很实在：书章行本来就挤（长书名 + 章名 + 两个下拉箭头），再挂一个
+            // 「（21/104）」会把章名和箭头挤到换行；而第二行本来就是讲进度的，
+            // 两个数字放一起（后台合成 10/20 ｜ 当前朗读 5/10）语义也更连贯。
+            // 故这里保留变量但恒为空串——保留名字是为了两处调用点不用改结构，
+            // 将来若要恢复只需改这一处。
+            val playingProgressSuffix = ""
 
             // 左侧信息槽：占满行内剩余宽度，右侧两个按钮先量、先占位。
             // 槽内书名可省略，章名不让位——长书名不能把「第N章」或右侧按钮挤没。
@@ -2037,13 +2034,56 @@ private fun PinnedLogHeader(
             //   同章：后台合成 3/25        ← 书章行已显示当前章，第二行不重复
             //   跨章：后台合成 第6章 1/35  ← 括号不再带播放进度（播放进度已在书章行的（3/25）里）
             val text = buildString {
-                append("后台合成 ")
-                if (!sameChapter) {
-                    if (synthName.isNotBlank()) append("$synthName ") else append("第${synthIdx + 1}章 ")
-                    if (synthTotal > 0) append("${synthDone.coerceAtMost(synthTotal)}/$synthTotal")
-                } else if (snap.totalSegs > 0) {
-                    val done = (snap.segIndex + 1).coerceAtMost(snap.totalSegs)
-                    append("${done}/${snap.totalSegs}")
+                // 11-14 修「正在朗读时后台合成偶尔显示第 0 章」（用户实报）：
+                // synthChapterIndex 无有效值时是 -1（ReadProgressReader 默认值，
+                // U阅 还没上报合成前沿就会是它），而旧代码写 `第${synthIdx + 1}章`
+                // ⇒ **-1 + 1 = 0 ⇒ 「第 0 章」**。
+                // 修法：先把「合成章是否有效」单独判出来（>=0 才有效），
+                // 无效时**整段不显示章号**——宁可不写章名，也不能印出「第 0 章」
+                // 这种不存在的章节误导用户。
+                //
+                // 11-14 用户第二次改口（格式定稿）：
+                // 「我想把章节名后的（1/25）换到第二行，比如后台合成：第六章 10/20；
+                //   当前朗读：第五章 5/10，你看能放下吗？另外这个文字和格式还得再细调下」
+                // 新格式（两段并列，同章时省掉重复的后半段）：
+                //   跨章：后台合成：第六章 10/20 ｜ 当前朗读：第五章 5/10
+                //   同章：后台合成：第五章 5/10   （合成章==朗读章，写两遍是冗余）
+                // 用「｜」细竖线分隔而不是「；」：中文字宽，一号全角分号太占地方，
+                // 11.5sp 小字下一行放不下（用户已问「你看能放下吗」）。
+                val synthIdxValid = synthIdx >= 0
+                val synthNameOrNum = when {
+                    synthName.isNotBlank() -> synthName
+                    synthIdxValid -> "第${synthIdx + 1}章"
+                    else -> ""   // 无效：绝不出现「第 0 章」
+                }
+                val synthPart = buildString {
+                    if (synthNameOrNum.isNotBlank()) append(synthNameOrNum).append(' ')
+                    if (synthTotal > 0) {
+                        append(synthDone.coerceAtMost(synthTotal)).append('/').append(synthTotal)
+                    }
+                }.trim()
+                val playNameOrNum = when {
+                    playName.isNotBlank() -> playName
+                    snap.chapterIndex >= 0 -> "第${snap.chapterIndex + 1}章"
+                    else -> ""
+                }
+                val playPart = buildString {
+                    if (playNameOrNum.isNotBlank()) append(playNameOrNum).append(' ')
+                    if (playTotal > 0) {
+                        append(playDone.coerceAtMost(playTotal)).append('/').append(playTotal)
+                    }
+                }.trim()
+
+                if (synthPart.isNotBlank()) {
+                    append("后台合成：").append(synthPart)
+                    // 同章且两边进度一致时不重复写「当前朗读」（同一个数写两遍是噪音）；
+                    // 跨章（预取跑在前）或进度不同才并列展示。
+                    if (playPart.isNotBlank() && !sameChapter) {
+                        append(" ｜ 当前朗读：").append(playPart)
+                    }
+                } else if (playPart.isNotBlank()) {
+                    // 没有合成侧数据（合成还没开始/未上报）：只报当前朗读位置
+                    append("当前朗读：").append(playPart)
                 }
             }
             Row(
