@@ -1722,11 +1722,13 @@ private fun PinnedLogHeader(
                             // 只按锚点左上角算。唯一可靠做法：把菜单塞进**只包住触发文字
                             // 的小 Box**，锚点随文字走——菜单就贴在文字正下方展开，
                             // 与触发项不再割裂；超出屏边由 MD3 自带边缘钳制处理。
-                            Box {
+                            // ⚠️ weight 必须挂在 Box 上：Box 处在父 Row 的 RowScope 里，
+                            // 而 Box 内部是 BoxScope（没有 weight）——挂在内层 Row 上
+                            // CI 报「cannot be called in this context with an implicit receiver」。
+                            Box(Modifier.weight(1f)) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     modifier = Modifier
-                                        .weight(1f, fill = false)
                                         .clickable { bookMenu = true },
                                 ) {
                                     Text(
@@ -1749,7 +1751,9 @@ private fun PinnedLogHeader(
                                 // MD3 DropdownMenu 默认项 48dp 高/16sp 字，相对吸顶 11sp 小字巨大。
                                 // 自定义项：11.5sp、36dp 高、内衬 12×6，与吸顶区同视觉密度；
                                 // 触发字本身不动（仍是 11sp 原样式，不加箭头/不加框）。
-                                DropdownMenu(
+                                // 书名菜单**居左**（用户定稿）：锚点=书名文字小 Box，
+                                // offset 归零即从文字左缘向右展开，与行首自然对齐。
+                                androidx.compose.material3.DropdownMenu(
                                     expanded = bookMenu,
                                     onDismissRequest = { bookMenu = false },
                                     modifier = Modifier.widthIn(max = 220.dp),
@@ -1798,10 +1802,19 @@ private fun PinnedLogHeader(
                                             modifier = Modifier.size(12.dp),
                                         )
                                     }
-                                    DropdownMenu(
+                                    // 章名菜单**居右**（用户定稿）：章名在书名之后、靠行右侧，
+                                    // 若仍从左缘展开，220dp 宽会顶出屏幕右沿（用户原话
+                                    // 「如果居下，位置应该也不够吧」）。故把锚点左缘向左推
+                                    // 一个菜单宽度减去触发区宽度的距离，让菜单**右缘贴着触发文字右缘**。
+                                    // 用 offset 的 x 负值实现（MD3 DropdownMenu 没有 alignment 参数）。
+                                    androidx.compose.material3.DropdownMenu(
                                         expanded = chapMenu,
                                         onDismissRequest = { chapMenu = false },
                                         modifier = Modifier.widthIn(max = 220.dp),
+                                        offset = androidx.compose.ui.unit.DpOffset(
+                                            x = (-188).dp, // 220 宽 - 约 32 宽触发区 ≈ 右对齐
+                                            y = 0.dp
+                                        ),
                                     ) {
                                     chaptersOf(shownBook).forEach { (name, count) ->
                                         DropdownMenuItem(
@@ -1855,21 +1868,26 @@ private fun PinnedLogHeader(
                         // 不加重底色（11-11 定稿「未筛选=纯信息，无底无绿」仍然成立），
                         // 只加"能展开"的通用符号，一眼可辨且不喧宾夺主。
                         //
-                        // 菜单对齐（用户实报「图三的位置尤其不对，得居右吧，还有这些点击
-                        // 出来的卡片跟标题很割裂」）：DropdownMenu 默认锚在**父 Box 左上角**，
-                        // 而父 Box 是占满剩余宽度的信息槽 ⇒ 菜单永远从行首弹出、与右侧按钮
-                        // 隔着半个屏。改用 alignment=TopEnd + offset 抵消右内衬，
-                        // 让菜单**右缘对齐触发文字所在区域的右缘**，视觉上"从这一行长出来"。
+                        // 菜单位置（用户两轮反馈定稿）：
+                        //   第一轮「卡片位置尤其不对，得居右吧，跟标题很割裂」→ 曾想用
+                        //   alignment=TopEnd，但 MD3 DropdownMenu **没有这个参数**（CI 实锤）。
+                        //   第二轮「书名的弹窗应该居左，章节名弹窗应该居右」→ 定了方向：
+                        //   · 书名在行首 ⇒ 菜单从**左缘**展开（锚点就是书名文字，天然居左）；
+                        //   · 章名在书名之后、靠行尾 ⇒ 菜单要让开书名，从**右缘**展开；
+                        //   · 用户还提醒「如果居下，位置应该也不够吧」——菜单是向下弹的，
+                        //     章名在行的右侧，若仍从左缘起，220dp 宽会超出屏幕右沿，
+                        //     故章名菜单必须右对齐（offset 负数把左缘往左推）。
+                        // 做法：锚点小 Box + AppDropdownMenu 的 offset（唯一可用手段）。
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             var bookMenu2 by remember { mutableStateOf(false) }
                             var chapMenu2 by remember { mutableStateOf(false) }
                             // 锚点=只包住触发文字的小 Box（见上方长注释：
                             // MD3 DropdownMenu 无 alignment 参数，位置只跟父布局节点走）。
-                            Box {
+                            // ⚠️ weight 挂 Box（同上方注释）：Box 在内层是 BoxScope 没有 weight。
+                            Box(Modifier.weight(1f)) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier
-                                    .weight(1f, fill = false)
                                     .clip(AppShapes.sm)
                                     .clickable { bookMenu2 = true },
                             ) {
@@ -1888,7 +1906,8 @@ private fun PinnedLogHeader(
                                     modifier = Modifier.size(12.dp),
                                 )
                             }
-                            DropdownMenu(
+                            // 书名菜单居左（锚点小 Box + offset 归零，从左缘展开）
+                            androidx.compose.material3.DropdownMenu(
                                 expanded = bookMenu2,
                                 onDismissRequest = { bookMenu2 = false },
                                 modifier = Modifier.widthIn(max = 220.dp),
@@ -1936,10 +1955,15 @@ private fun PinnedLogHeader(
                                         modifier = Modifier.size(12.dp),
                                     )
                                 }
-                                DropdownMenu(
+                                // 章名菜单居右（同筛选态：offset 左推让右缘贴触发文字）
+                                androidx.compose.material3.DropdownMenu(
                                     expanded = chapMenu2,
                                     onDismissRequest = { chapMenu2 = false },
                                     modifier = Modifier.widthIn(max = 220.dp),
+                                    offset = androidx.compose.ui.unit.DpOffset(
+                                        x = (-188).dp,
+                                        y = 0.dp
+                                    ),
                                 ) {
                                     chaptersOf(shownBook).forEach { (name, count) ->
                                         DropdownMenuItem(
