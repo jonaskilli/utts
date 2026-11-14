@@ -2046,13 +2046,15 @@ internal fun LogScreen(
                     },
                 contentAlignment = Alignment.Center,
             ) {
-                // 视觉键（56dp）：用户 11-15 两连令「键得大一点（防误触日志行）」+
-                //「让他隐形一点，虽然大，但是不怎么遮挡」→ 尺寸大、存在感低：
-                //   · 底色取 secondaryContainer 但压到 55% 不透明度（原 100%）——
-                //     正文透过来的字影隐约可见，知道底下有内容而不是死挡一块；
-                //   · 阴影 3dp → 1dp（悬浮感还留一点，不再像实心按钮压在纸上）；
-                //   · 图标同步降到 65%（onSecondaryContainer 自带层次，不透明会发闷）。
-                // 触摸区仍 72dp 不变（隐形≠难按）。
+                // 视觉键（56dp）：用户 11-15 三连令「键大一点防误触」+「隐形一点不遮挡」+
+                //「会不会看不清是箭头还是复原？」→ 最终口径：
+                //   · 底色压 55%（隐形的那半），阴影 1dp——正文字影透出来，不死挡；
+                //   · 图标**不透明 + 两态分色**：⟲ 用 primary（绿=回朗读，与"正在朗读"
+                //     淡绿底同一语义色系），↓ 用 onSecondaryContainer（中性=跳最新）。
+                //   为什么图标不能跟着底色一起透明：⟲（圆圈箭头）和 ↓（直箭头）同宽
+                //   同细线，半透明后扫一眼分不清当前是哪态——而两态行为完全不同
+                //   （回朗读 vs 跳最新），认错键=滚错方向。色相是比透明度更强的区分
+                //   信号，绿/灰一眼可辨，同时底色依然隐形。
                 Surface(
                     shape = CircleShape,
                     color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f),
@@ -2067,7 +2069,9 @@ internal fun LogScreen(
                                 Icons.Default.Refresh,
                                 contentDescription = "回到正在朗读",
                                 modifier = Modifier.size(20.dp),
-                                tint = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.65f),
+                                // primary（主题绿）=「回到朗读」的身份色，与正在朗读行的
+                                // 淡绿底同语义色系；不透明——它是当前态的唯一标识。
+                                tint = MaterialTheme.colorScheme.primary,
                             )
                         } else {
                             // ↓ 用户令「真正的箭头，一竖下边一个箭头」：ArrowDownward
@@ -2076,7 +2080,8 @@ internal fun LogScreen(
                                 Icons.Default.ArrowDownward,
                                 stringResource(id = R.string.move_to_bottom),
                                 modifier = Modifier.size(20.dp),
-                                tint = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.65f),
+                                // 中性色不透明：↓ 是普通"跳最新"动作，不用绿（绿是朗读身份色）
+                                tint = MaterialTheme.colorScheme.onSecondaryContainer,
                             )
                         }
                     }
