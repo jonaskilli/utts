@@ -88,6 +88,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
@@ -1732,6 +1734,10 @@ private fun PinnedLogHeader(
             // 于是 1/3 只在「书名长 + 章名也长」时作为兜底出现，不再误伤短书名场景。
             val textMeasurer = rememberTextMeasurer()
             val density = LocalDensity.current
+            // 11-15：菜单宽度上限用屏宽（不是行宽）。已核对 material3 1.4.0-alpha09：
+            // 横向定位前两档（对齐锚点）不做钳制，宽度只要 ≤ 屏宽−16（行内衬 8+8）
+            // 就一定落得进窗，卡片边缘不会被 MD3 挪动。
+            val screenW = LocalConfiguration.current.screenWidthDp.dp
             val chapTextStyle = TextStyle(fontSize = 11.5.sp)
             // 两框各自的"框内开销"（不是文字宽），用于把文字宽换算成框宽：
             //   书名框 = 左衬 6 + 图标 14 + 图标字距 3 + 箭头 14 + 右衬 3 = 40dp
@@ -1812,7 +1818,13 @@ private fun PinnedLogHeader(
                             // 与章名框合起来正好撑满整行。短书名时框照样宽、文字靠左——
                             // "撑满"是**框**的规矩，不是文字的宽。
                             // 章名不挂 weight ⇒ 它按自身宽度先排、永不被书名挤压（非 weight 子项先测）。
-                            Box(Modifier.weight(1f)) {
+                            // 11-15：量书框实宽——弹窗宽度要与它一致（用户令）。
+                            var bookTriggerW by remember { mutableStateOf(0.dp) }
+                            Box(
+                                Modifier.weight(1f).onGloballyPositioned {
+                                    bookTriggerW = with(density) { it.size.width.toDp() }
+                                }
+                            ) {
                                 // 11-14：触发框改 PickerTrigger（参照 GitHub 的 main 按钮：
                                 // 圆角描边 + 内衬 + ▾，让"能点"一眼可辨）。
                                 PickerTrigger(
@@ -1837,9 +1849,13 @@ private fun PinnedLogHeader(
                                 // offset 归零即从文字左缘向右展开，与行首自然对齐。
                                 // 11-14：改用 BookChapterPickerMenu（参照 GitHub 分支切换器：
                                 // 搜索框 + 当前项打勾 + 标题行）。旧版是一长串无搜索的列表。
+                                val bookMenuW = minOf(maxOf(bookTriggerW, 220.dp), screenW - 16.dp)
                                 BookChapterPickerMenu(
                                     expanded = bookMenu,
                                     onDismissRequest = { bookMenu = false },
+                                    // 11-15 定案：书菜单宽度=书框实宽（≥220dp 保底、≤屏宽−24），
+                                    // 卡片左缘=书框左缘（offsetX 默认 0）——上下合成一体。
+                                    menuWidth = bookMenuW,
                                     items = knownBooks.map { b ->
                                         Triple(
                                             b,
@@ -1857,6 +1873,7 @@ private fun PinnedLogHeader(
                                 // 章名下拉同理：锚点只贴触发框，菜单从它右缘展开
                                 // 章名宽度上限 1/3（与未筛选分支同口径，见那边注释）：
                                 // 两态切换时章名框不会忽然宽窄跳一格
+                                var chapTriggerW by remember { mutableStateOf(0.dp) }
                                 Box {
                                     PickerTrigger(
                                         text = chapLabel.trim() + playingProgressSuffix,
@@ -1864,7 +1881,12 @@ private fun PinnedLogHeader(
                                         // 同上：筛选态与未筛选态同色
                                         textColor = MaterialTheme.colorScheme.onSurface,
                                         opened = chapMenu,
-                                        modifier = Modifier.widthIn(max = chapMaxWidth),
+                                        // 11-15：量章框实宽（widthIn 上限生效后的宽），
+                                        // 供菜单右缘对齐用。
+                                        modifier = Modifier.widthIn(max = chapMaxWidth)
+                                            .onGloballyPositioned {
+                                                chapTriggerW = with(density) { it.size.width.toDp() }
+                                            },
                                     )
                                     // 章名菜单**居右**（用户定稿）：章名在书名之后、靠行右侧，
                                     // 若仍从左缘展开，220dp 宽会顶出屏幕右沿（用户原话
@@ -1873,9 +1895,15 @@ private fun PinnedLogHeader(
                                     // 用 offset 的 x 负值实现（MD3 DropdownMenu 没有 alignment 参数）。
                                     // 11-14：改用 BookChapterPickerMenu（与书名菜单同款：
                                     // 标题行 + 当前项打勾；不放假搜索框——用户明确说不需要）
+                                    val chapMenuW = minOf(maxOf(chapTriggerW, 220.dp), screenW - 16.dp)
                                     BookChapterPickerMenu(
                                         expanded = chapMenu,
                                         onDismissRequest = { chapMenu = false },
+                                        // 11-15 定案：章菜单右缘=章框右缘（卡片左缘左推
+                                        // anchorW−menuW）；宽度仍 220dp 起（章框本身窄，
+                                        // 只有长章名时才跟着变宽）。
+                                        menuWidth = chapMenuW,
+                                        offsetX = chapTriggerW - chapMenuW,
                                         items = chaptersOf(shownBook).map { (name, count) ->
                                             Triple(name, count, name == shownChapter)
                                         },
@@ -1936,7 +1964,13 @@ private fun PinnedLogHeader(
                             // 整行撑满，而不是右侧留空」）：书名框吃掉行内剩余宽度，
                             // 与章名框合起来正好撑满整行。短书名时框照样宽、文字靠左——
                             // "撑满"是**框**的规矩，不是文字的宽。
-                            Box(Modifier.weight(1f)) {
+                            // 11-15：量书框实宽（与筛选态同口径），弹窗宽度跟它一致。
+                            var bookTriggerW2 by remember { mutableStateOf(0.dp) }
+                            Box(
+                                Modifier.weight(1f).onGloballyPositioned {
+                                    bookTriggerW2 = with(density) { it.size.width.toDp() }
+                                }
+                            ) {
                             // 11-14：触发框改 PickerTrigger（带描边，见组件注释）
                             PickerTrigger(
                                 // 同上：书名号 → 书图标
@@ -1949,9 +1983,12 @@ private fun PinnedLogHeader(
                                 modifier = Modifier.fillMaxWidth(),
                             )
                             // 书名菜单居左（锚点小 Box + offset 归零，从左缘展开）
+                            val bookMenuW2 = minOf(maxOf(bookTriggerW2, 220.dp), screenW - 16.dp)
                             BookChapterPickerMenu(
                                 expanded = bookMenu2,
                                 onDismissRequest = { bookMenu2 = false },
+                                // 同筛选态：宽度=书框实宽，卡片左缘=书框左缘。
+                                menuWidth = bookMenuW2,
                                 items = knownBooks.map { b ->
                                     Triple(b, null, b == shownBook)
                                 },
@@ -1971,6 +2008,7 @@ private fun PinnedLogHeader(
                                 //      这时才截断省略。上限是兜底，不是常态宽度；
                                 //   ③ 书名框 weight(1f, fill=false) 吃剩余宽度，装不下才省略；
                                 //   ④ 两框由父 Row 的 2dp 间距连成一条，宽度随内容灵活变，但不分离。
+                                var chapTriggerW2 by remember { mutableStateOf(0.dp) }
                                 Box {
                                 // 11-14：章名触发框同款（带描边）
                                 PickerTrigger(
@@ -1978,12 +2016,20 @@ private fun PinnedLogHeader(
                                     onClick = { chapMenu2 = true },
                                     opened = chapMenu2,
                                     // 上限只作用在**框**：正常章名够不到它，长章名才在这里省略
-                                    modifier = Modifier.widthIn(max = chapMaxWidth),
+                                    // 11-15：同时量实宽，供菜单右缘对齐。
+                                    modifier = Modifier.widthIn(max = chapMaxWidth)
+                                        .onGloballyPositioned {
+                                            chapTriggerW2 = with(density) { it.size.width.toDp() }
+                                        },
                                 )
                                 // 章名菜单居右（同筛选态：offset 左推让右缘贴触发文字）
+                                val chapMenuW2 = minOf(maxOf(chapTriggerW2, 220.dp), screenW - 16.dp)
                                 BookChapterPickerMenu(
                                     expanded = chapMenu2,
                                     onDismissRequest = { chapMenu2 = false },
+                                    // 同筛选态：卡片右缘=章框右缘。
+                                    menuWidth = chapMenuW2,
+                                    offsetX = chapTriggerW2 - chapMenuW2,
                                     items = chaptersOf(shownBook).map { (name, count) ->
                                         Triple(name, count, name == shownChapter)
                                     },
@@ -2189,41 +2235,41 @@ private fun BookChapterPickerMenu(
     onDismissRequest: () -> Unit,
     items: List<Triple<String, Int?, Boolean>>,
     onPick: (String) -> Unit,
+    // 11-15 用户两条令（合并口径）：
+    //   ① 书框弹窗「宽度跟书框宽度要和谐一点，宽度一致会更好吗」→ 宽度=书框实宽；
+    //   ② 「弹窗现在你右移之后内部对勾要跟上方对齐」→ 卡片左缘=书框左缘，核对内衬。
+    // 内衬为什么是 5dp（不是 8/14）——上方书框结构（见 PickerTrigger）：
+    //   左内衬 6 → 书图标 14 → 3 间距 → 书名文字
+    //   勾左缘 = 卡片左缘 + 5  ≈ 书图标左缘（6dp，差 1dp，同一竖列）
+    //   条目文字左缘 = 5 + 勾位 18 = 23dp = 书名文字左缘（6+14+3），完全同线。
+    // 章菜单仍居右：调用方传 offsetX = 章框实宽 − menuWidth，让卡片右缘=章框右缘。
+    menuWidth: Dp = 220.dp,
+    offsetX: Dp = 0.dp,
 ) {
     if (!expanded) return
     androidx.compose.material3.DropdownMenu(
         expanded = true,
         onDismissRequest = onDismissRequest,
-        // 宽度沿用旧版口径（220dp，用户令「框小一点」）：min 与 max 都写 220，
-        // 让书单/章单两个菜单等宽、切换时不跳，也避免窄屏（320dp）上被撑爆。
-        modifier = Modifier.widthIn(min = 220.dp, max = 220.dp),
-        // 11-14 晚（用户令「弹窗对勾应该跟书籍左边距一致」）。
-        //
-        // 对勾左缘的**准确算式**（上一版算错过，这里写死不要重推）：
-        //   卡片左缘 = 锚点左缘 + offsetX
-        //   勾左缘   = 卡片左缘 + 条目左内衬
-        //   ⇒ 勾左缘 = 锚点左缘 + offsetX + 条目左内衬
-        // 只要令 **条目左内衬 = |offsetX|**，两项相消：
-        //   勾左缘 = 锚点左缘 = **触发框左缘**
-        // 于是无论未筛选态（锚点 8dp）还是筛选态（胶囊内锚点 17dp），
-        // 勾都自动落在**当前那个书籍框的左缘**上，不需要分态另算。
-        // 故：offsetX = −8dp、条目左内衬 = 8dp（原来 14dp，会把勾推到 14dp 处）。
-        //
-        // ⚠️ 别把 border 算进来：`Modifier.border` 是**在内容上绘制**、不占布局尺寸，
-        // 卡片左缘就是 offset 定位到的那个 x，没有额外的 1dp 偏移。
-        // ⚠️ 也别按 (18dp 勾位 − 14dp 图标)/2 = 2dp 去加内衬——`Box(Modifier.width(18.dp))`
-        // 没设 contentAlignment，默认 TopStart，图标**贴勾位左缘**，不是居中。
-        // 11-14 晚（用户令「弹窗不能覆盖上方书籍框，应该连着：书籍框在上方，下方贴着弹出框」）。
-        //
-        // ⚠️ 上一版这里是 y = −8dp，注释还写着「MD3 默认在锚点下方留 8dp 空隙」——
-        // **那个判断是错的**。MD3 DropdownMenuPositionProvider 的起点就是
-        // `y = anchorBounds.bottom + contentOffset.y`，contentOffset 默认 (0,0)，
-        // 即**天然贴着锚点底边、本来就没有空隙**。再减 8dp 等于把弹窗往上顶 8dp，
-        // 于是白卡上沿压进书籍框里，框被盖掉半个高（用户实报的那一幕）。
-        //
-        // 现在 y 归 0：弹窗顶边 = 书籍框底边，上下相邻、互不覆盖。
-        // x = −8dp 是另一条账：与条目左内衬 8dp 相消，让对勾落到书籍框左缘（见上一条注释）。
-        offset = androidx.compose.ui.unit.DpOffset((-8).dp, 0.dp),
+        // 宽度由调用方算好传入（11-15）：书菜单=书框实宽；章菜单=max(章框实宽,220dp)。
+        // 用显式 width 而非 widthIn：菜单宽度必须与锚点宽度严格对上，否则右缘对齐
+        // 全靠猜；220dp 只是二者共同的**下限**（用户「框小一点」的口径不变）。
+        modifier = Modifier.width(menuWidth),
+        // ===== 位置账（11-15 版，替代 11-14 的 −8dp 推导）=====
+        // 定位基准是**卡片边线**，不是条目文字：用户 11-15 明确「应该跟书框左缘
+        // 和章节框右缘对齐」。
+        //   · 书菜单：卡片左缘 = 锚点左缘 ⇒ offsetX = 0；锚点就是包住书框的那个
+        //     weight 槽，所以卡片左缘 = 书框左缘。勾/文字的落点见 menuWidth 注释。
+        //   · 章菜单：卡片右缘 = 锚点右缘 ⇒ offsetX = 锚点宽 − 菜单宽（负值，向左推）。
+        // y 仍归 0：弹窗顶边 = 书框底边（11-14 定案）。MD3 的天生起点就是
+        // anchorBounds.bottom，**不要**再减 8dp——减了会把白卡上沿压进框里。
+        // ⚠️ 别再沿用「offset=−8 让勾对齐框左缘」那套：那是拿**勾**当基准，
+        // 卡片本身反而凸出框外 8dp，于是用户看到的两个弹窗都不贴框。
+        // ⚠️ MD3 DropdownMenu 无 alignment 参数，offset 只按锚点左上角算。
+        // 已核对 material3 1.4.0-alpha09 的 DropdownMenuPositionProvider：横向候选
+        // =「start 对 anchor start → end 对 anchor end → 贴窗边」，前两档**不做
+        // 边距钳制**——宽度不超窗时 offset 给多少卡片就落在哪，不会被挪动；
+        // 调用方仍把宽度封在屏宽−16（行自身内衬 8+8），保证永远走前两档。
+        offset = androidx.compose.ui.unit.DpOffset(offsetX, 0.dp),
         // 纯白卡片（surface）+ 12dp 圆角 + 轻投影：照 GitHub 那个弹窗的形态。
         // 不用 AppDropdownMenu——它写死了 surfaceContainerLow 灰白底，质感差一档。
         containerColor = MaterialTheme.colorScheme.surface,
@@ -2253,9 +2299,10 @@ private fun BookChapterPickerMenu(
                         .fillMaxWidth()
                         .clip(AppShapes.sm)
                         .clickable { onPick(name) }
-                        // 左内衬 8dp：与上方 offsetX=−8dp 相消，对勾左缘 = 书籍框左缘
-                        //（推导见 BookChapterPickerMenu 的 offset 注释；右内衬同步收以保证条目不显窄）。
-                        .padding(horizontal = 8.dp, vertical = 9.dp),
+                        // 左内衬 5dp（11-15）：勾左缘=卡片左缘+5 ≈ 书图标左缘 6dp，
+                        // 条目文字=+23dp = 书名文字左缘（算式见 BookChapterPickerMenu 注释）。
+                        // 右内衬同步 5dp，保证条目选中底色与卡片边距左右对称。
+                        .padding(horizontal = 5.dp, vertical = 9.dp),
                 ) {
                     // 打勾位（参照 GitHub 当前分支前的 ✓）：固定占宽 18dp，
                     // 非当前项也留白——不留白的话勾会顶得各条文字左缘参差。
