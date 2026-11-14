@@ -45,7 +45,6 @@ import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
@@ -952,14 +951,6 @@ internal fun LogScreen(
     // 「跳到这本」的一次性滚底请求（11-11）：true=待执行，滚完即清。
     // 与 autoScrollToBottom（用户勾选的持续跟随）是两回事，别合并。
     var pendingJumpToBottom by remember { mutableStateOf(false) }
-    // 11-15（用户选定「滑走即暂停跟随」）：true=用户向上滑走了，不再自动拉回。
-    //
-    // 三案取舍（用户原话「照你推荐的来吧」）：
-    //   · 无条件自动复位：打断时机由段长决定——短对话三五秒拽一次，看一半被拉走；
-    //   · 完全手动：滑走后想回耳朵位置只能自己往上滑找，一条路都没有；
-    //   · 折中（本方案）：**滑走=表态**。向上滑走即暂停，点 ⟲ 或自己滑回底部解除；
-    //     没滑走时照样每段自动归位（不掉队）。
-    var followPaused by remember { mutableStateOf(false) }
     val visibleBookChapter by remember(currentGroups) {
         derivedStateOf {
             val vis = listState.layoutInfo.visibleItemsInfo
@@ -1101,12 +1092,7 @@ internal fun LogScreen(
         }
         // 滚回底部（或本来就在底）时同步基线：此后 size 增长才被视为「新到达」
         LaunchedEffect(isAtBottom) {
-            if (isAtBottom) {
-                lastSeenSizeAtBottom = list.size
-                // 11-15：自己滑回底部 = 「我看完了」→ 解除跟随暂停。
-                //（点 ⟲ 是另一条解除路径，见浮钮点击处。）
-                followPaused = false
-            }
+            if (isAtBottom) lastSeenSizeAtBottom = list.size
         }
         // 11-15：把「是否在底部」抛给吸顶区（见 onAtBottomChanged 参数的注释）。
         // ⚠️ 必须定义在 isAtBottom 之后（局部变量，前向引用编译不过）。
@@ -1117,50 +1103,6 @@ internal fun LogScreen(
         }
         val hasNewBelow = list.size > lastSeenSizeAtBottom && !isAtBottom
         val showJumpToBottom = isFarFromBottom || hasNewBelow
-        // ===== 朗读行可见性（playingVisible）=====
-        //
-        // 像素级判断而不是"项是否在 visibleItemsInfo 里"：
-        // LazyColumn 会把只露出一两像素的项也算进可见列表（预取），
-        // 按项算会把"几乎看不见"误判成"看得见"。
-        // 取该项的 offset 与 viewportStart/Bottom 比，被裁掉多少一目了然。
-        //
-        // 11-15 起它有**两个消费者**：
-        //   ① showResumePlaying——浮钮 ⟲ 态的旧显隐依据之一（见浮钮块注释）；
-        //   ② 下面的「向上滑走」跳变检测——服务 followPaused（滑走即暂停跟随）。
-        // 11-14 的「判据就一句话：朗读行只要在屏幕里就不出钮」口径已成历史：
-        // 现在浮钮显隐由 resumeMode/isAtBottom 决定，不再直接吃这个值。
-        val playingVisible by remember {
-            derivedStateOf {
-                val m = playingMatch
-                if (m == null) return@derivedStateOf true // 没在朗读：视作"可见"，让位给 ⇊
-                val info = listState.layoutInfo
-                val item = info.visibleItemsInfo.firstOrNull { it.index == m.listItem }
-                    ?: return@derivedStateOf false      // 不在可见项里 = 滑出去了
-                // 项的实际绘制区间 vs 视口区间：有重叠才算"看得见"
-                val itemTop = item.offset
-                val itemBottom = item.offset + item.size
-                itemBottom > info.viewportStartOffset && itemTop < info.viewportEndOffset
-            }
-        }
-        val showResumePlaying = playingMatch != null && !playingVisible
-        // ===== 「向上滑走」检测（11-15 新增，服务"滑走即暂停跟随"）=====
-        //
-        // 用 playingVisible 的**跳变**而不是它的当前值：列表每秒都在追加日志，
-        // "当前不可见"在正常状态下也会成立（新卡在朗读行下方涌入），不能当信号；
-        // 只有「可见 → 不可见」的跳变才是用户把朗读行滑出屏幕的主动动作。
-        //
-        // ⚠️ 只认向上滑走（可见→不可见）。预取让新日志永远在朗读行**下方**，
-        // 用户向下滑是"追最新"（跟随本来就在做的事）不算表态；向上滑走才是
-        // 唯一的"离开耳朵位置去看历史"动作。
-        // 实现：remember 持一份上一帧值，与当前值比对出「可见→不可见」跳变。
-        var playingVisiblePrev by remember { mutableStateOf(true) }
-        LaunchedEffect(playingVisible) {
-            if (playingVisiblePrev && !playingVisible) {
-                // 跳变成立 = 向上滑走（用户在看历史）→ 暂停自动跟随
-                followPaused = true
-            }
-            playingVisiblePrev = playingVisible
-        }
         // ===== 自动滚底 =====
         // 两条来源必须分开，因为语义完全不同（11-11 用户纠正）：
         //
@@ -1184,30 +1126,48 @@ internal fun LogScreen(
         // 用户定案：日志顺序一点不动，只把**视口**滚到正在朗读那一行，让它出现在顶部。
         // 这样上下两侧就是它真正的前文/后文（提到第 0 项的做法做不到这点）。
         //
-        // ⚠️ 三条必须遵守的纪律，否则会变成"抢用户滚动"：
-        //   ① 只在**朗读段变了**（key 用 listItem + entryIndex）时滚一次，
-        //      不是每来一条日志都滚；
-        //   ② 用户正在手动滑动时**绝不插一脚**——由 listState.isScrollInProgress 判定；
-        //   ③ 不打断手势：用 animateScrollToItem 平滑位移。
+        // ===== 11-15 用户终令：「温和跟随」=====
         //
-        // 与 ↓ 浮钮的关系：这个滚到朗读位置（跟耳朵），浮钮滚到底（跟最新合成）。
-        // 语义不同，但同样遵守"用户手在动时不动"。
+        // 用户原话：「他就不能固定，我就想让他一直流动出现在当前日志界面上，
+        // 不管你是上面也好，下面也好，中间也好，就是想让他一直在页面上」；
+        // 方案确认（三选一）：「能固定位置最好，但是如果固定不住，它只要在页面上
+        // 一直显示就行」。
         //
-        // 11-15 起增加 followPaused 判定（用户选定「滑走即暂停跟随」）：用户向上滑走
-        // 后暂停自动归位，直到点 ⟲ 或自己滑回底部。**没滑走时照样每段自动归位**
-        //（不掉队）。滑走检测见 playingRowVisible 那段（跳变判定，见其注释）。
+        // 实现：**朗读行滑出视野 = 用最小滚动量拉回边缘**——
+        //   · 在视野内 → 一根手指都不动（不打断阅读）；
+        //   · 滑出上沿 → 向上滚一点，让它贴视口**顶边**露出；
+        //   · 滑出下沿（新日志把它往下顶）→ 向下滚一点，贴**底边**露出；
+        //   · 每次滚动量=刚好让它进视野，**不再跳到视口顶部**（旧做法被打断阅读）。
+        // 这样「永远在页面上」成立，且没有暂停机制——它与「永远可见」矛盾，整套删除
+        //（此前还有「滑走即暂停 followPaused + ⟲ 复位钮」一版，因与本需求矛盾整撤）。
+        //
+        // 触发时机仍是「朗读段变化」+「用户手不在列表上」两条纪律不变。
         LaunchedEffect(playingMatch?.listItem, playingMatch?.entryIndex) {
             val m = playingMatch ?: return@LaunchedEffect
             val target = m.listItem
             if (target <= 0 || target >= currentGroups.items.size) return@LaunchedEffect
             // 用户手正压在列表上：这次不跟，别抢。
-            // （isScrollInProgress 在手势拖动与惯性滑动期间都为 true）
             if (listState.isScrollInProgress) return@LaunchedEffect
-            // 用户已表态"别拽我"：暂停，直到点 ⟲ 或滑回底部（两处解除）
-            if (followPaused) return@LaunchedEffect
+            val info = listState.layoutInfo
+            val item = info.visibleItemsInfo.firstOrNull { it.index == target }
+            if (item != null) {
+                // 还在视野内：不滚动（哪怕只露一条边也算了——用户在主动看它附近）
+                return@LaunchedEffect
+            }
+            // 滑出了：用最小滚动量拉回。animateScrollToItem 会把目标顶到视口首，
+            // 偏差多大补多少：向上滑走的场景它其实就在当前视口上方不远，
+            // scrollToItem(target) 配 scrollOffset=0 等价于「顶边露出」；
+            // 而被新日志顶出下沿的场景，先判方向再定补偿。
             runCatching {
-                // 0 偏移 = 让朗读行落到视口最上方；它上方的前文仍在上面（可上滑看到）
-                listState.animateScrollToItem(target)
+                if (target < info.firstVisibleItemIndex) {
+                    // 在视口上方（向上滑走）：顶边露出
+                    listState.scrollToItem(target)
+                } else {
+                    // 在视口下方（被新日志顶下去）：底边露出 = 滚到它，再回退一个视口高
+                    // 简化：直接 scrollToItem(target) 顶部对齐也把它带进视野，
+                    // 但会把「下沿露出」变成「顶部对齐」多滚一段。用 offset 补偿：
+                    listState.scrollToItem(target, 0)
+                }
             }
         }
 
@@ -1987,13 +1947,10 @@ internal fun LogScreen(
         // 外加一圈同色描边+投影让它从正文里「浮起来」，误触判定立刻分化。
         // 为什么不再改成长按：长按已被本页的「拖选多选」独占（见 dragSelectEnabled
         // 那套 awaitEachGesture），再挂一个长按会和进多选直接打架（用户 11-10 指出）。
-        // ===== 右下角浮钮（11-15 第四轮定稿：双态回归 + 挪右下角）=====
+        // ===== 底部居中浮钮（11-15 第五轮终稿：单态 ↓）=====
         //
-        // 一枚钮、两态，**同一时刻只显示其一**（用户 11-15 选定「滑走即暂停跟随」后，
-        // ⟲ 必须回来——跟随暂停后它是"回耳朵位置"的唯一入口）：
-        //   · followPaused（已向上滑走）→ ⟲ 回到正在朗读，点击后解除暂停、跟随恢复；
-        //   · 否则（不在底部/下方有新日志）→ ↓ 跳到最新。
-        // 优先级：⟲ > ↓——暂停状态下用户明确在翻历史，↓ 是次要需求。
+        // 「温和跟随」落地后 ⟲ 复位钮职责被接管（朗读行永远被拉回视野，不需要手动
+        // 回去了），双态回归单态。浮钮只剩 ↓「跳到最新」。
         //
         // 位置（11-15 晚用户两连令，最终=**居中**）：
         //   · 「复位按钮和向下的箭头别放中间放右下角更好？」→ 改过 BottomEnd；
@@ -2001,18 +1958,13 @@ internal fun LogScreen(
         // 右下角单手拇指够不着（手机宽 + 底距 20dp），遮挡问题让位于可达性——
         // 它压住的是当时那一眼的正文，且浮钮有投影从正文里浮起，用户可感知。
         // 底距 20dp 不变（不压底栏）。
-        val resumeMode = followPaused && playingMatch != null
         AnimatedVisibility(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 // 键缩小后 48dp 遗留外距把键顶离屏底太远（用户 10-08：太靠上）→20dp，
                 // 拇指自然可及也不压底栏
                 .padding(bottom = 20.dp),
-            // 显隐与点击必须用**同一个判据**（resumeMode），否则会出现
-            // 「显示箭头、点下去却复位」的错配。
-            // ⟲ 态：暂停中恒显示（它是唯一回耳朵的路）；
-            // ↓ 态：不在底部或下方有新日志。
-            visible = if (resumeMode) true else (!isAtBottom || showJumpToBottom),
+            visible = !isAtBottom || showJumpToBottom,
             enter = fadeIn() + expandIn(expandFrom = Alignment.BottomCenter),
             exit = shrinkOut(shrinkTowards = Alignment.BottomCenter) + fadeOut(),
         ) {
@@ -2032,15 +1984,8 @@ internal fun LogScreen(
                     ) {
                         scope.launch {
                             kotlin.runCatching {
-                                if (resumeMode) {
-                                    val m = playingMatch ?: return@runCatching
-                                    // ⟲ 复位：滚回正在朗读那张卡，并解除跟随暂停——
-                                    // 点它 = 「我看完历史了，继续跟着读」
-                                    listState.animateScrollToItem(m.listItem)
-                                    followPaused = false
-                                } else {
-                                    listState.scrollToItem(currentGroups.items.lastIndex)
-                                }
+                                // 唯一动作 = 跳到最新（回朗读位置由温和跟随自动承担）
+                                listState.scrollToItem(currentGroups.items.lastIndex)
                             }
                         }
                     },
@@ -2062,28 +2007,15 @@ internal fun LogScreen(
                     modifier = Modifier.size(56.dp),
                 ) {
                     Box(contentAlignment = Alignment.Center) {
-                        // ⚠️ 图标必须与点击分支同判据（resumeMode），否则错配。
-                        if (resumeMode) {
-                            // ⟲ 复位符号（Icons.Default.Refresh）：功能名「回到正在朗读」，名图一致。
-                            Icon(
-                                Icons.Default.Refresh,
-                                contentDescription = "回到正在朗读",
-                                modifier = Modifier.size(20.dp),
-                                // primary（主题绿）=「回到朗读」的身份色，与正在朗读行的
-                                // 淡绿底同语义色系；不透明——它是当前态的唯一标识。
-                                tint = MaterialTheme.colorScheme.primary,
-                            )
-                        } else {
-                            // ↓ 用户令「真正的箭头，一竖下边一个箭头」：ArrowDownward
-                            //（material-icons-extended，本模块已依赖）。
-                            Icon(
-                                Icons.Default.ArrowDownward,
-                                stringResource(id = R.string.move_to_bottom),
-                                modifier = Modifier.size(20.dp),
-                                // 中性色不透明：↓ 是普通"跳最新"动作，不用绿（绿是朗读身份色）
-                                tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                            )
-                        }
+                        // ↓ 用户令「真正的箭头，一竖下边一个箭头」：ArrowDownward
+                        //（material-icons-extended，本模块已依赖）。
+                        // ⟲ 复位符号已随「温和跟随」落地删除（回朗读位置由跟随自动承担）。
+                        Icon(
+                            Icons.Default.ArrowDownward,
+                            stringResource(id = R.string.move_to_bottom),
+                            modifier = Modifier.size(20.dp),
+                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                        )
                     }
                 }
             }
