@@ -1748,7 +1748,10 @@ private fun PinnedLogHeader(
 
             // 外层 BoxWithConstraints 只为拿**这一行真实可用宽**（已扣左右 8dp 内衬），
             // 供下面的章名上限做动态计算；它不改布局语义。
-            BoxWithConstraints(Modifier.fillMaxWidth()) {
+            // ⚠️ weight 必须挂在 BoxWithConstraints 上（它是外层 Row 的直接子项，有 RowScope）。
+            // 挂到它内部的 Box 上会 CI 报「cannot be called in this context with an implicit receiver」
+            // ——那一层是 BoxWithConstraintsScope，没有 RowScope.weight。
+            BoxWithConstraints(Modifier.weight(1f)) {
             val rowW = constraints.maxWidth.toFloat()
             // 两框能否同时完整放下（各自内容宽 + 2dp 间距）
             val bothFit = chapLabel.isBlank() || (bookNeeded + chapNeeded + gapPx <= rowW)
@@ -1767,7 +1770,7 @@ private fun PinnedLogHeader(
 
             // 左侧信息槽：占满行内剩余宽度，右侧两个按钮先量、先占位。
             // 槽内书名可省略，章名不让位——长书名不能把「第N章」或右侧按钮挤没。
-            Box(Modifier.weight(1f)) {
+            Box(Modifier.fillMaxWidth()) {
                 if (shownBook.isNotBlank()) {
                     if (filtered) {
                         // ---- 已筛选：淡绿胶囊 + 取消 ----
