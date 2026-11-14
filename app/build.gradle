@@ -13,11 +13,25 @@ static def buildTime() {
     return (long) t
 }
 
-static def releaseTime() {
-    return new Date().format("yy.MMddHH", TimeZone.getTimeZone("GMT+8"))
+// 11-15 用户令：版本号改取**提交时间**（对齐 U阅 11-13 口径）。
+// 原 new Date()（打包时刻）有 U阅 实测过的两个坑：①版本名进 Manifest → Manifest
+// 是 R8 输入 → minifyEnabled true 下 R8 缓存永远打不中（U阅实测 R8 单步 ~400s
+// 占整轮一半）；②同一提交重跑打包版本号漂移，装机后没法对应回代码是哪一笔。
+// 改 git log -1 --format=%ct 后同一提交产物可复现（浅克隆 fetch-depth:1 下已实测
+// 可用，见《U阅CI打包提速-20261113.md》§二）；取不到 git 时回退当前时间，
+// 无 .git 的源码包仍能构建。
+static def releaseTime(File dir) {
+    try {
+        def raw = 'git log -1 --format=%ct'.execute(null, dir).text.trim()
+        if (!raw.isEmpty()) {
+            return new Date(Long.parseLong(raw) * 1000L).format('MMddHHmm', TimeZone.getTimeZone('GMT+8'))
+        }
+    } catch (Exception ignored) {
+    }
+    return new Date().format('MMddHHmm', TimeZone.getTimeZone('GMT+8'))
 }
 
-def version = "1.26.${new Date().format('MMddHHmm', TimeZone.getTimeZone('GMT+8'))}"
+def version = "1.26.${releaseTime(rootDir)}"
 def gitCommits = 1510
 
 android {
