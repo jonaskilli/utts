@@ -117,8 +117,9 @@ class TextProcessor : ITextProcessor {
         // 本笔的 (paraIndex, paraTotal) 原样挂到产出的每个 TextSegment——
         // 规则分析可能把一段拆成多句（多角色），它们同属一个段落，段号相同。
         // 默认 -1/0 = 调用方没带（旧版/第三方），透传后落盘渲染自然跳过。
-        paraIndex: Int = -1,
-        paraTotal: Int = 0,
+        // ⚠️ override 不能带默认值（Kotlin 规则，CI 实锤 120:26），默认值由接口声明。
+        paraIndex: Int,
+        paraTotal: Int,
     ): Result<List<TextSegment>, TextProcessorError> {
         val resultList = mutableListOf<TextSegment>()
         val replacedText = replace(text, ReplaceExecution.BEFORE)
