@@ -1995,29 +1995,36 @@ internal fun LogScreen(
         //   · 否则（不在底部/下方有新日志）→ ↓ 跳到最新。
         // 优先级：⟲ > ↓——暂停状态下用户明确在翻历史，↓ 是次要需求。
         //
-        // 位置（用户令「复位按钮和向下的箭头是不是别放中间放右下角更好？不影响看日志？」
-        // 判断成立）：BottomCenter → BottomEnd。居中恰好压住一行最重要的请求正文；
-        // 右下角只压行尾的段号丸（靠右空白多，行文靠左），遮挡最小。底距 20dp 不变。
+        // 位置（11-15 晚用户两连令，最终=**居中**）：
+        //   · 「复位按钮和向下的箭头别放中间放右下角更好？」→ 改过 BottomEnd；
+        //   · 实机后「还是在中间比较好，不能在右边，在右边手指点不到」→ **回 BottomCenter**。
+        // 右下角单手拇指够不着（手机宽 + 底距 20dp），遮挡问题让位于可达性——
+        // 它压住的是当时那一眼的正文，且浮钮有投影从正文里浮起，用户可感知。
+        // 底距 20dp 不变（不压底栏）。
         val resumeMode = followPaused && playingMatch != null
         AnimatedVisibility(
             modifier = Modifier
-                .align(Alignment.BottomEnd)
+                .align(Alignment.BottomCenter)
                 // 键缩小后 48dp 遗留外距把键顶离屏底太远（用户 10-08：太靠上）→20dp，
                 // 拇指自然可及也不压底栏
-                .padding(bottom = 20.dp, end = 12.dp),
+                .padding(bottom = 20.dp),
             // 显隐与点击必须用**同一个判据**（resumeMode），否则会出现
             // 「显示箭头、点下去却复位」的错配。
             // ⟲ 态：暂停中恒显示（它是唯一回耳朵的路）；
             // ↓ 态：不在底部或下方有新日志。
             visible = if (resumeMode) true else (!isAtBottom || showJumpToBottom),
-            enter = fadeIn() + expandIn(expandFrom = Alignment.BottomEnd),
-            exit = shrinkOut(shrinkTowards = Alignment.BottomEnd) + fadeOut(),
+            enter = fadeIn() + expandIn(expandFrom = Alignment.BottomCenter),
+            exit = shrinkOut(shrinkTowards = Alignment.BottomCenter) + fadeOut(),
         ) {
-            // 外层 Box 承担 56dp 触摸区（透明），内层 40dp 才是可见键——
-            // Compose 里触摸区由最外层有尺寸的节点决定，所以不能只给 FAB 加 padding
+            // 外层承担 72dp 触摸区（透明），内层 56dp 才是可见键——
+            // Compose 里触摸区由最外层有尺寸的节点决定，所以不能只给 FAB 加 padding。
+            // 11-15 用户令「这个箭头这个键得大一点不然很容易点击到日志，然后点开幻兽
+            // （换声）面板」：原 56dp 触摸区/40dp 视觉键低于 Material 48dp 最小可点，
+            // 指尖偏 1~2 像素就落到下面的请求行（整行可点弹换声面板）。放大后误触判定分化：
+            // 触摸 72dp ≈ 拇指肚面积，视觉 56dp 与标准 FAB 同档不显笨重。
             Box(
                 modifier = Modifier
-                    .size(56.dp)
+                    .size(72.dp)
                     .clickable(
                         // 去涟漪但保留可达性语义（浮钮不挂 ripple：压在日志正文上，波纹扎眼）
                         interactionSource = remember { MutableInteractionSource() },
@@ -2045,7 +2052,7 @@ internal fun LogScreen(
                     shape = CircleShape,
                     color = MaterialTheme.colorScheme.secondaryContainer,
                     shadowElevation = 3.dp,
-                    modifier = Modifier.size(40.dp),
+                    modifier = Modifier.size(56.dp),
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         // ⚠️ 图标必须与点击分支同判据（resumeMode），否则错配。
