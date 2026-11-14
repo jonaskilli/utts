@@ -1711,87 +1711,98 @@ private fun PinnedLogHeader(
                             var chapMenu by remember { mutableStateOf(false) }
                             // 11-14：可点线索（与未筛选分支同口径）——挂展开箭头，
                             // 双项都套 Row 以让箭头紧跟文字、点击区域包含箭头。
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier
-                                    .weight(1f, fill = false)
-                                    .clickable { bookMenu = true },
-                            ) {
-                                Text(
-                                    text = "《$shownBook》",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    fontWeight = FontWeight.Medium,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                                Icon(
-                                    imageVector = Icons.Default.KeyboardArrowDown,
-                                    contentDescription = "选择书籍",
-                                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.65f),
-                                    modifier = Modifier.size(12.dp),
-                                )
-                            }
-                            // 紧凑菜单（用户令「把这个框小一点……得和谐呀」）：
-                            // MD3 DropdownMenu 默认项 48dp 高/16sp 字，相对吸顶 11sp 小字巨大。
-                            // 自定义项：11.5sp、36dp 高、内衬 12×6，与吸顶区同视觉密度；
-                            // 触发字本身不动（仍是 11sp 原样式，不加箭头/不加框）。
-                            DropdownMenu(
-                                expanded = bookMenu,
-                                onDismissRequest = { bookMenu = false },
-                                modifier = Modifier.widthIn(max = 220.dp),
-                                alignment = Alignment.TopEnd,
-                                offset = androidx.compose.ui.unit.DpOffset((-16).dp, 0.dp),
-                            ) {
-                                knownBooks.forEach { b ->
-                                    DropdownMenuItem(
-                                        text = {
-                                            Text(
-                                                b,
-                                                fontSize = 11.5.sp,
-                                                color = MaterialTheme.colorScheme.onSurface,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                            )
-                                        },
-                                        onClick = {
-                                            bookMenu = false
-                                            onSwitchBook(b)
-                                        },
-                                        modifier = Modifier.height(36.dp),
-                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                                    )
-                                }
-                            }
-                            if (chapLabel.isNotBlank()) {
+                            //
+                            // 11-14 用户实报「点击出来的卡片位置尤其不对，得居右吧，
+                            // 还有这些点击出来的卡片跟标题很割裂」：
+                            // 根因=DropdownMenu 的位置以**父布局节点**为锚点，而此前
+                            // 它是挂在占满剩余宽度的信息槽 Box 里 ⇒ 菜单永远从行首弹出、
+                            // 与触发文字隔着半个屏（真机截图实锤）。
+                            // ⚠️ MD3 DropdownMenu **没有 alignment 参数**（CI 实锤
+                            // 「No parameter with name 'alignment' found」），offset 也
+                            // 只按锚点左上角算。唯一可靠做法：把菜单塞进**只包住触发文字
+                            // 的小 Box**，锚点随文字走——菜单就贴在文字正下方展开，
+                            // 与触发项不再割裂；超出屏边由 MD3 自带边缘钳制处理。
+                            Box {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     modifier = Modifier
-                                        .clickable { chapMenu = true },
+                                        .weight(1f, fill = false)
+                                        .clickable { bookMenu = true },
                                 ) {
                                     Text(
-                                        text = chapLabel + playingProgressSuffix,
+                                        text = "《$shownBook》",
                                         style = MaterialTheme.typography.labelSmall,
                                         fontSize = 11.sp,
                                         color = MaterialTheme.colorScheme.primary,
                                         fontWeight = FontWeight.Medium,
                                         maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
                                     )
                                     Icon(
                                         imageVector = Icons.Default.KeyboardArrowDown,
-                                        contentDescription = "选择章节",
+                                        contentDescription = "选择书籍",
                                         tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.65f),
                                         modifier = Modifier.size(12.dp),
                                     )
                                 }
+                                // 紧凑菜单（用户令「把这个框小一点……得和谐呀」）：
+                                // MD3 DropdownMenu 默认项 48dp 高/16sp 字，相对吸顶 11sp 小字巨大。
+                                // 自定义项：11.5sp、36dp 高、内衬 12×6，与吸顶区同视觉密度；
+                                // 触发字本身不动（仍是 11sp 原样式，不加箭头/不加框）。
                                 DropdownMenu(
-                                    expanded = chapMenu,
-                                    onDismissRequest = { chapMenu = false },
+                                    expanded = bookMenu,
+                                    onDismissRequest = { bookMenu = false },
                                     modifier = Modifier.widthIn(max = 220.dp),
-                                    alignment = Alignment.TopEnd,
-                                    offset = androidx.compose.ui.unit.DpOffset((-16).dp, 0.dp),
                                 ) {
+                                    knownBooks.forEach { b ->
+                                        DropdownMenuItem(
+                                            text = {
+                                                Text(
+                                                    b,
+                                                    fontSize = 11.5.sp,
+                                                    color = MaterialTheme.colorScheme.onSurface,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                )
+                                            },
+                                            onClick = {
+                                                bookMenu = false
+                                                onSwitchBook(b)
+                                            },
+                                            modifier = Modifier.height(36.dp),
+                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                        )
+                                    }
+                                }
+                            }
+                            if (chapLabel.isNotBlank()) {
+                                // 章名下拉同理：包一层只贴文字的 Box 当锚点（见书名处注释）
+                                Box {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier
+                                            .clickable { chapMenu = true },
+                                    ) {
+                                        Text(
+                                            text = chapLabel + playingProgressSuffix,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            fontWeight = FontWeight.Medium,
+                                            maxLines = 1,
+                                        )
+                                        Icon(
+                                            imageVector = Icons.Default.KeyboardArrowDown,
+                                            contentDescription = "选择章节",
+                                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.65f),
+                                            modifier = Modifier.size(12.dp),
+                                        )
+                                    }
+                                    DropdownMenu(
+                                        expanded = chapMenu,
+                                        onDismissRequest = { chapMenu = false },
+                                        modifier = Modifier.widthIn(max = 220.dp),
+                                    ) {
                                     chaptersOf(shownBook).forEach { (name, count) ->
                                         DropdownMenuItem(
                                             text = {
@@ -1810,6 +1821,7 @@ private fun PinnedLogHeader(
                                             modifier = Modifier.height(36.dp),
                                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                                         )
+                                    }
                                     }
                                 }
                             }
@@ -1851,6 +1863,9 @@ private fun PinnedLogHeader(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             var bookMenu2 by remember { mutableStateOf(false) }
                             var chapMenu2 by remember { mutableStateOf(false) }
+                            // 锚点=只包住触发文字的小 Box（见上方长注释：
+                            // MD3 DropdownMenu 无 alignment 参数，位置只跟父布局节点走）。
+                            Box {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier
@@ -1877,10 +1892,6 @@ private fun PinnedLogHeader(
                                 expanded = bookMenu2,
                                 onDismissRequest = { bookMenu2 = false },
                                 modifier = Modifier.widthIn(max = 220.dp),
-                                // 右缘对齐（见上注释）：TopEnd 贴住锚点右缘，
-                                // 再右移 16dp 抵掉容器的 horizontal 内衬，菜单右缘 ≈ 屏幕右缘。
-                                alignment = Alignment.TopEnd,
-                                offset = androidx.compose.ui.unit.DpOffset((-16).dp, 0.dp),
                             ) {
                                 knownBooks.forEach { b ->
                                     DropdownMenuItem(
@@ -1902,7 +1913,9 @@ private fun PinnedLogHeader(
                                     )
                                 }
                             }
+                            }
                             if (chapLabel.isNotBlank()) {
+                                Box {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     modifier = Modifier
@@ -1927,8 +1940,6 @@ private fun PinnedLogHeader(
                                     expanded = chapMenu2,
                                     onDismissRequest = { chapMenu2 = false },
                                     modifier = Modifier.widthIn(max = 220.dp),
-                                    alignment = Alignment.TopEnd,
-                                    offset = androidx.compose.ui.unit.DpOffset((-16).dp, 0.dp),
                                 ) {
                                     chaptersOf(shownBook).forEach { (name, count) ->
                                         DropdownMenuItem(
@@ -1949,6 +1960,7 @@ private fun PinnedLogHeader(
                                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                                         )
                                     }
+                                }
                                 }
                             }
                         }
