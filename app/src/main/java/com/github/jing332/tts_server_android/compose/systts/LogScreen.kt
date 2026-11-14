@@ -2046,12 +2046,17 @@ internal fun LogScreen(
                     },
                 contentAlignment = Alignment.Center,
             ) {
-                // 视觉键（40dp）：加投影让它在日志正文上明确"浮起"，
-                // 点击仍走外层 56dp 区（这里不挂 onClick，避免双触发）
+                // 视觉键（56dp）：用户 11-15 两连令「键得大一点（防误触日志行）」+
+                //「让他隐形一点，虽然大，但是不怎么遮挡」→ 尺寸大、存在感低：
+                //   · 底色取 secondaryContainer 但压到 55% 不透明度（原 100%）——
+                //     正文透过来的字影隐约可见，知道底下有内容而不是死挡一块；
+                //   · 阴影 3dp → 1dp（悬浮感还留一点，不再像实心按钮压在纸上）；
+                //   · 图标同步降到 65%（onSecondaryContainer 自带层次，不透明会发闷）。
+                // 触摸区仍 72dp 不变（隐形≠难按）。
                 Surface(
                     shape = CircleShape,
-                    color = MaterialTheme.colorScheme.secondaryContainer,
-                    shadowElevation = 3.dp,
+                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f),
+                    shadowElevation = 1.dp,
                     modifier = Modifier.size(56.dp),
                 ) {
                     Box(contentAlignment = Alignment.Center) {
@@ -2062,7 +2067,7 @@ internal fun LogScreen(
                                 Icons.Default.Refresh,
                                 contentDescription = "回到正在朗读",
                                 modifier = Modifier.size(20.dp),
-                                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                tint = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.65f),
                             )
                         } else {
                             // ↓ 用户令「真正的箭头，一竖下边一个箭头」：ArrowDownward
@@ -2071,7 +2076,7 @@ internal fun LogScreen(
                                 Icons.Default.ArrowDownward,
                                 stringResource(id = R.string.move_to_bottom),
                                 modifier = Modifier.size(20.dp),
-                                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                tint = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.65f),
                             )
                         }
                     }
