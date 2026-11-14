@@ -82,9 +82,6 @@ class TtsLogViewModel : ViewModel() {
     // 调试模式开关 - 在主时间流中追加/隐藏朗读规则日志（默认隐藏，用户手动开启）
     val showSpeechRuleLogs = mutableStateOf(false)
 
-    // 实时滚动开关 - 勾选后新日志自动滚动到底部（默认不勾选）
-    val autoScrollToBottom = mutableStateOf(false)
-
     // ===== 书 / 章范围（11-10 用户令「日志分小说、分章节」）=====
     // 语义：空值=不限；scopeBook 非空=只看该书；scopeChapter 非空=只看该章。
     // ⚠️ 这里的「切书」只切**日志查看范围**，绝不写 cunfang.txt、不动角色管理的当前书

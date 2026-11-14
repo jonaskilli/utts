@@ -31,8 +31,6 @@ fun LogFilterDialog(
     onPluginLogsToggle: () -> Unit,
     showSpeechRuleLogs: Boolean,
     onSpeechRuleLogsToggle: () -> Unit,
-    autoScrollToBottom: Boolean,
-    onAutoScrollToggle: () -> Unit,
     showDebugLogs: Boolean,
     onDebugLogsToggle: () -> Unit,
     // 按书/章收窄（11-10 用户令「日志分小说、分章节」）：
@@ -126,12 +124,10 @@ fun LogFilterDialog(
                         label = { Text("DEBUG") },
                     )
 
-                    // 实时滚动开关（同款选中绿）
-                    FilterChip(
-                        selected = autoScrollToBottom,
-                        onClick = { onAutoScrollToggle() },
-                        label = { Text("实时显示最新日志") },
-                    )
+                    // 11-15：「实时显示最新日志」开关随日志页「最新日志」胶囊一起删除
+                    //（用户令：跳转动作不该占筛选位，回最新走右下角 ↓ 浮钮）。
+                    // 本弹窗 11-11 起已无调用点，这行只是保持代码自洽、不给以后的复活
+                    // 留下一个引用了不存在回调的 Compose 调用。
                 }
 
                 // 按书 / 章（11-10 用户令「日志分小说、分章节」）：

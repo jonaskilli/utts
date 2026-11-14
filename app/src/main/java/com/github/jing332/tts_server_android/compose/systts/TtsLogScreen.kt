@@ -151,6 +151,11 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
     // 之后只要用户滚动，回调就会把它覆盖成真正的视野值。
     // 「切过去」触发计数（11-11）：点一次 +1，传给 LogScreen 强制重启自动滚底。
     var jumpToLiveTick by remember { mutableIntStateOf(0) }
+    // 11-15：「是否停在列表最底部」。原「最新日志」胶囊删掉后，吸顶书章的
+    // 「跟随最新 vs 跟随视线」映射需要一个替代判据（见 PinnedLogHeader 里
+    // shownBook 那段注释）。初值 true：进页面默认就在底部，顶部显示最新那条书章，
+    // 与旧行为（autoFollow 默认 false 但 book 兜底取最新）观感一致。
+    var atListBottom by remember { mutableStateOf(true) }
     var viewBookChapter by remember(vm.logs) {
         val e = vm.logs.lastOrNull { it.bookName.isNotBlank() }
         mutableStateOf(e?.bookName.orEmpty() to e?.chapterTitle.orEmpty())
@@ -678,10 +683,6 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                 // 没有任何日志时不渲染筛选区（含下方分隔线），空页只剩标题与搜索。
                 if (vm.logs.isNotEmpty())
                 PinnedLogHeader(
-                    autoFollow = vm.autoScrollToBottom.value,
-                    onToggleAutoFollow = {
-                        vm.autoScrollToBottom.value = !vm.autoScrollToBottom.value
-                    },
                     errorOnly = vm.isErrorsOnly(),
                     onToggleErrorOnly = {
                         if (vm.isErrorsOnly()) vm.showAllLevels() else vm.showErrorsOnly()
@@ -712,6 +713,7 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                     // 视野：跟着滚动显示"你看的是哪本哪章"（用户：「我划到哪就显示哪本书」）
                     viewBook = viewBookChapter.first,
                     viewChapter = viewBookChapter.second,
+                    atBottom = atListBottom,
                     onClearScope = { vm.clearScope() },
                     // 切过去（用户定案 A）：回到全部日志 + 实时最新。
                     // 滚到底由 LogScreen 内部 autoScrollToBottom 的 LaunchedEffect 完成
@@ -745,9 +747,9 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
             playingSnapshot = playingSnap,
             list = displayLogs,
             listState = listState,
-            // 搜索定位期间不自动滚底，避免与跳转互相拉扯；多选中暂停（1003）——
-            // 拖选途中新日志一到就把列表拉到尾，指尖下的行会整批选错
-            autoScrollToBottom = vm.autoScrollToBottom.value && searchQuery.isEmpty() && !selectionMode,
+            // 11-15：「实时跟随」整条链路随胶囊一起撤（见 PinnedLogHeader 里「最新日志」
+            // 胶囊的注释）。列表不再自己滚底，回最新统一走右下角 ⇊ 浮钮。
+            // 搜索定位/跳章那些**一次性**滚动仍由各自的回调驱动，不受影响。
             searchQuery = searchQuery,
             selectionMode = selectionMode,
             checkedEntries = checkedEntries,
@@ -770,6 +772,8 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
             // 视野书章回传（11-11）：吸顶区那行"当前：《书名》第N章"跟着滚动变。
             // 只在首项所属书章变化时触发（LogScreen 内部已按 derivedStateOf 收敛）。
             onViewChanged = { b, c -> viewBookChapter = b to c },
+            // 11-15：吸顶书章的"跟随最新/跟随视线"判据（替代已删的「最新日志」胶囊）
+            onAtBottomChanged = { atListBottom = it },
             // 切过去时强制滚底（见 LogScreen 里 autoScrollToBottom 的注释）
             jumpToLiveTick = jumpToLiveTick,
             // 点章节签只负责滚动到本章首条（滚动已在 LogScreen 内完成，这里不再改筛选——
@@ -1485,8 +1489,6 @@ private fun BookPickRow(
 // 关键判据：书名字号略小于日志正文，避免吸顶抢内容的视觉重心——它只是路标。
 @Composable
 private fun PinnedLogHeader(
-    autoFollow: Boolean,
-    onToggleAutoFollow: () -> Unit,
     errorOnly: Boolean,
     onToggleErrorOnly: () -> Unit,
     showRule: Boolean,
@@ -1513,6 +1515,9 @@ private fun PinnedLogHeader(
     scopeChapter: String? = null,
     viewBook: String = "",
     viewChapter: String = "",
+    // 11-15：列表是否停在最底部（替代已删的「最新日志」胶囊当判据）。
+    // 在底部=你在看最新，吸顶显示最新那条的书章；往回翻=跟随视线。
+    atBottom: Boolean = true,
     onClearScope: () -> Unit = {},
     // 「切过去」＝回到全部日志 + 实时最新 + 滚到底（用户 11-11 定案 A）。
     // ⚠️ 原来这里错用了 onSwitchBook(readingBook)，那只是**打开书单弹窗**，
@@ -1569,7 +1574,7 @@ private fun PinnedLogHeader(
                 // bottom 5→9：与「书章/进度」拉开分组（间距账见书章行注释）。
                 .padding(start = 8.dp, end = 8.dp, top = 6.dp, bottom = 9.dp),
             verticalAlignment = Alignment.CenterVertically,
-            // 间距回 3dp：删掉 DEBUG 只剩 4 颗，每颗分到 71.8dp（四字只需 61dp 含内衬），
+            // 间距回 3dp：11-15 删掉「最新日志」后只剩 3 颗，每颗分到更宽，
             // 不必再挤成 2dp。
             horizontalArrangement = Arrangement.spacedBy(3.dp),
         ) {
@@ -1585,9 +1590,9 @@ private fun PinnedLogHeader(
             // 于是四颗胶囊从「等分一屏、左右对齐」退化成「固有宽度、挤在左边、宽窄参差」。
             // 用户要的是原来的等分观感，不是能左滑。
             //
-            // 现改回等分 + 去掉横滑：4 颗（朗读规则/插件/错误/最新日志）全靠 weight 平分
-            // 剩余宽度（360dp 屏约 63dp/颗，四字标签 11sp 实测 12.28dp/字 = 49.1dp + 内衬 12dp
-            // = 61.1dp，装得下）。窄屏（320dp）等比压缩，靠 Ellipsis 兜底不溢出。
+            // 现改回等分 + 去掉横滑：3 颗（朗读规则/插件/错误）全靠 weight 平分
+            // 剩余宽度（360dp 屏约 85dp/颗，四字标签 11sp 实测 12.28dp/字 = 49.1dp
+            // + 内衬 12dp = 61.1dp，宽松）。窄屏（320dp）等比压缩，靠 Ellipsis 兜底不溢出。
             // ⚠️ 别再套回 horizontalScroll——它会解除 weight，胶囊立刻又变参差。
             PinnedChip(
                 label = "朗读规则",
@@ -1611,13 +1616,20 @@ private fun PinnedLogHeader(
                 modifier = Modifier.weight(1f),
                 horizontalPadding = 6.dp,
             )
-            PinnedChip(
-                label = "最新日志",
-                selected = autoFollow,
-                onClick = onToggleAutoFollow,
-                modifier = Modifier.weight(1f),
-                horizontalPadding = 6.dp,
-            )
+            // 11-15 用户令：删掉「最新日志」胶囊。
+            //
+            // 理由（用户原话）：「如果说是跳转的话，放到胶囊这个地方就不合适，
+            // 而且日志栏下方不是有那个向下的箭头吗？点击一下就到最新了」。
+            // 判断成立，且比修开关更干净：
+            //   · 语义错位——这排是**筛选开关**（选中的各行才显示），"跳到最新"是
+            //     一次性**导航**动作，不该占筛选位；
+            //   · 功能本来就半废——勾上它滚到底，可「正在朗读」滚动跟随（11-15 加）
+            //     会在朗读段一变时把视口拉回耳朵位置，两个效应抢视口，永远跟不住；
+            //   · 替代入口本来就有——右下角 ⇊「跳到底部」浮钮（本批同时修好它
+            //     在朗读中也出现，见 LogScreen 里 visible 的注释）。
+            // 连带撤掉的还有：本组件 autoFollow/onToggleAutoFollow 两个参数、
+            // LogScreen 的 autoScrollToBottom 参数、ViewModel 的状态位、LogFilterDialog
+            // 里那颗「实时显示最新日志」开关——全链已无引用点。
         }
 
         // ===== ② 筛选 + 视野（11-11 用户定案「全部日志 + 其下方筛选」）=====
@@ -1684,25 +1696,28 @@ private fun PinnedLogHeader(
             val filtered = !scopeBook.isNullOrBlank()
             // ===== 11-13 晚（用户令「顶部章节名，两个都要：又要最新又要滚动」）=====
             //
-            // 现有两个口径各有用途，用户明确要**都保留**，用「实时」勾选当开关：
-            //   · 勾着「实时」（autoFollow=true，默认）= 你在跟最新日志，
-            //     顶部就该显示**最新那条**的书章（list.lastOrNull{带书章} → book/chapter）；
-            //   · 取消「实时」（autoFollow=false）= 你在往回翻旧日志，
-            //     顶部跟随**视线所在位置**（viewBook/viewChapter，由 LogScreen 回传）。
+            // 两个口径各有用途，用户明确要**都保留**：
+            //   · 在看最新（列表在底部）= 顶部显示**最新那条**的书章
+            //     （list.lastOrNull{带书章} → book/chapter）；
+            //   · 在往回翻旧日志 = 顶部跟随**视线所在位置**
+            //     （viewBook/viewChapter，由 LogScreen 回传）。
             //
-            // 这个映射不需要新增控件：两种行为在同一次勾选状态里天然互斥，语义也自洽
-            // ——「实时」本来就意味着"看最新的"，关掉它才是在翻历史。
+            // 11-15 判据换了但语义不变：原来靠「最新日志」胶囊的勾选状态当开关
+            //（autoFollow），胶囊已按用户令删除（"跳转动作不该占筛选位"），
+            // 现在改看**列表是不是停在最底部**——在底部本来就等于"在看最新"，
+            // 这个判据免费、不需要新控件，而且比手动勾选更贴合直觉
+            //（你滑到最新它自然就跟最新，不需要额外记得开开关）。
             //
             // 回落顺序都保留：主值取空时（无书章条目/筛选清空）退到另一个，
             // 避免吸顶整块空掉。
             val shownBook = when {
                 filtered -> scopeBook.orEmpty()
-                autoFollow -> book.ifBlank { viewBook }
+                atBottom -> book.ifBlank { viewBook }
                 else -> viewBook.ifBlank { book }
             }
             val shownChapter = when {
                 filtered -> scopeChapter.orEmpty()
-                autoFollow -> chapter.ifBlank { viewChapter }
+                atBottom -> chapter.ifBlank { viewChapter }
                 else -> viewChapter.ifBlank { chapter }
             }
             val chapLabel = shortChapterLabel(shownChapter).let { if (it.isBlank()) "" else " $it" }

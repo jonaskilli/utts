@@ -43,7 +43,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckBox
 import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -946,6 +946,14 @@ internal fun LogScreen(
     // 「跳到这本」的一次性滚底请求（11-11）：true=待执行，滚完即清。
     // 与 autoScrollToBottom（用户勾选的持续跟随）是两回事，别合并。
     var pendingJumpToBottom by remember { mutableStateOf(false) }
+    // 11-15（用户选定「滑走即暂停跟随」）：true=用户向上滑走了，不再自动拉回。
+    //
+    // 三案取舍（用户原话「照你推荐的来吧」）：
+    //   · 无条件自动复位：打断时机由段长决定——短对话三五秒拽一次，看一半被拉走；
+    //   · 完全手动：滑走后想回耳朵位置只能自己往上滑找，一条路都没有；
+    //   · 折中（本方案）：**滑走=表态**。向上滑走即暂停，点 ⟲ 或自己滑回底部解除；
+    //     没滑走时照样每段自动归位（不掉队）。
+    var followPaused by remember { mutableStateOf(false) }
     val visibleBookChapter by remember(currentGroups) {
         derivedStateOf {
             val vis = listState.layoutInfo.visibleItemsInfo
@@ -1087,33 +1095,27 @@ internal fun LogScreen(
         }
         // 滚回底部（或本来就在底）时同步基线：此后 size 增长才被视为「新到达」
         LaunchedEffect(isAtBottom) {
-            if (isAtBottom) lastSeenSizeAtBottom = list.size
+            if (isAtBottom) {
+                lastSeenSizeAtBottom = list.size
+                // 11-15：自己滑回底部 = 「我看完了」→ 解除跟随暂停。
+                //（点 ⟲ 是另一条解除路径，见浮钮点击处。）
+                followPaused = false
+            }
         }
         val hasNewBelow = list.size > lastSeenSizeAtBottom && !isAtBottom
         val showJumpToBottom = isFarFromBottom || hasNewBelow
-        // ===== 11-14「一键复位」浮钮（用户终版口径）=====
+        // ===== 朗读行可见性（playingVisible）=====
         //
-        // 双态单钮：任何时刻右下角最多一个浮钮，永不同现——
-        //   · 朗读进行中（playingMatch 非空）→ ⟲ 复位钮（绿点角标=朗读中）；
-        //     点它滚回正在朗读那张卡并短暂高亮。
-        //   · 没在朗读 → ⇊ 跳底部（即上方 showJumpToBottom 的原有行为，一字未改）。
-        //
-        // 用户定案的显隐判据：**正在朗读那张卡不在当前可见范围时才出现**——
-        // 它就在眼前时给一个复位钮没有意义，还会挡内容；滚走它才出现，复位后消失。
-        // 复位优先于 ⇊（甲案）：预取让合成跑在播放前面，最新日志常在朗读位置下方
-        // 很远，翻完历史想回的多半是"耳朵的位置"；看最新合成记录走「最新日志」跟随。
-        // 判定用 visibleItemsInfo（与 logIndexAtY 同源），比只看 firstVisibleItemIndex 准：
-        // 目标卡被顶部吸顶区压住一半时 firstVisible 可能已越过它，但视觉上仍在屏内。
-        // 11-14 晚（用户终令）：「如果页面看不到这个正在朗读的日志，才出现按钮更合适吧」。
-        //
-        // 判据就一句话：**朗读行只要在屏幕里就不出钮，完全滑出视野才出钮**。
-        // 曾试过加"缓冲带"（离开顶部 2 行 / 48dp 才算走远），用户否掉——
-        // 那会让"其实已经看不见了、却不给按钮"的空窗，比偶尔闪一下更难受。
-        //
-        // 「在屏幕里」用**像素级**判断而不是"项是否在 visibleItemsInfo 里"：
+        // 像素级判断而不是"项是否在 visibleItemsInfo 里"：
         // LazyColumn 会把只露出一两像素的项也算进可见列表（预取），
-        // 按项算会把"几乎看不见"误判成"看得见"，按钮就不出来。
-        // 所以取该项的 offset 与 viewportStart/Bottom 比，被裁掉多少一目了然。
+        // 按项算会把"几乎看不见"误判成"看得见"。
+        // 取该项的 offset 与 viewportStart/Bottom 比，被裁掉多少一目了然。
+        //
+        // 11-15 起它有**两个消费者**：
+        //   ① showResumePlaying——浮钮 ⟲ 态的旧显隐依据之一（见浮钮块注释）；
+        //   ② 下面的「向上滑走」跳变检测——服务 followPaused（滑走即暂停跟随）。
+        // 11-14 的「判据就一句话：朗读行只要在屏幕里就不出钮」口径已成历史：
+        // 现在浮钮显隐由 resumeMode/isAtBottom 决定，不再直接吃这个值。
         val playingVisible by remember {
             derivedStateOf {
                 val m = playingMatch
@@ -1128,6 +1130,24 @@ internal fun LogScreen(
             }
         }
         val showResumePlaying = playingMatch != null && !playingVisible
+        // ===== 「向上滑走」检测（11-15 新增，服务"滑走即暂停跟随"）=====
+        //
+        // 用 playingVisible 的**跳变**而不是它的当前值：列表每秒都在追加日志，
+        // "当前不可见"在正常状态下也会成立（新卡在朗读行下方涌入），不能当信号；
+        // 只有「可见 → 不可见」的跳变才是用户把朗读行滑出屏幕的主动动作。
+        //
+        // ⚠️ 只认向上滑走（可见→不可见）。预取让新日志永远在朗读行**下方**，
+        // 用户向下滑是"追最新"（跟随本来就在做的事）不算表态；向上滑走才是
+        // 唯一的"离开耳朵位置去看历史"动作。
+        // 实现：remember 持一份上一帧值，与当前值比对出「可见→不可见」跳变。
+        var playingVisiblePrev by remember { mutableStateOf(true) }
+        LaunchedEffect(playingVisible) {
+            if (playingVisiblePrev && !playingVisible) {
+                // 跳变成立 = 向上滑走（用户在看历史）→ 暂停自动跟随
+                followPaused = true
+            }
+            playingVisiblePrev = playingVisible
+        }
         // ===== 自动滚底 =====
         // 两条来源必须分开，因为语义完全不同（11-11 用户纠正）：
         //
@@ -1157,11 +1177,12 @@ internal fun LogScreen(
         //   ② 用户正在手动滑动时**绝不插一脚**——由 listState.isScrollInProgress 判定；
         //   ③ 不打断手势：用 animateScrollToItem 平滑位移。
         //
-        // 与「实时最新」勾选的关系：那个滚到底（跟最新合成），这个滚到朗读位置（跟耳朵）。
+        // 与 ↓ 浮钮的关系：这个滚到朗读位置（跟耳朵），浮钮滚到底（跟最新合成）。
         // 语义不同，但同样遵守"用户手在动时不动"。
         //
-        // 用户手动滑走后不会自动回来——这是要有意的：他正在看别处，抢视口很烦。
-        // 想回到耳朵的位置，点右下角的 ⟲ 复位钮（见 showResumePlaying 那段）。
+        // 11-15 起增加 followPaused 判定（用户选定「滑走即暂停跟随」）：用户向上滑走
+        // 后暂停自动归位，直到点 ⟲ 或自己滑回底部。**没滑走时照样每段自动归位**
+        //（不掉队）。滑走检测见 playingRowVisible 那段（跳变判定，见其注释）。
         LaunchedEffect(playingMatch?.listItem, playingMatch?.entryIndex) {
             val m = playingMatch ?: return@LaunchedEffect
             val target = m.listItem
@@ -1169,6 +1190,8 @@ internal fun LogScreen(
             // 用户手正压在列表上：这次不跟，别抢。
             // （isScrollInProgress 在手势拖动与惯性滑动期间都为 true）
             if (listState.isScrollInProgress) return@LaunchedEffect
+            // 用户已表态"别拽我"：暂停，直到点 ⟲ 或滑回底部（两处解除）
+            if (followPaused) return@LaunchedEffect
             runCatching {
                 // 0 偏移 = 让朗读行落到视口最上方；它上方的前文仍在上面（可上滑看到）
                 listState.animateScrollToItem(target)
@@ -1947,20 +1970,31 @@ internal fun LogScreen(
         // 外加一圈同色描边+投影让它从正文里「浮起来」，误触判定立刻分化。
         // 为什么不再改成长按：长按已被本页的「拖选多选」独占（见 dragSelectEnabled
         // 那套 awaitEachGesture），再挂一个长按会和进多选直接打架（用户 11-10 指出）。
+        // ===== 右下角浮钮（11-15 第四轮定稿：双态回归 + 挪右下角）=====
+        //
+        // 一枚钮、两态，**同一时刻只显示其一**（用户 11-15 选定「滑走即暂停跟随」后，
+        // ⟲ 必须回来——跟随暂停后它是"回耳朵位置"的唯一入口）：
+        //   · followPaused（已向上滑走）→ ⟲ 回到正在朗读，点击后解除暂停、跟随恢复；
+        //   · 否则（不在底部/下方有新日志）→ ↓ 跳到最新。
+        // 优先级：⟲ > ↓——暂停状态下用户明确在翻历史，↓ 是次要需求。
+        //
+        // 位置（用户令「复位按钮和向下的箭头是不是别放中间放右下角更好？不影响看日志？」
+        // 判断成立）：BottomCenter → BottomEnd。居中恰好压住一行最重要的请求正文；
+        // 右下角只压行尾的段号丸（靠右空白多，行文靠左），遮挡最小。底距 20dp 不变。
+        val resumeMode = followPaused && playingMatch != null
         AnimatedVisibility(
             modifier = Modifier
-                .align(Alignment.BottomCenter)
+                .align(Alignment.BottomEnd)
                 // 键缩小后 48dp 遗留外距把键顶离屏底太远（用户 10-08：太靠上）→20dp，
                 // 拇指自然可及也不压底栏
-                .padding(bottom = 20.dp),
-            // 11-14 双态单钮：朗读中=⟲复位（且目标条不在视野才出现）；否则=⇊跳底部。
-            // 两态共用同一枚浮钮位置与动画，永不同现（用户令「谁会想去看底部的日志呀」
-            // ——朗读中 ⇊ 让位，看最新合成记录走「实时」跟随或滑到底）。
-            // visible 三分支：复位钮（朗读中+目标不在视野）/ ⇊（没在朗读且离底）/ 都不显示
-            visible = showResumePlaying ||
-                (!showResumePlaying && showJumpToBottom && playingMatch == null),
-            enter = fadeIn() + expandIn(expandFrom = Alignment.BottomCenter),
-            exit = shrinkOut(shrinkTowards = Alignment.BottomCenter) + fadeOut(),
+                .padding(bottom = 20.dp, end = 12.dp),
+            // 显隐与点击必须用**同一个判据**（resumeMode），否则会出现
+            // 「显示箭头、点下去却复位」的错配。
+            // ⟲ 态：暂停中恒显示（它是唯一回耳朵的路）；
+            // ↓ 态：不在底部或下方有新日志。
+            visible = if (resumeMode) true else (!isAtBottom || showJumpToBottom),
+            enter = fadeIn() + expandIn(expandFrom = Alignment.BottomEnd),
+            exit = shrinkOut(shrinkTowards = Alignment.BottomEnd) + fadeOut(),
         ) {
             // 外层 Box 承担 56dp 触摸区（透明），内层 40dp 才是可见键——
             // Compose 里触摸区由最外层有尺寸的节点决定，所以不能只给 FAB 加 padding
@@ -1968,23 +2002,18 @@ internal fun LogScreen(
                 modifier = Modifier
                     .size(56.dp)
                     .clickable(
-                        // 去涟漪但保留可达性语义：复位态=滚回正在朗读那条；跳底态=滚到底
+                        // 去涟漪但保留可达性语义（浮钮不挂 ripple：压在日志正文上，波纹扎眼）
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
                     ) {
                         scope.launch {
                             kotlin.runCatching {
-                                val m = playingMatch
-                                if (showResumePlaying && m != null) {
-                                    // 一键复位：滚回正在朗读那张卡（用户令「点它就回到那个位置」）
+                                if (resumeMode) {
+                                    val m = playingMatch ?: return@runCatching
+                                    // ⟲ 复位：滚回正在朗读那张卡，并解除跟随暂停——
+                                    // 点它 = 「我看完历史了，继续跟着读」
                                     listState.animateScrollToItem(m.listItem)
-                                    // 短暂高亮 2 秒后清除（与搜索定位 locateHighlight 同节奏）
-                                    // entryIndex 是 renderList 里的下标，取行必须同源
-                                    resumeHighlightEntry = renderList.getOrNull(m.entryIndex)
-                                    scope.launch {
-                                        kotlinx.coroutines.delay(2000)
-                                        resumeHighlightEntry = null
-                                    }
+                                    followPaused = false
                                 } else {
                                     listState.scrollToItem(currentGroups.items.lastIndex)
                                 }
@@ -2002,29 +2031,20 @@ internal fun LogScreen(
                     modifier = Modifier.size(40.dp),
                 ) {
                     Box(contentAlignment = Alignment.Center) {
-                        if (showResumePlaying) {
-                            // ⟲ 复位符号（Icons.Default.Refresh）：功能名就叫「一键复位」，名图一致。
-                            // 历史注意：10-11「回原位」键曾撤过 ⟲ 文字符号（当时语义不搭）——
-                            // 那是筛选态文字胶囊的语境；这里是独立浮钮、功能名就叫复位，不冲突。
-                            Box(
-                                modifier = Modifier
-                                    .size(24.dp)
-                                    .background(
-                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.22f),
-                                        shape = CircleShape,
-                                    ),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Icon(
-                                    Icons.Default.Refresh,
-                                    contentDescription = "一键复位到正在朗读",
-                                    modifier = Modifier.size(16.dp),
-                                    tint = MaterialTheme.colorScheme.primary,
-                                )
-                            }
-                        } else {
+                        // ⚠️ 图标必须与点击分支同判据（resumeMode），否则错配。
+                        if (resumeMode) {
+                            // ⟲ 复位符号（Icons.Default.Refresh）：功能名「回到正在朗读」，名图一致。
                             Icon(
-                                Icons.Default.KeyboardArrowDown,
+                                Icons.Default.Refresh,
+                                contentDescription = "回到正在朗读",
+                                modifier = Modifier.size(20.dp),
+                                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                            )
+                        } else {
+                            // ↓ 用户令「真正的箭头，一竖下边一个箭头」：ArrowDownward
+                            //（material-icons-extended，本模块已依赖）。
+                            Icon(
+                                Icons.Default.ArrowDownward,
                                 stringResource(id = R.string.move_to_bottom),
                                 modifier = Modifier.size(20.dp),
                                 tint = MaterialTheme.colorScheme.onSecondaryContainer,
