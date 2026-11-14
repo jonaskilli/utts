@@ -1159,14 +1159,12 @@ internal fun LogScreen(
             // scrollToItem(target) 配 scrollOffset=0 等价于「顶边露出」；
             // 而被新日志顶出下沿的场景，先判方向再定补偿。
             runCatching {
-                if (target < info.firstVisibleItemIndex) {
+                if (target < listState.firstVisibleItemIndex) {
                     // 在视口上方（向上滑走）：顶边露出
                     listState.scrollToItem(target)
                 } else {
-                    // 在视口下方（被新日志顶下去）：底边露出 = 滚到它，再回退一个视口高
-                    // 简化：直接 scrollToItem(target) 顶部对齐也把它带进视野，
-                    // 但会把「下沿露出」变成「顶部对齐」多滚一段。用 offset 补偿：
-                    listState.scrollToItem(target, 0)
+                    // 在视口下方（被新日志顶下去）：滚到它即带进视野（底边露出）
+                    listState.scrollToItem(target)
                 }
             }
         }
