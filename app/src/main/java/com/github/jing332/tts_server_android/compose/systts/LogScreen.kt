@@ -1435,6 +1435,12 @@ internal fun LogScreen(
                                 if (absorbed != null) null else tailTextOfRow(successMember ?: head)
                             }
                             val railColor = playingRailColor()
+                            // 章名分隔标色（11-14）：drawBehind 的 lambda 不是 @Composable，
+                            // 不能在里面读 MaterialTheme（CI 会报 @Composable invocations
+                            // can only happen from the context of a @Composable function）——
+                            // 与 railColor 同法，在这里先取值。
+                            val chapterMarkColor = MaterialTheme.colorScheme
+                                .onSurfaceVariant.copy(alpha = 0.35f)
                             // 组头时间（11-14 用户改口「有耗时了，结束时间就不用要了」）：
                             // 成功组=只显开始时刻（耗时尾串已表达时长，结束时刻冗余，
                             //   省出 ~100dp 给「正在朗读」丸与段号丸，链多数不再折行）；
@@ -1465,12 +1471,31 @@ internal fun LogScreen(
                                     // 与前后日志无关、与书名无关，只看这一条。
                                     // 底色取书籍框同款 softFillBarColor()（#E7F7EC），
                                     // 文字（时间/成功丸/正文/发音人信息）一律不动。
+                                    //
+                                    // ===== 11-14 用户实报「这两个样式太一致了……要不就把
+                                    // 章节的那个日志底色给去掉？或者给他换个其他的版式」=====
+                                    //
+                                    // 冲突确认：章名底色 softFillBarColor()（#E7F7EC 实色）
+                                    // 与朗读行 playingRowBg()（background→primary 6% 淡绿）
+                                    // 在浅色主题下几乎同色，两行相邻时分不清谁是章名谁是朗读中。
+                                    // 而朗读行的「绿轨+淡底+丸」是用户定稿的三件套，不能动它。
+                                    // 故**撤掉章名整行底色**，改成左侧 3dp 中性灰竖标（drawBehind），
+                                    // 语义回到 11-13 的本意：章名是**分隔符**（标记"从这里进入新章"），
+                                    // 不是强调；朗读中才是强调。色相上灰色 vs 绿色也彻底分开。
+                                    // 竖标比底色克制：不铺满整行、不抢正文，扫一眼就能认出边界。
                                     .then(
                                         if (currentGroups.isChapterTitleLog(
                                                 boldBodyOf(head), head.chapterTitle
                                             )
                                         )
-                                            Modifier.background(softFillBarColor())
+                                            Modifier.drawBehind {
+                                                drawLine(
+                                                    color = chapterMarkColor,
+                                                    strokeWidth = 3.dp.toPx(),
+                                                    start = Offset(0f, 2.dp.toPx()),
+                                                    end = Offset(0f, size.height - 2.dp.toPx()),
+                                                )
+                                            }
                                         else Modifier
                                     )
                                     // 11-14「正在朗读」行强调（用户定稿三件套之二三）：
@@ -1536,7 +1561,12 @@ internal fun LogScreen(
                                         //playingMatch 捕获的是 remember 快照，这里用当前值判断
                                         val isPlayingHead = playingMatch?.entryIndex == item.head
                                         if (isPlayingHead) {
-                                            Box(Modifier.padding(start = 6.dp)) {
+                                            // 11-14 用户实报「正在朗读这个胶囊直接紧挨左侧，不要留
+                                            // 那么多距离，不然这一行放不下」：原来这里 padding(start=6)
+                                            // 叠在容器 16dp 外衬上，视觉上离左轨 22dp，白占宽度。
+                                            // 现改为 0——胶囊贴齐行内容左缘（即容器 16dp 处），
+                                            // 与下方正文同线，链上省出 6dp 给后面的段号。
+                                            Box {
                                                 StatusPill(LogPill(LogPillKind.PLAYING, "正在朗读"))
                                             }
                                         }
@@ -1607,14 +1637,24 @@ internal fun LogScreen(
                                                 modifier = Modifier.padding(start = 8.dp)
                                             )
                                         }
+                                        // 11-14 用户实报「末尾第几段改为（1/23）这种格式，
+                                        // 之前我也提过这种格式了」：与书章行进度后缀
+                                        // （playingProgressSuffix 的「（1/23）」）统一——
+                                        // 同一个概念（章内第几段/共几段）不能有两种写法。
+                                        // 原来这里是「第 7 段」，又长又占宽（图上被挤成两行）。
                                         if (isPlayingHead && playingSnapshot != null &&
-                                            playingSnapshot.segIndex >= 0
+                                            playingSnapshot.segIndex >= 0 &&
+                                            playingSnapshot.totalSegs > 0
                                         ) {
+                                            val seg = (playingSnapshot.segIndex + 1)
+                                                .coerceAtMost(playingSnapshot.totalSegs)
                                             Text(
-                                                text = "第 ${playingSnapshot.segIndex} 段",
+                                                text = "（$seg/${playingSnapshot.totalSegs}）",
                                                 style = MaterialTheme.typography.bodySmall,
                                                 fontSize = LOG_AUX_SIZE,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 1,
+                                                softWrap = false,
                                                 modifier = Modifier.padding(start = 8.dp)
                                             )
                                         }

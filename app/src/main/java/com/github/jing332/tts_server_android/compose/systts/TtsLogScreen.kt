@@ -1551,9 +1551,6 @@ private fun PinnedLogHeader(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                // 11-14 用户令「这排胶囊可以左滑」：改固有宽度后一行放不下，
-                // 整排横向滚动。rememberScrollState 保持续状态，滑到哪停哪。
-                .horizontalScroll(rememberScrollState())
                 // 外衬 24→16：左右各收 4dp（删掉 DEBUG 后每颗已很宽裕，这两处保留不动）
                 .padding(start = 10.dp, end = 6.dp, top = 6.dp, bottom = 5.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -1566,26 +1563,44 @@ private fun PinnedLogHeader(
             // 竖线只留这一道——胶囊之间不再插分隔线（用户：「后边就不要有分隔线，
             // 不然就有点儿区分不开」：一道线是「标签｜选项」的分界，两道以上就成了装饰噪音）。
             PinnedFilterLabel()
-            // 11-11 用户令「写得更省略一点，第一个就写实时」：文案「实时最新」→「实时」。
-            // 等分宽度下两颗四字标签最吃紧，缩成两字后余量充足，也不会再被省略号吃掉。
-            // 11-14 用户令「筛选行改序改名」：实时→「最新日志」挪到最后；
-            // 新序=朗读规则 → 插件 → 错误 → 最新日志。「实时」的名字太抽象
-            // （"最新"什么？），「最新日志」名实相符且四字与其他胶囊长度齐。
-            // 整排改为可横向滑动（五颗/四颗一行放不下，用户令「这排胶囊可以左滑」）。
-            // 等分宽度（weight）与横滑互斥——横滑必须用固有宽度，weight 移除。
-            PinnedChip("朗读规则", showRule, onToggleRule, horizontalPadding = 6.dp)
-            PinnedChip("插件", showPlugin, onTogglePlugin, horizontalPadding = 6.dp)
+            // ===== 11-14 用户实报「胶囊以前是合理间距、宽度也一致，你咋改成这样了」=====
+            //
+            // 根因（考古确证）：0ebaccca 给这排加第 5 颗（「最新日志」）时，
+            // 同时把**等分 weight 方案整排换成 horizontalScroll**（理由=横滑与 weight 互斥），
+            // 于是四颗胶囊从「等分一屏、左右对齐」退化成「固有宽度、挤在左边、宽窄参差」。
+            // 用户要的是原来的等分观感，不是能左滑。
+            //
+            // 现改回等分 + 去掉横滑：4 颗（朗读规则/插件/错误/最新日志）全靠 weight 平分
+            // 剩余宽度（360dp 屏约 63dp/颗，四字标签 11sp 实测 12.28dp/字 = 49.1dp + 内衬 12dp
+            // = 61.1dp，装得下）。窄屏（320dp）等比压缩，靠 Ellipsis 兜底不溢出。
+            // ⚠️ 别再套回 horizontalScroll——它会解除 weight，胶囊立刻又变参差。
+            PinnedChip(
+                label = "朗读规则",
+                selected = showRule,
+                onClick = onToggleRule,
+                modifier = Modifier.weight(1f),
+                horizontalPadding = 6.dp,
+            )
+            PinnedChip(
+                label = "插件",
+                selected = showPlugin,
+                onClick = onTogglePlugin,
+                modifier = Modifier.weight(1f),
+                horizontalPadding = 6.dp,
+            )
             PinnedChip(
                 label = "错误",
                 selected = errorOnly,
                 onClick = onToggleErrorOnly,
                 error = true,
+                modifier = Modifier.weight(1f),
                 horizontalPadding = 6.dp,
             )
             PinnedChip(
                 label = "最新日志",
                 selected = autoFollow,
                 onClick = onToggleAutoFollow,
+                modifier = Modifier.weight(1f),
                 horizontalPadding = 6.dp,
             )
         }
@@ -1694,18 +1709,30 @@ private fun PinnedLogHeader(
                             // 职责承接原「筛选书」（书下拉）与「跳到第x章」（章下拉）。
                             var bookMenu by remember { mutableStateOf(false) }
                             var chapMenu by remember { mutableStateOf(false) }
-                            Text(
-                                text = "《$shownBook》",
-                                style = MaterialTheme.typography.labelSmall,
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.Medium,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
+                            // 11-14：可点线索（与未筛选分支同口径）——挂展开箭头，
+                            // 双项都套 Row 以让箭头紧跟文字、点击区域包含箭头。
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier
                                     .weight(1f, fill = false)
                                     .clickable { bookMenu = true },
-                            )
+                            ) {
+                                Text(
+                                    text = "《$shownBook》",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Medium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Icon(
+                                    imageVector = Icons.Default.KeyboardArrowDown,
+                                    contentDescription = "选择书籍",
+                                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.65f),
+                                    modifier = Modifier.size(12.dp),
+                                )
+                            }
                             // 紧凑菜单（用户令「把这个框小一点……得和谐呀」）：
                             // MD3 DropdownMenu 默认项 48dp 高/16sp 字，相对吸顶 11sp 小字巨大。
                             // 自定义项：11.5sp、36dp 高、内衬 12×6，与吸顶区同视觉密度；
@@ -1714,6 +1741,8 @@ private fun PinnedLogHeader(
                                 expanded = bookMenu,
                                 onDismissRequest = { bookMenu = false },
                                 modifier = Modifier.widthIn(max = 220.dp),
+                                alignment = Alignment.TopEnd,
+                                offset = androidx.compose.ui.unit.DpOffset((-16).dp, 0.dp),
                             ) {
                                 knownBooks.forEach { b ->
                                     DropdownMenuItem(
@@ -1736,20 +1765,32 @@ private fun PinnedLogHeader(
                                 }
                             }
                             if (chapLabel.isNotBlank()) {
-                                Text(
-                                    text = chapLabel + playingProgressSuffix,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    fontWeight = FontWeight.Medium,
-                                    maxLines = 1,
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
                                     modifier = Modifier
                                         .clickable { chapMenu = true },
-                                )
+                                ) {
+                                    Text(
+                                        text = chapLabel + playingProgressSuffix,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Medium,
+                                        maxLines = 1,
+                                    )
+                                    Icon(
+                                        imageVector = Icons.Default.KeyboardArrowDown,
+                                        contentDescription = "选择章节",
+                                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.65f),
+                                        modifier = Modifier.size(12.dp),
+                                    )
+                                }
                                 DropdownMenu(
                                     expanded = chapMenu,
                                     onDismissRequest = { chapMenu = false },
                                     modifier = Modifier.widthIn(max = 220.dp),
+                                    alignment = Alignment.TopEnd,
+                                    offset = androidx.compose.ui.unit.DpOffset((-16).dp, 0.dp),
                                 ) {
                                     chaptersOf(shownBook).forEach { (name, count) ->
                                         DropdownMenuItem(
@@ -1793,25 +1834,53 @@ private fun PinnedLogHeader(
                             )
                         }
                     } else {
-                        // ---- 未筛选：纯灰字 + 同款下拉（多项才弹，单项点了不弹）----
+                        // ---- 未筛选：灰字 + 下拉箭头（11-14 用户实报「书籍名和章节名的样式
+                        // 看不出来能点击选择」）----
+                        //
+                        // 根因：这两处是纯 Text + clickable，**零可点线索**——颜色与其它
+                        // 说明文字一模一样，没有任何箭头/下划线/底色，肉眼看就是死文字。
+                        // 现在给每个可点项挂一枚 12dp 的 KeyboardArrowDown（与筛选胶囊同灰档），
+                        // 不加重底色（11-11 定稿「未筛选=纯信息，无底无绿」仍然成立），
+                        // 只加"能展开"的通用符号，一眼可辨且不喧宾夺主。
+                        //
+                        // 菜单对齐（用户实报「图三的位置尤其不对，得居右吧，还有这些点击
+                        // 出来的卡片跟标题很割裂」）：DropdownMenu 默认锚在**父 Box 左上角**，
+                        // 而父 Box 是占满剩余宽度的信息槽 ⇒ 菜单永远从行首弹出、与右侧按钮
+                        // 隔着半个屏。改用 alignment=TopEnd + offset 抵消右内衬，
+                        // 让菜单**右缘对齐触发文字所在区域的右缘**，视觉上"从这一行长出来"。
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             var bookMenu2 by remember { mutableStateOf(false) }
                             var chapMenu2 by remember { mutableStateOf(false) }
-                            Text(
-                                text = "《$shownBook》",
-                                style = MaterialTheme.typography.bodySmall,
-                                fontSize = 11.5.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier
                                     .weight(1f, fill = false)
+                                    .clip(AppShapes.sm)
                                     .clickable { bookMenu2 = true },
-                            )
+                            ) {
+                                Text(
+                                    text = "《$shownBook》",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontSize = 11.5.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Icon(
+                                    imageVector = Icons.Default.KeyboardArrowDown,
+                                    contentDescription = "选择书籍",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+                                    modifier = Modifier.size(12.dp),
+                                )
+                            }
                             DropdownMenu(
                                 expanded = bookMenu2,
                                 onDismissRequest = { bookMenu2 = false },
                                 modifier = Modifier.widthIn(max = 220.dp),
+                                // 右缘对齐（见上注释）：TopEnd 贴住锚点右缘，
+                                // 再右移 16dp 抵掉容器的 horizontal 内衬，菜单右缘 ≈ 屏幕右缘。
+                                alignment = Alignment.TopEnd,
+                                offset = androidx.compose.ui.unit.DpOffset((-16).dp, 0.dp),
                             ) {
                                 knownBooks.forEach { b ->
                                     DropdownMenuItem(
@@ -1834,19 +1903,32 @@ private fun PinnedLogHeader(
                                 }
                             }
                             if (chapLabel.isNotBlank()) {
-                                Text(
-                                    text = chapLabel + playingProgressSuffix,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    fontSize = 11.5.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
                                     modifier = Modifier
+                                        .clip(AppShapes.sm)
                                         .clickable { chapMenu2 = true },
-                                )
+                                ) {
+                                    Text(
+                                        text = chapLabel + playingProgressSuffix,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontSize = 11.5.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                    )
+                                    Icon(
+                                        imageVector = Icons.Default.KeyboardArrowDown,
+                                        contentDescription = "选择章节",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+                                        modifier = Modifier.size(12.dp),
+                                    )
+                                }
                                 DropdownMenu(
                                     expanded = chapMenu2,
                                     onDismissRequest = { chapMenu2 = false },
                                     modifier = Modifier.widthIn(max = 220.dp),
+                                    alignment = Alignment.TopEnd,
+                                    offset = androidx.compose.ui.unit.DpOffset((-16).dp, 0.dp),
                                 ) {
                                     chaptersOf(shownBook).forEach { (name, count) ->
                                         DropdownMenuItem(
