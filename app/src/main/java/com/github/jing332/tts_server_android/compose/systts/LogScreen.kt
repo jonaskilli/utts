@@ -2204,6 +2204,9 @@ private fun pillOf(e: LogEntry, entryIndex: Int, failedHeads: Set<Int> = emptySe
     val msg = e.message.replace(Regex("<[^>]*>"), "")
     return when {
         e.configId != 0L -> when {
+            // 11-15 晚：命中合成缓存的成功行单独一颗「缓存」丸——用户要「别加行」，
+            // 丸是唯一不占高度的区分位。
+            msg.contains("获取成功（缓存）") -> LogPill(LogPillKind.CACHE, "缓存")
             e.level == LogLevel.SUCCESS -> LogPill(LogPillKind.OK, "成功")
             entryIndex in failedHeads -> LogPill(LogPillKind.FAIL, "失败")
             else -> null
@@ -2306,7 +2309,9 @@ private fun withinSeconds(a: String, b: String, seconds: Int): Boolean {
 // 失败丸后不跟 IOException 文案、失败丸单独一行——失败行的异常细节走成员区完整源错误行。
 // 截短 40 全角字逻辑保留（成功行数字不长，此处主要防御）。
 private fun tailTextOfRow(e: LogEntry): String? {
-    val msg = e.message.replace(Regex("<[^>]*>"), "")
+    // 11-15 晚：缓存命中行前缀是「获取成功（缓存）：」，先归一化再取尾段，
+    // 否则首行的「耗时，大小」会丢。
+    val msg = e.message.replace(Regex("<[^>]*>"), "").replace("获取成功（缓存）：", "获取成功：")
     val t = when {
         e.level == LogLevel.SUCCESS ->
             msg.substringAfter("获取成功：", "").trim().ifEmpty { null }
@@ -2335,7 +2340,7 @@ private fun tailTextOfRow(e: LogEntry): String? {
 // 11-15 新增 PENDING（「请求中」）：用户令「不想要被误标，你可以显示请求中，
 // 然后他的结果是取消或者是成功，或者是怎么样？」——即卡片**没有结果行**时
 // 就如实报「请求中」，绝不去猜它是不是被掐掉的；等成功/失败行到达自然换丸。
-internal enum class LogPillKind { OK, FAIL, RETRY, STANDBY, CANCELED, PENDING, PLAYING }
+internal enum class LogPillKind { OK, FAIL, RETRY, STANDBY, CANCELED, PENDING, PLAYING, CACHE }
 internal data class LogPill(val kind: LogPillKind, val text: String)
 
 /**
@@ -2457,6 +2462,9 @@ private fun StatusPill(pill: LogPill) {
         LogPillKind.PENDING -> if (dark) Color(0xFF8A9099) else Color(0xFF7D8790)
         // 11-14 正在朗读：跟「成功」同走主题主色（身份 vs 结果，同色系两档由描边区分）
         LogPillKind.PLAYING -> primary
+        // 缓存：中性青灰，比「成功」的主色淡一档——它不是「合成成功」，
+        // 是「这轮没合成」，用绿色会被读成同样一件事
+        LogPillKind.CACHE -> if (dark) Color(0xFF7FA6C8) else Color(0xFF47708A)
     }
     val bg = when (pill.kind) {
         // 成功底随主色：页底混 8% 主色，自动带当前主题色相（原固定淡绿 #F2F8F4 在
@@ -2468,6 +2476,7 @@ private fun StatusPill(pill: LogPill) {
         LogPillKind.STANDBY -> if (dark) Color(0xFF3A3226) else Color(0xFFFDF7E7)
         LogPillKind.CANCELED -> if (dark) Color(0xFF2B2E33) else Color(0xFFF0F2F4)
         LogPillKind.PENDING -> if (dark) Color(0xFF2B2E33) else Color(0xFFF0F2F4)
+        LogPillKind.CACHE -> if (dark) Color(0xFF232B33) else Color(0xFFEAF1F5)
     }
     // Box 居中（10-12 用户令「字一定要居中对齐」）：Text 直接挂 padding 时字形上下留白
     // 随字重/基线浮动，视觉偏上；Box(contentAlignment=Center) + 内衬给 Box 才几何居中。

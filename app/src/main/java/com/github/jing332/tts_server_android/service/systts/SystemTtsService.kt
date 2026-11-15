@@ -1241,13 +1241,9 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                             currentReqChapter = e.request.chapterTitle
                         }
                         logI("请求音频：" + e.request.text())
-                        // 11-15 晚：合成缓存命中的请求标明来路。
-                        // 不标的话它和现场合成长得一模一样——用户实测段 24–27 命中时
-                        // 日志页上一张卡都没有（旧版命中压根不落行），首卡是段 28，
-                        // 于是被误读成「起点跳到页尾」。这里补一行子行，耗时那边记 0.0s。
-                        if (e.request.fromCache) logChild(
-                            LogLevel.INFO, "命中合成缓存，未走插件"
-                        )
+                        // 11-15 晚二改：缓存命中**不额外加行**（用户令「卡片第一行已经很挤了」）。
+                        // 来路改由「获取成功（缓存）：…」这一行承担 —— 它本来就渲染在卡片首行，
+                        // 只把「成功」丸换成「缓存」丸，零额外高度。
                         // 降级兜底提示：规则 JS 分析失败会把文本直接投给兜底标签，
                         // 请求行与正常请求无异、看不出是兜底。判定：括号4 本职是『』括号发音人，
                         // 正常请求文本必含『』；非『』文本投给括号4 = 降级兜底。
@@ -1300,8 +1296,12 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                     //（用户拍板甲案：1079ms→1.1s；<1s 显 0.6s，≥10s 照常 12.3s）
                     val costSec = e.costTime / 1000.0
                     val costText = String.format("%.1fs", costSec)
+                    // 11-15 晚二改：命中缓存用「获取成功（缓存）：」——渲染层据此把「成功」丸
+                    // 换成「缓存」丸（同一行，不新增高度）。用户令「日志卡片第一行已经很挤了」，
+                    // 所以不再为命中加子行，改动只落在这一行的前缀 + 丸上。
                     logS(
-                        "<font color=\"" + META_INFO_COLOR + "\">获取成功：</font>" +
+                        "<font color=\"" + META_INFO_COLOR + "\">获取成功" +
+                            (if (e.request.fromCache) "（缓存）" else "") + "：</font>" +
                             e.size.sizeToReadable() + " · " + costText,
                         indent = 1,
                         // 书章取自事件自带的 request（MDC 此时已被 finally 清掉，取不到）
