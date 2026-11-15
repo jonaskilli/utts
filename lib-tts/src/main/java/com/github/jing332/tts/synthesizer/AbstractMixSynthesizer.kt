@@ -217,6 +217,8 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
                 chapterTitle = segment.chapterTitle,
                 paraIndex = segment.paraIndex,
                 paraTotal = segment.paraTotal,
+                // 预热不出日志卡片（见 requestAndProcess 的 emitHitLog）
+                emitHitLog = false,
             )
         } catch (e: CancellationException) {
             throw e
@@ -375,7 +377,16 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
         // 重试/备用递归原样带——失败链上的日志段号不能丢。
         paraIndex: Int = -1,
         paraTotal: Int = 0,
+        // 11-15 晚：预热路径传 false——预热只是备货，不该在日志页生成卡片。
+        emitHitLog: Boolean = true,
     ) {
+        val request = RequestPayload(
+            params, config, roleName, failoverFromTag, bookName, chapterTitle,
+            reqId = reqId.ifEmpty { "r" + System.identityHashCode(params).toString(36) + System.nanoTime().toString(36).takeLast(6) },
+            paraIndex = paraIndex,
+            paraTotal = paraTotal,
+        )
+
         // 11-15（路 C）：合成结果缓存命中即直接产出，不再走插件请求。
         // 只在本笔的**首次**尝试查（retries==0）：重试时不查，否则缓存里的旧音频
         // 会盖住真实的失败，让重试链永远「成功」。
@@ -384,17 +395,19 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
             val cachedPcm = SynthesizedAudioCache.get(cacheKeyOf(params.text, config))
             if (cachedPcm != null) {
                 logger.info { "cache hit: ${params.text.take(20)}" }
+                if (emitHitLog) {
+                    // 11-15 晚补：命中也要出「请求音频 + 获取成功」两张行——
+                    // 否则命中段在日志页上完全不存在，用户看到的第一张卡是下一个现场合成的段，
+                    // 误判成「起点跳到页尾」（实测 21:23 段 24–27 全命中、首卡是段 28）。
+                    // fromCache=true 让服务端多落一行「命中合成缓存」标明来路；耗时记 0.0s。
+                    val hitRequest = request.copy(fromCache = true)
+                    event(NormalEvent.Request(hitRequest, 0))
+                    event(NormalEvent.ReadAllFromStream(hitRequest, cachedPcm.size, 0L))
+                }
                 sink.trySendBlocking(ChannelPayload.Bytes(cachedPcm))
                 return
             }
         }
-
-        val request = RequestPayload(
-            params, config, roleName, failoverFromTag, bookName, chapterTitle,
-            reqId = reqId.ifEmpty { "r" + System.identityHashCode(params).toString(36) + System.nanoTime().toString(36).takeLast(6) },
-            paraIndex = paraIndex,
-            paraTotal = paraTotal,
-        )
         suspend fun retry() {
             CachedEngineManager.removeEngine(config.source)
             delay(context.cfg.retryDelay())

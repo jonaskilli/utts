@@ -1241,6 +1241,13 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                             currentReqChapter = e.request.chapterTitle
                         }
                         logI("请求音频：" + e.request.text())
+                        // 11-15 晚：合成缓存命中的请求标明来路。
+                        // 不标的话它和现场合成长得一模一样——用户实测段 24–27 命中时
+                        // 日志页上一张卡都没有（旧版命中压根不落行），首卡是段 28，
+                        // 于是被误读成「起点跳到页尾」。这里补一行子行，耗时那边记 0.0s。
+                        if (e.request.fromCache) logChild(
+                            LogLevel.INFO, "命中合成缓存，未走插件"
+                        )
                         // 降级兜底提示：规则 JS 分析失败会把文本直接投给兜底标签，
                         // 请求行与正常请求无异、看不出是兜底。判定：括号4 本职是『』括号发音人，
                         // 正常请求文本必含『』；非『』文本投给括号4 = 降级兜底。

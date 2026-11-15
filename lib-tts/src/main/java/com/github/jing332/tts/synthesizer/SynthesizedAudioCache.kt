@@ -102,9 +102,45 @@ object SynthesizedAudioCache {
         return sb.toString()
     }
 
+    /**
+     * U阅「清空音频」的握手文件（11-15 晚）。
+     *
+     * 背景：U阅 的「清空音频」只删它自己沙箱里的 wav（`AppConfig.clearTtsCache`），
+     * 删不到本 App 私有的 `cacheDir/synth_cache`——两个 App 的私有目录互不可见。
+     * 后果实测（21:23 那轮）：清空音频后重听，段 24–27 全部命中上一轮留下的缓存，
+     * 秒回、且旧版命中压根不落日志，日志页首卡直接是段 28，被误读成「起点跳到页尾」。
+     *
+     * 通道：U阅 清空时往它自己的规则目录戳一个文件（本 App 只读不写，同一目录
+     * 已经用于 `readProgress.json`），本对象每 3 秒最多 stat 一次它的 mtime，变了就整池清空。
+     * 为什么不做成"每次合成前 stat"：一次 /sdcard stat 平时微秒级、卡起来能阻塞几秒，
+     * 3 秒节流把它压到可忽略。
+     */
+    private const val EXTERNAL_CLEAR_FLAG =
+        "/storage/emulated/0/Download/chajian/mingwuyan/.clear_synth_cache"
+
+    private var lastFlagSeen = 0L
+    private var lastFlagCheckMs = 0L
+
+    private fun honorExternalClear() {
+        val now = System.currentTimeMillis()
+        if (now - lastFlagCheckMs < 3000L) return
+        lastFlagCheckMs = now
+        runCatching {
+            val f = File(EXTERNAL_CLEAR_FLAG)
+            if (!f.exists()) return
+            val t = f.lastModified()
+            if (t > lastFlagSeen) {
+                lastFlagSeen = t
+                clear()
+                Log.d(TAG, "external clear honored: U阅 清空音频 → synth_cache 清空")
+            }
+        }
+    }
+
     /** 读取已缓存的 PCM；未命中/未启用返回 null。 */
     fun get(key: String): ByteArray? {
         if (!enabled) return null
+        honorExternalClear()
         val file = fileOf(key) ?: return null
         if (!file.exists() || file.length() <= 0L) {
             misses.incrementAndGet()

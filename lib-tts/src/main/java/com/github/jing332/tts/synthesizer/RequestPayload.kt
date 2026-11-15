@@ -20,6 +20,10 @@ data class RequestPayload(
     // 经 SystemTtsService 读出随 MDC 落盘。两者皆 -1/0 = 旧版 U阅没带，日志不标段号。
     val paraIndex: Int = -1,
     val paraTotal: Int = 0,
+    // 11-15 晚：本笔是**合成缓存命中**（没走插件）。日志页据此标一行「命中合成缓存」，
+    // 否则命中段只有「获取成功」没有来路，看着和现场合成一模一样（用户实测被这点骗过：
+    // 段 24–27 全部命中、都不出卡片，日志页第一张卡是段 28，误以为起点跳到倒数第二段）。
+    val fromCache: Boolean = false,
 ) {
     val text: String
         get() = params.text
