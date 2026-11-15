@@ -17,6 +17,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.scrollBy
@@ -67,6 +68,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -1192,11 +1194,24 @@ internal fun LogScreen(
         //
         // ===== 11-15 用户令：先保证「下边不被挡」 =====
         // 用户原话：「你只要保证下边不被挡就行」。
-        // 旧判据是「目标出现在 visibleItemsInfo 里就算可见」——它**放过被视口下沿裁掉
-        // 大半的行**：朗读行有一半压在底部栏上，跟随却认为"已经在视野里"而不滚，
-        // 于是永远看不全。新判据＝整行必须**完整**落在视口内；
-        // 缺多少滚多少（仍是温和跟随的最小滚动量，不跳顶、不打断阅读）。
-        val followEdgePx = with(LocalDensity.current) { 8.dp.roundToPx() }
+        // （历史：旧判据是「目标出现在 visibleItemsInfo 里就算可见」，会放过被视口下沿
+        //  裁掉大半的行，于是永远看不全；那一版已改成「整行完整可见」。本条被下面的
+        //  中部锚点方案取代——「完整可见」只是及格线，用户要的是落在中部。）
+        // ===== 11-15 用户令：朗读行要落在**中部** =====
+        // 用户原话：「这个正在朗读它的位置区域，我希望在中部那块，这样的话，他既能看到上面，
+        // 又能看到下面，但是你也可以稍微有一点偏差，重点是这一块要能显示出来」。
+        //
+        // 两条配套（缺一条就做不到）：
+        //   ① 跟随锚点从「最小滚动量拉回边缘」改为「拉回到视口 42% 处」；
+        //   ② 列表末尾必须留出足够空白——朗读行通常靠近列表末端，下方没内容的话
+        //      再怎么滚它也上不去（这正是它此前总停在下 1/4~1/3 的真因，
+        //      不是判定逻辑的问题）。故尾部 Spacer 在朗读中改成视口高度的 ~45%。
+        var viewportHeightPx by remember { mutableStateOf(0) }
+        LaunchedEffect(listState) {
+            snapshotFlow { listState.layoutInfo.viewportSize.height }
+                .distinctUntilChanged()
+                .collect { if (it > 0) viewportHeightPx = it }
+        }
         LaunchedEffect(playingMatch?.listItem, playingMatch?.entryIndex) {
             val m = playingMatch ?: return@LaunchedEffect
             val target = m.listItem
@@ -1204,28 +1219,33 @@ internal fun LogScreen(
             // 用户手正压在列表上：这次不跟，别抢。
             if (listState.isScrollInProgress) return@LaunchedEffect
             val info = listState.layoutInfo
+            val vStart = info.viewportStartOffset
+            val vEnd = info.viewportEndOffset
+            val vpH = vEnd - vStart
+            if (vpH <= 0) return@LaunchedEffect
+            // 目标锚点：行顶落在视口 42% 处（略偏上，下面是后续日志、上面是刚过去的）
+            val anchorPx = (vpH * FOLLOW_ANCHOR_RATIO).toInt()
+            // 舒适带：已经在这一段里就不动，避免每段都微调（用户允许「稍微有一点偏差」）
+            val bandTop = (vpH * FOLLOW_BAND_TOP).toInt()
+            val bandBottom = (vpH * FOLLOW_BAND_BOTTOM).toInt()
+
             val item = info.visibleItemsInfo.firstOrNull { it.index == target }
             if (item == null) {
-                // 完全在视口外（上方或下方）：整体滚到它（原行为保留，顶边露出）
+                // 完全在视口外：直接定位到锚点（负 scrollOffset＝把该行从顶边往下推）
+                runCatching { listState.scrollToItem(target, -anchorPx) }
+                return@LaunchedEffect
+            }
+            val itemTop = item.offset - vStart
+            // 已经在舒适带内 → 一根手指都不动
+            if (itemTop in bandTop..bandBottom) return@LaunchedEffect
+            // 行比视口还高：怎么滚都放不下，只对齐顶边
+            if (item.size > vpH) {
                 runCatching { listState.scrollToItem(target) }
                 return@LaunchedEffect
             }
-            val vStart = info.viewportStartOffset
-            val vEnd = info.viewportEndOffset
-            val overflowBottom = (item.offset + item.size) - vEnd
-            val overflowTop = vStart - item.offset
-            runCatching {
-                when {
-                    // 行比视口还高（超长条目）：怎么滚都放不下，只对齐顶边
-                    overflowTop > 0 && overflowBottom > 0 -> listState.scrollToItem(target)
-                    // 底部被裁 → 正向滚动把它顶上来，额外留 8dp 呼吸，不紧贴底栏
-                    overflowBottom > 0 -> listState.scrollBy((overflowBottom + followEdgePx).toFloat())
-                    // 顶部被裁 → 反向滚动补回，同样留呼吸
-                    overflowTop > 0 -> listState.scrollBy(-(overflowTop + followEdgePx).toFloat())
-                    // 完整可见：一根手指都不动
-                    else -> Unit
-                }
-            }
+            // 差多少滚多少：正向滚动＝内容上移（fresh 行往上走），负向＝往下走
+            val delta = (itemTop - anchorPx).toFloat()
+            runCatching { listState.animateScrollBy(delta) }
         }
 
         LaunchedEffect(list.size, autoScrollToBottom, pendingJumpToBottom, currentGroups) {
@@ -1966,8 +1986,19 @@ internal fun LogScreen(
                     // 尾部 Spacer 曾用 navigationBarsPadding（手势条避让）——与本页上游
                     // MainPager bottomPad（含手势条）+ TtsLogScreen calculateBottomPadding
                     // 两层避让叠加，列表末尾与底栏之间多出一条空白（10-10 装机截图实锤）。
-                    // 改固定 8dp 只做行尾呼吸，手势条高度由上游两层负责
-                    Spacer(Modifier.height(8.dp))
+                    // 改固定 8dp 只做行尾呼吸，手势条高度由上游两层负责。
+                    //
+                    // 11-15 用户令「朗读行要落在中部」：朗读行通常挨着列表末端，
+                    // 下方没内容它就滚不上去——尾部留白给足「把朗读行顶到 42%」的余量。
+                    // 只在朗读中加（不朗读时列表尾部就该贴底，多留白反而怪）。
+                    // 比例 0.45 是按「视口 600dp 量级 + 每次预取还会多 1~3 行在下方」估的，
+                    // 装机若觉得空太多/太少，只调这一个常量。
+                    val tailHeight = if (playingMatch != null && viewportHeightPx > 0) {
+                        with(LocalDensity.current) {
+                            (viewportHeightPx * FOLLOW_TAIL_RATIO).toDp().coerceAtLeast(8.dp)
+                        }
+                    } else 8.dp
+                    Spacer(Modifier.height(tailHeight))
                 }
             }
 
@@ -2182,6 +2213,19 @@ internal fun boldBodyOf(e: LogEntry): String {
     val m = Regex("<b>([\\s\\S]*?)</b>").find(e.message) ?: return ""
     return m.groupValues[1].replace(Regex("<[^>]*>"), "").trim()
 }
+
+/** 朗读行跟随锚点：行顶落在视口高度的 42% 处（略偏上＝上面留刚读过的、下面留要读的）。 */
+private const val FOLLOW_ANCHOR_RATIO = 0.42f
+
+/** 舒适带上下界（比例）：行顶已落在 [22%, 62%] 内就不滚动，容忍「稍微有一点偏差」。 */
+private const val FOLLOW_BAND_TOP = 0.22f
+private const val FOLLOW_BAND_BOTTOM = 0.62f
+
+/**
+ * 朗读中列表尾部的额外留白比例（× 视口高度）。
+ * 没有它，「把朗读行顶到 42%」根本做不到——它贴着列表末端，下方无内容可滚。
+ */
+private const val FOLLOW_TAIL_RATIO = 0.45f
 
 /**
  * 某条日志是不是「成功的获取结果子行」。
