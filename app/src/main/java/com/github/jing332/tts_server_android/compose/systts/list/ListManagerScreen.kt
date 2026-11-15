@@ -131,6 +131,7 @@ import com.github.jing332.database.entities.systts.source.PluginTtsSource
 import com.github.jing332.database.entities.SpeechRule
 import com.github.jing332.tts_server_android.AppLocale
 import com.github.jing332.tts_server_android.R
+import com.github.jing332.tts_server_android.compose.BottomBarHeight
 import com.github.jing332.tts_server_android.compose.AppDefaultProperties
 import com.github.jing332.tts_server_android.compose.systts.list.ui.widgets.isLocalSoundTagName
 import com.github.jing332.tts_server_android.conf.AppConfig
@@ -3946,11 +3947,12 @@ internal fun ListManagerScreen(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(12.dp)
-                    // 距底栏顶边恒定16dp（M3标准）：80dp底栏行 + 16dp视觉缝 - 菜单容器自带16dp按钮下内边距 = 80dp；
-                    // 10-10 底栏回官方 NavigationBar（60→80dp）后同步此常量（旧值60dp实机「+」贴底栏）；
-                    // 手势条inset由外层Box已垫的导航条inset与底栏Spacer同源相抵，故用常量而非listBottomPadding
-                    //（后者含inset，换三键导航/全面屏手势会漂移）
-                    .padding(bottom = 80.dp),
+                    // 距底栏顶边恒定 16dp（M3 标准）：底栏行高 + 16dp 视觉缝 − 菜单容器自带 16dp
+                    // 按钮下内边距 ＝ **底栏行高本身**，所以这里直接引用 BottomBarHeight，
+                    // 底栏一改高度自动跟（11-15 用户令：上次改高改矮漏了这里，「+」贴底栏）。
+                    // 手势条 inset 由外层 Box 已垫的导航条 inset 与底栏 Spacer 同源相抵，
+                    // 故用常量而非 listBottomPadding（后者含 inset，换三键导航/全面屏手势会漂移）
+                    .padding(bottom = BottomBarHeight),
                 visible = true,
                 addBgm = {
                     navigateToEdit(SystemTtsV2(groupId = DEFAULT_GROUP_ID, config = BgmConfiguration()))

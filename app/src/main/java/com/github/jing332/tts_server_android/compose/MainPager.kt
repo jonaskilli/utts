@@ -20,13 +20,21 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.BottomAppBarDefaults
 import androidx.compose.material3.BottomAppBarScrollBehavior
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.rememberBottomAppBarState
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -58,6 +66,29 @@ import com.github.jing332.tts_server_android.conf.AppConfig
 import kotlinx.coroutines.launch
 
 
+/**
+ * 底栏**内容**高度（不含手势条 inset）。11-15 用户令：从官方 NavigationBar 的 80dp 压到 60dp。
+ *
+ * 为什么自绘而不是给官方组件传 Modifier.height：
+ * M3 `NavigationBar` 内部把内容高度写死成 `NavigationBarHeight`(80dp)，外部约束压下去
+ * 只会把「图标+文字」硬裁（标签被切半），静态无法验证是否裁到——所以按用户
+ * 「一次改成功」的要求，改成自绘 60dp，高度完全可控。
+ *
+ * 视觉不是回退到旧微信式：**选中胶囊（secondaryContainer 32dp）+ 图标 24dp +
+ * 文字仅选中显示 + 顶缘 1dp 分隔线**全部保留，与官方那套只差「矮了 20dp」。
+ *
+ * ⚠️ 全仓凡是要「避让底栏」的地方一律引用本常量，不要再写 80.dp 字面量
+ *（11-15 用户令：上次改高改矮之后到处漏适配，这次必须一次改全）。
+ * 目前引用点：MainPager 的 bottomBarHeightPx、ListManagerScreen 的 FAB 底部内距。
+ */
+internal val BottomBarHeight = 60.dp
+
+/** 选中胶囊高度（沿用 M3 官方 32dp；栏高压缩后外围留白从 24 收到 14）。 */
+private val BarIndicatorHeight = 32.dp
+
+/** 选中胶囊宽度（M3 官方 64dp，四项分宽时仍在单格内居中）。 */
+private val BarIndicatorWidth = 64.dp
+
 @OptIn(ExperimentalMaterial3Api::class)
 val LocalBottomBarBehavior =
     compositionLocalOf<BottomAppBarScrollBehavior>() { error("LocalBottomBarBehavior not initialized") }
@@ -87,13 +118,14 @@ fun AnimatedContentScope.MainPager(sharedVM: SharedViewModel) {
 
     val a11yTouchEnabled = rememberA11TouchEnabled()
     val density = LocalDensity.current
-    // 底栏满高 = 官方 NavigationBar 内容 80dp + 手势条 inset（官方组件自带 navigationBarsPadding）。
+    // 底栏满高 = 内容高度 BottomBarHeight + 手势条 inset。
     // ⚠️ 三修定稿（10-12 装机二轮回滚/到底不出现）：前两版用 onSizeChanged 实测——但底栏一旦
     // 开始隐藏，外层 bottomBarHeight 就把可用高度裁到 (满高−已藏)，量到的高度跟着缩水 ⇒
     // 「越藏越藏不动、回滚也算不对」的反馈环（挂 Surface 或挂 NavigationBar 都不行，两者同受约束）。
-    // 改为确定性计算：WindowInsets.navigationBars 取手势条高度，不加任何测量依赖
+    // 改为确定性计算：WindowInsets.navigationBars 取手势条高度，不加任何测量依赖。
+    // 11-15：内容高度 80 → 60dp（自绘紧凑栏，见 BottomBarHeight 注释）。
     val navBarInsetPx = WindowInsets.navigationBars.getBottom(density)
-    val bottomBarHeightPx = with(density) { 80.dp.roundToPx() } + navBarInsetPx
+    val bottomBarHeightPx = with(density) { BottomBarHeight.roundToPx() } + navBarInsetPx
     // 自建 state 把 heightOffsetLimit 设为**满高**（默认 exitAlways 的 limit=48dp——BottomAppBarDefaults
     // 反编译实锤，首参可传自建 state 且 limit 可写）：limit=满高后隐藏/回弹/出现全走官方原生逻辑
     val bottomAppBarState = rememberBottomAppBarState(
@@ -148,15 +180,13 @@ fun AnimatedContentScope.MainPager(sharedVM: SharedViewModel) {
             Scaffold(
                 modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
                 bottomBar = {
-                    // 10-10 用户拍板「回 M3 官方 NavigationBar」：自绘微信式 60dp 退役——
-                    // 反正滚动时底栏会藏起来（浏览态不占屏），展开态用官方 80dp 胶囊式
-                    // 白得全套官方视觉/热区/无障碍（选中项图标包 secondaryContainer 胶囊+文字，
-                    // 未选中项只图标——官方原味）。滚动隐藏 v2 布局式裁剪继续适用
-                    // （bottomBarHeight 裁的是整体高度，官方 NavigationBar 当内容装进去即可）。
-                    // 手势条区域官方组件自带 navigationBarsPadding 处理，不再自拼 Spacer。
+                    // 11-15 用户令「底栏改低一点」+「仅选中显示文字」→ 自绘 60dp 紧凑栏。
+                    // 视觉口径全部沿用官方那套，只是矮 20dp（细节见 BottomBarHeight 注释）。
+                    // 滚动隐藏 v2 布局式裁剪原样适用（bottomBarHeight 裁的是整体高度，
+                    // 自绘 Row 当内容装进去即可）；手势条 inset 由下方 Column 的
+                    // windowInsetsPadding 补——官方组件原来自带，自绘必须自己来。
                     // 10-13 深夜用户令「底栏要跟上方空白区域一样的颜色」：底栏=background 页底色，
-                    // 与页底的分界只靠顶缘 1dp outlineVariant 浅线（overlay 画法，不占布局，
-                    // 80dp+inset 的滚动隐藏量法不动）；搜索胶囊仍走 softStructureColor()（0.4f 档）。
+                    // 与页底的分界只靠顶缘 1dp outlineVariant 浅线（overlay 画法，不占布局）。
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -164,28 +194,80 @@ fun AnimatedContentScope.MainPager(sharedVM: SharedViewModel) {
                         color = MaterialTheme.colorScheme.background
                     ) {
                         Box {
-                        NavigationBar(
-                            containerColor = Color.Transparent // 色由外层 Surface 统一给（含手势条区）
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                // 手势条区域：官方 NavigationBar 自带 navigationBarsPadding，
+                                // 自绘必须自己补（漏了的话内容和手势条重叠、点不到）
+                                .windowInsetsPadding(WindowInsets.navigationBars)
                         ) {
-                            for (destination in PagerDestination.routes) {
-                                val isSelected = pagerState.currentPage == destination.index
-                                NavigationBarItem(
-                                    selected = isSelected,
-                                    onClick = {
-                                        scope.launch {
-                                            pagerState.animateScrollToPage(destination.index)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(BottomBarHeight),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                for (destination in PagerDestination.routes) {
+                                    val isSelected = pagerState.currentPage == destination.index
+                                    val barPrimary = MaterialTheme.colorScheme.primary
+                                    val barIdle = MaterialTheme.colorScheme.onSurfaceVariant
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .fillMaxHeight()
+                                            // selectable 自带选中态语义 + Role.Tab，
+                                            // 读屏能念出「日志，已选中，标签页」——
+                                            // 官方 NavigationBarItem 原本负责这块，自绘要自己给
+                                            .selectable(
+                                                selected = isSelected,
+                                                role = Role.Tab,
+                                                onClick = {
+                                                    scope.launch {
+                                                        pagerState.animateScrollToPage(destination.index)
+                                                    }
+                                                },
+                                            )
+                                            .semantics {
+                                                contentDescription = context.getString(destination.contentDescId)
+                                            },
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Column(
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.Center,
+                                        ) {
+                                            // 选中胶囊：M3 官方同款（secondaryContainer 32dp 圆角）
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(width = BarIndicatorWidth, height = BarIndicatorHeight)
+                                                    .clip(RoundedCornerShape(50))
+                                                    .background(
+                                                        if (isSelected)
+                                                            MaterialTheme.colorScheme.secondaryContainer
+                                                        else Color.Transparent
+                                                    ),
+                                                contentAlignment = Alignment.Center,
+                                            ) {
+                                                // icon() 里的 Icon 用 LocalContentColor 着色，
+                                                // 这里按选中与否染 primary / onSurfaceVariant
+                                                CompositionLocalProvider(
+                                                    LocalContentColor provides if (isSelected) barPrimary else barIdle
+                                                ) {
+                                                    destination.icon()
+                                                }
+                                            }
+                                            // 文字：**仅选中显示**（用户 11-15 选定）。
+                                            // 未选中用 Color.Transparent 而不是「不组合」——
+                                            // 保留占位，否则选中切换时图标会上下跳一截。
+                                            Text(
+                                                text = stringResource(destination.strId),
+                                                fontSize = 11.sp,
+                                                maxLines = 1,
+                                                color = if (isSelected) barPrimary else Color.Transparent,
+                                            )
                                         }
-                                    },
-                                    icon = { Box(Modifier.size(24.dp)) { destination.icon() } },
-                                    label = { Text(stringResource(destination.strId), maxLines = 1) },
-                                    // 官方默认 always；四项文字常显与否由官方形态接管（只亮选中项）
-                                    alwaysShowLabel = false,
-                                    // 10-13 深夜用户令「恢复之前版的一部分：底色不加、给选中的按钮加颜色」：
-                                    // 撤 10-10「去掉 active indicator」的覆盖（indicatorColor=Transparent），
-                                    // 回 M3 官方默认——选中项图标包 secondaryContainer 淡绿胶囊（GREEN #D6F1DF）
-                                    // + primary 图标/文字色（#006D3A）。底栏底色仍为页底色（不动）。
-                                    // 依据：02c0cca 官方胶囊版本就没传 colors，走的即此默认。
-                                )
+                                    }
+                                }
                             }
                         }
                         // 浅分隔线：overlay 叠在底栏顶缘，不参与布局，滚动隐藏量法不受影响。
