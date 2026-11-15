@@ -1285,7 +1285,7 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                         }
                         logI("请求音频：" + e.request.text())
                         // 11-15 晚二改：缓存命中**不额外加行**（用户令「卡片第一行已经很挤了」）。
-                        // 来路改由「获取成功（本地缓存）：…」这一行承担 —— 它本来就渲染在卡片首行，
+                        // 来路改由「获取成功（UTTS缓存）：…」这一行承担 —— 它本来就渲染在卡片首行，
                         // 只把「成功」丸换成「缓存」丸，零额外高度。
                         // 降级兜底提示：规则 JS 分析失败会把文本直接投给兜底标签，
                         // 请求行与正常请求无异、看不出是兜底。判定：括号4 本职是『』括号发音人，
@@ -1339,12 +1339,12 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                     //（用户拍板甲案：1079ms→1.1s；<1s 显 0.6s，≥10s 照常 12.3s）
                     val costSec = e.costTime / 1000.0
                     val costText = String.format("%.1fs", costSec)
-                    // 11-15 晚二改：命中缓存用「获取成功（缓存）：」（11-16 四改扩为「本地缓存」）——渲染层据此把「成功」丸
+                    // 11-15 晚二改：命中缓存出「获取成功（…）：」行（11-16 五改定稿「UTTS缓存」）——渲染层据此把「成功」丸
                     // 换成「缓存」丸（同一行，不新增高度）。用户令「日志卡片第一行已经很挤了」，
                     // 所以不再为命中加子行，改动只落在这一行的前缀 + 丸上。
                     //
                     // 11-16 三改（用户终令「去掉 pcm 的大小耗时」）：**缓存命中行不再带大小+耗时**。
-                    //（沿革：前缀原为「（缓存）」，11-16 四改扩成「（本地缓存）」，见下方 cacheMark。）
+                    //（沿革：「（缓存）」→「（本地缓存）」→ 11-16 五改定稿「（UTTS缓存）」，见下方 cacheMark。）
                     // 沿革：11-16 曾给缓存行加「（PCM）」标注以区分口径，但用户反馈术语看不懂、
                     // 还把首行挤到折行。深究后两个数字对缓存行**都没有信息量**：
                     //   耗时恒 0.0s（本地读盘毫秒级，没意义）；
@@ -1354,11 +1354,12 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                     // 现场合成行照旧「大小 · 耗时」，两者口径从此天然分开，无需标注。
                     val sizeText = e.size.sizeToReadable()
                     val detail = if (e.request.fromCache) "" else sizeText + " · " + costText
-                    // 11-16 四改（用户令「换种标记，看得出用的是 UTTS 本地缓存的内容」）：
-                    // 前缀由「（缓存）」改为「（本地缓存）」——「缓存」单看容易歧义
-                    //（U阅 也有音频缓存，用户分不清指哪边）；「本地缓存」直说来源：
-                    // 这段音频不是现场向插件要的，是 UTTS 自己本地存的那份，秒回、零流量。
-                    val cacheMark = if (e.request.fromCache) "（本地缓存）" else ""
+                    // 11-16 四改→五改（用户定稿）：前缀定为「（UTTS缓存）」。
+                    // 沿革：「（缓存）」歧义（U阅 也有音频缓存）→「（本地缓存）」仍歧义
+                    //（用户：「阅读端也有本地缓存呀」）→ 定稿点名 **UTTS**：
+                    // 这段音频不是现场向插件要的，是 UTTS 自己的 utts_synth_cache 里
+                    // 预热/上次合成备下的成品，秒回、零流量。
+                    val cacheMark = if (e.request.fromCache) "（UTTS缓存）" else ""
                     logS(
                         "<font color=\"" + META_INFO_COLOR + "\">获取成功" +
                             cacheMark + "：</font>" +

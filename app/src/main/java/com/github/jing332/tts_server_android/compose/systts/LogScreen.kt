@@ -2272,7 +2272,10 @@ private fun pillOf(e: LogEntry, entryIndex: Int, failedHeads: Set<Int> = emptySe
         e.configId != 0L -> when {
             // 11-15 晚：命中合成缓存的成功行单独一颗「缓存」丸——用户要「别加行」，
             // 丸是唯一不占高度的区分位。
-            msg.contains("获取成功（本地缓存）") -> LogPill(LogPillKind.CACHE, "本地缓存")
+            msg.contains("获取成功（UTTS缓存）") -> LogPill(LogPillKind.CACHE, "UTTS缓存")
+            // 旧日志兼容：「（缓存）」「（本地缓存）」都算命中（丸统一显示 UTTS缓存）
+            msg.contains("获取成功（缓存）") || msg.contains("获取成功（本地缓存）") ->
+                LogPill(LogPillKind.CACHE, "UTTS缓存")
             e.level == LogLevel.SUCCESS -> LogPill(LogPillKind.OK, "成功")
             entryIndex in failedHeads -> LogPill(LogPillKind.FAIL, "失败")
             else -> null
@@ -2378,6 +2381,7 @@ private fun tailTextOfRow(e: LogEntry): String? {
     // 11-15 晚：缓存命中行前缀是「获取成功（缓存）：」，先归一化再取尾段，
     // 否则首行的「耗时，大小」会丢。
     val msg = e.message.replace(Regex("<[^>]*>"), "")
+        .replace("获取成功（UTTS缓存）：", "获取成功：")
         .replace("获取成功（本地缓存）：", "获取成功：").replace("获取成功（缓存）：", "获取成功：")
     val t = when {
         e.level == LogLevel.SUCCESS ->
