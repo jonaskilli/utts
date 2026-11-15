@@ -957,29 +957,90 @@ internal fun LogScreen(
 
     // ===== 11-14「正在朗读」卡片匹配 + 复位高亮 =====
     //
-    // 匹配键：章名 + 正文前缀（readProgress.json 的 segText 前 12 字，正文是
-    // 两边唯一公共键；日志行的 <b>正文</b> 就是原文，时间可能差几十毫秒不可靠）。
-    // 在 build 产物里找「请求音频」主行（Item.Group.head），换算列表项下标。
+    // 匹配键：**段号**（次选：章名 + 正文前缀，仅作旧日志兜底）。
+    //
+    // ## 为什么 11-16 从「正文前 12 字」改成段号
+    //
+    // 旧键只认正文前缀，而 U阅 上报的 segText 是**整段原文**、日志里每一笔却是
+    // 段内切片。一段「1 旁白 + 2 对话」被拆成 3 笔时，只有旁白那一笔以段首开头
+    // ⇒ 只有它被标「正在朗读」，另外两笔永远匹配不到，用户看到的就是
+    // 「旁白念完直接跳到下一段」（11-16 用户实报，段 15/22/24/26/27 全部如此）。
+    //
+    // 段号本来就是现成的公共键：U阅 传 UTTS 的 `para_index` 是 contentList 下标，
+    // 与 readProgress.json 的 `segIndex` 同源，且经 MDC 落盘在每一笔请求行上
+    //（`%X{paraIndex}` 列）。按段号匹配 ⇒ 同一段的全部笔命中，整段一起标。
+    //
+    // ⚠️ 段号缺失时仍退回正文前缀：旧日志行没有 paraIndex 列（恒 -1），
+    // 不兜底会让「正在朗读」在所有历史日志里失效。
+    //
     // 匹配不到 = 没找到（未开播/卡被筛掉/正文改写），相关 UI 全隐藏。
     //
     // ⚠️ 匹配在 remember(list, playingSnapshot) 里做：日志每秒追加，重算成本
     // O(n)，n≈几百行可接受；不能用 derivedStateOf（playingSnapshot 非快照态对象）。
     val playingMatch = remember(builtGroups, renderList, playingSnapshot) {
         val snap = playingSnapshot
-        if (snap == null || !snap.playing || snap.segText.isBlank()) {
+        if (snap == null || !snap.playing) {
             null
         } else {
-            val segKey = snap.segText.trim().take(12)
-            // ⚠️ 这里必须用 renderList（重排后的那份）：listItemFor 返回的是
+            // ⚠️ 必须用 renderList（重排后的那份）：listItemFor 返回的是
             // 按 build 内部重排下标算出来的列表项位置，拿原始 list 的下标去配会错位。
-            val entry = renderList.lastOrNull { e ->
-                e.chapterTitle == snap.chapterTitle && boldBodyOf(e).startsWith(segKey)
+            //
+            // 候选行 = 带正文的「请求音频」主行（与旧判据同源，避免把子行/规则裸行
+            // 误当朗读段）。同段多笔 = 同一个 paraIndex 的多条主行，整组保留。
+            val segKey = snap.segText.trim().take(12)
+            fun matchesSeg(i: Int): Boolean {
+                val e = renderList[i]
+                return e.paraIndex == snap.segIndex &&
+                    e.chapterTitle == snap.chapterTitle &&
+                    boldBodyOf(e).isNotEmpty()
             }
-            if (entry != null) {
-                val entryIdx = renderList.indexOf(entry)
+            val entryIdxList = if (snap.segIndex >= 0) {
+                // ① 主判据：段号 + 章名（章名兜住「同一本书重听/跨章同号」的串位）。
+                //
+                // ⚠️ 只认**本轮**出现的那些笔：同一章重听一次，同一 paraIndex 就会在
+                // 日志里出现两轮（旧轮在前）。若把所有命中都标上，正在朗读会同时点亮
+                // 两处、还跟错滚动锚点。
+                //
+                // 判据＝从最后一个命中行往前扫，遇到 `paraIndex > segIndex` 就停：
+                // 同轮内已读到第 N 段时，它前面不可能有比 N 更大的段号，
+                // 一旦出现就是跨回了上一轮（上一轮当时读得更远）。
+                //
+                // 为什么不用「末位向前连续」：同段两笔之间**夹着「获取成功」子行**
+                //（paraIndex 为空 ⇒ -1），连续判据会在第一笔处断掉，正是要修的 bug。
+                // 中间那些 -1 的行（成功子行/规则裸行）不算边界，照常穿过去。
+                val last = (renderList.lastIndex downTo 0).firstOrNull { matchesSeg(it) }
+                if (last == null) emptyList()
+                else {
+                    val collected = ArrayList<Int>(4)
+                    var i = last
+                    while (i >= 0) {
+                        if (matchesSeg(i)) collected.add(i)
+                        else if (renderList[i].paraIndex > snap.segIndex) break
+                        i--
+                    }
+                    collected.asReversed() // 回到日志的先后顺序
+                }
+            } else emptyList()
+            // ② 兜底：段号对不上时退回正文前缀（旧日志行无段号）。行为与改前一致：
+            // 只取最后一条命中的主行，单笔高亮。
+            val entryIdxList2 = entryIdxList.ifEmpty {
+                if (segKey.isBlank()) emptyList()
+                else {
+                    val last = (renderList.lastIndex downTo 0).firstOrNull { i ->
+                        val e = renderList[i]
+                        e.chapterTitle == snap.chapterTitle &&
+                            boldBodyOf(e).startsWith(segKey)
+                    }
+                    if (last == null) emptyList() else listOf(last)
+                }
+            }
+            // 跟随/定位锚点取该段**第一笔**（即段首那一笔），滚动行为与改前一致
+            val anchorIdx = entryIdxList2.firstOrNull()
+            if (anchorIdx != null) {
                 BuiltPlayingMatch(
-                    entryIndex = entryIdx,
-                    listItem = builtGroups.listItemFor(entryIdx),
+                    entryIndex = anchorIdx,
+                    listItem = builtGroups.listItemFor(anchorIdx),
+                    entryIndexes = entryIdxList2.toSet(),
                 )
             } else null
         }
@@ -1694,7 +1755,7 @@ internal fun LogScreen(
                                     //（两者同时命中时章名底色优先——章名行不会同时是朗读行
                                     // 以外的情况，叠加无意义，故章名分支在前）。
                                     .then(
-                                        if (playingMatch?.entryIndex == item.head)
+                                        if (playingMatch?.contains(item.head) == true)
                                             Modifier
                                                 .background(playingRowBg())
                                                 .drawBehind {
@@ -1759,6 +1820,11 @@ internal fun LogScreen(
                                         // 链首位置（时间之前）＝用户定稿次序①；绿描边样式与
                                         // StatusPill 同款字号，区别于「成功」实底丸（身份 vs 结果）。
                                         //playingMatch 捕获的是 remember 快照，这里用当前值判断
+                                        //
+                                        // 11-16 整段高亮：**波形图标只画在段首那一笔**，其余笔只给
+                                        // 行底色+左缘绿轨（见上面的 contains 判据）。理由：同一段
+                                        // 拆成 3 笔时三张卡都跳动效，看着像同时在念三样东西；
+                                        // 段首一个波形 + 整段底色才是「这是同一段」的正确表达。
                                         val isPlayingHead = playingMatch?.entryIndex == item.head
                                         if (isPlayingHead) {
                                             // 11-14 用户令：文字胶囊 → **彩色播放图标**（见
@@ -2348,8 +2414,21 @@ internal data class LogPill(val kind: LogPillKind, val text: String)
  * entryIndex = 该段「请求音频」主行在（重排后）日志条目列表里的下标；
  * listItem   = 换算后的列表项下标（滚动定位用）。
  * null = 没找到（未开播/卡被筛掉/正文对不上），复位浮钮与描边全部隐藏。
+ *
+ * [entryIndexes]（11-16 整段高亮）：**同一段被拆成多笔时的全部主行下标**。
+ * 一段「1 旁白 + 2 对话」会被拆成 3 笔、3 张卡，它们同属正文里那一个段落，
+ * 都在念，所以整组一起标「正在朗读」——只标第一笔会让用户以为
+ * 「旁白念完就跳段了」（11-16 用户实报）。[entryIndex] 仍保留为该组第一笔，
+ * 滚动跟随与复位锚点用它，行为与改前逐字节一致。
  */
-internal data class BuiltPlayingMatch(val entryIndex: Int, val listItem: Int)
+internal data class BuiltPlayingMatch(
+    val entryIndex: Int,
+    val listItem: Int,
+    val entryIndexes: Set<Int> = setOf(entryIndex),
+) {
+    /** 本行是否属于正在朗读的那一段（整段高亮判据）。 */
+    fun contains(head: Int): Boolean = head in entryIndexes
+}
 
 /**
  * 「正在播放」图标（11-14 用户令：「改名你改为一个正在播放的图标吧，
