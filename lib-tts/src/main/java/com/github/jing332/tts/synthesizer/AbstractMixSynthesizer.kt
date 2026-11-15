@@ -27,6 +27,9 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
@@ -177,6 +180,87 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
     }
 
     /**
+     * 缓存键（2026-11-15）：段文本 + 发音源 + 音色 + **最终生效参数** + 输出采样率。
+     *
+     * 最终参数取 `config.audioParams` 而非 [SystemParams]——三层乘积
+     * （全局 × 配置 × 插件）在 resolveTtsPlayback 里已算进 audioParams，
+     * 而 U阅 传进来的 SystemParams 里 speed/volume/pitch 恒为 1.0
+     * （日志实测：`SystemParams(... speed=1.0, volume=1.0, pitch=1.0)`）。
+     * 用错这一层会让「语速改了却命中旧音频」。
+     */
+    private fun cacheKeyOf(text: String, cfg: TtsConfiguration): String =
+        SynthesizedAudioCache.keyOf(
+            text = text,
+            sourceKey = cfg.source.getKey() + "|" + cfg.source.javaClass.simpleName,
+            voice = cfg.source.voice,
+            locale = cfg.source.locale,
+            speed = cfg.audioParams.speed,
+            volume = cfg.audioParams.volume,
+            pitch = cfg.audioParams.pitch,
+            sampleRate = maxSampleRate,
+        )
+
+    private fun cacheKeyOf(segment: TextSegment, params: SystemParams): String =
+        cacheKeyOf(segment.text, segment.tts)
+
+    /** 单段预热：已有缓存直接算成功；否则合成并写缓存。 */
+    private suspend fun preloadOne(segment: TextSegment, params: SystemParams): Boolean {
+        val key = cacheKeyOf(segment, params)
+        if (SynthesizedAudioCache.get(key) != null) return true
+
+        val sink = CollectSink()
+        try {
+            requestAndProcess(
+                sink, params.copy(text = segment.text), segment.tts,
+                roleName = segment.roleName,
+                bookName = segment.bookName,
+                chapterTitle = segment.chapterTitle,
+                paraIndex = segment.paraIndex,
+                paraTotal = segment.paraTotal,
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            logger.warn(e) { "preload failed: ${segment.text.take(20)}" }
+            return false
+        }
+
+        val pcm = sink.toByteArrayOrNull() ?: return false
+        SynthesizedAudioCache.put(key, pcm)
+        return true
+    }
+
+    /**
+     * 批量预热（2026-11-15，任务书-U阅批量提交多段 · 路 C）：并发合成 N 段并写入缓存，
+     * **不输出音频**。返回成功预热（含本就命中缓存）的段数。
+     *
+     * 并发度复用 `prefetchConcurrency`，走和播放同一条 requestAndProcess 管线
+     * （重试/备用/引擎池全部继承）。失败只记日志、不算致命——预热是优化，
+     * 预热失败的段后续仍会由正常播放请求现场合成。
+     */
+    private suspend fun preloadSegments(
+        segments: List<TextSegment>,
+        params: SystemParams,
+    ): Int {
+        if (segments.isEmpty()) return 0
+        val concurrency = context.cfg.prefetchConcurrency().coerceIn(1, 8)
+        logger.info {
+            "preloadSegments: concurrency=$concurrency, segments=${segments.size}"
+        }
+        val gate = Semaphore(concurrency)
+        return coroutineScope {
+            segments
+                .map { seg ->
+                    async(Dispatchers.IO) {
+                        gate.withPermit { preloadOne(seg, params) }
+                    }
+                }
+                .map { it.await() }
+                .count { it }
+        }
+    }
+
+    /**
      * @return null means request failed, [EmptyInputStream] means direct play
      *
      */
@@ -232,6 +316,36 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
         fun trySendBlocking(payload: ChannelPayload)
     }
 
+    /**
+     * 预热用收集器（2026-11-15）：把合成产物聚成一个 ByteArray，不写播放通道。
+     * 只收 Bytes；DirectPlayCallback（本机引擎同步播放型插件）与预热语义冲突——
+     * 这种插件本来就没有「提前合成好放一边」的产物，预热直接算作失败跳过。
+     */
+    private class CollectSink : PayloadSink {
+        private val out = java.io.ByteArrayOutputStream()
+        private var unsupported = false
+
+        override suspend fun send(payload: ChannelPayload) {
+            when (payload) {
+                is ChannelPayload.Bytes -> out.write(payload.data)
+                // 同步播放型：预热无法预先生成音频，标记后由调用方丢弃
+                is ChannelPayload.DirectPlayCallback -> unsupported = true
+                is ChannelPayload.Error -> throw PayloadErrorException(payload.err)
+            }
+        }
+
+        override fun trySendBlocking(payload: ChannelPayload) {
+            when (payload) {
+                is ChannelPayload.Bytes -> out.write(payload.data)
+                is ChannelPayload.DirectPlayCallback -> unsupported = true
+                is ChannelPayload.Error -> throw PayloadErrorException(payload.err)
+            }
+        }
+
+        fun toByteArrayOrNull(): ByteArray? =
+            if (unsupported) null else out.toByteArray().takeIf { it.isNotEmpty() }
+    }
+
     /** 播放通道适配器：行为与旧「requestAndProcess 直写 channel」完全一致。 */
     private class ChannelSink(private val channel: SendChannel<ChannelPayload>) : PayloadSink {
         override suspend fun send(payload: ChannelPayload) = channel.send(payload)
@@ -262,6 +376,19 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
         paraIndex: Int = -1,
         paraTotal: Int = 0,
     ) {
+        // 11-15（路 C）：合成结果缓存命中即直接产出，不再走插件请求。
+        // 只在本笔的**首次**尝试查（retries==0）：重试时不查，否则缓存里的旧音频
+        // 会盖住真实的失败，让重试链永远「成功」。
+        // 播放与预热共用同一条管线，所以这里一处接入，两条路径都生效。
+        if (retries == 0) {
+            val cachedPcm = SynthesizedAudioCache.get(cacheKeyOf(params.text, config))
+            if (cachedPcm != null) {
+                logger.info { "cache hit: ${params.text.take(20)}" }
+                sink.trySendBlocking(ChannelPayload.Bytes(cachedPcm))
+                return
+            }
+        }
+
         val request = RequestPayload(
             params, config, roleName, failoverFromTag, bookName, chapterTitle,
             reqId = reqId.ifEmpty { "r" + System.identityHashCode(params).toString(36) + System.nanoTime().toString(36).takeLast(6) },
@@ -571,7 +698,24 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
                 textProcess(params, presetConfigId, paraIndex, paraTotal, batchSegments)
                     .onSuccess { list ->
                         try {
-                            produceSegments(channel, params, list)
+                            // 11-15：批量请求 = 预热请求。合成结果写进文本缓存，
+                            // **不回传真实音频**（调用方拿到的是一段极短静音，
+                            // 它只要知道「这批备好了」即可；真实音频留给后续单段请求命中）。
+                            // 为什么不能回传真实音频：系统 TTS 一次只产出一个文件，
+                            // N 段音频拼成连续流后调用方无法按段切分落盘。
+                            if (batchSegments != null) {
+                                val ok = preloadSegments(list, params)
+                                logger.info {
+                                    "preload done: ok=$ok/${list.size}, cache=${SynthesizedAudioCache.stats()}"
+                                }
+                                channel.trySendBlocking(
+                                    ChannelPayload.Bytes(
+                                        createSilentPcmAudio(maxSampleRate, durationMs = 50)
+                                    )
+                                )
+                            } else {
+                                produceSegments(channel, params, list)
+                            }
                         } catch (e: PayloadErrorException) {
                             // 分句阶段致命错误（如文本处理器报错）：作为合成错误交给消费端
                             channel.send(ChannelPayload.Error(e.err))
@@ -676,6 +820,10 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
             event(ErrorEvent.ConfigEmpty)
             return@withLock
         }
+
+        // 合成结果缓存（11-15 路 C）：预热写、播放读。用 cacheDir，
+        // 系统清缓存时一起清掉正合适——它是可再生成的加速数据。
+        SynthesizedAudioCache.init(context.androidContext)
 
         // 引擎实例池大小跟随预取并发数（2026-11-15，用户定稿：不新增设置项）。
         // 用 provider 而非取值：并发数原本就是 ValueProvider，用户改设置后无需重建合成器。

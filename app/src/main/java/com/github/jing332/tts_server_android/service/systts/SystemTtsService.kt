@@ -554,6 +554,19 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                 callback.done()
             }
 
+            // 11-15（路 C）：预热请求**不许挤占播放**。
+            // synthesize() 内部有 mutex，预热一旦拿到锁，用户点播放就得等它跑完
+            // （5 段并行约 10s，体感就是「点了没反应」）。所以忙时直接跳过本轮预热：
+            // 回一段极短静音让调用方正常收尾，这些段后续仍由播放请求现场合成。
+            // 判据用「当前是否已有合成在进行」，不是严格同步的锁，但对预热这种
+            // 纯优化请求来说，「偶尔白跳一次」远好于「阻塞用户点播」。
+            if (currentBatchSegments != null && mTtsManager?.isSynthesizing == true) {
+                logger.info { "preload skipped: synthesizer busy" }
+                callback.start(16000, AudioFormat.ENCODING_PCM_16BIT, 1)
+                callback.done()
+                return@runBlocking
+            }
+
             synthesizerJob = mScope.launch(exceptionHandler) {
                 var isAudioOutputted = false
                 try {
