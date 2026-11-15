@@ -501,22 +501,42 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
             return
         }
 
-        // 🛠️ 强力破窗：新请求冒头时强制注销旧任务，解决阅读APP重新点击播放没反应
-        // 11-13：破窗掉的上一笔是「被新请求打断」，标「已取消」而不是失败——
-        // 用户连点跳段时同一段会出现多条请求行，只有最后一条有结果，
-        // 前几条此前是无结果的裸行，看着像卡了。标灰丸后一眼分清。
-        if (lastTtsCallback != null && synthesizerJob?.isActive == true) {
-            logCanceled()
-        }
-        onStop()
-        lastTtsCallback?.runCatching { error(TextToSpeech.ERROR_SYNTHESIS); done() }
-        lastTtsCallback = callback
+        // 11-15（路 C）：预热请求**不参与破窗**。
+        // 破窗的语义是「用户点了新的要听内容，把旧的废话掐掉」；而预热是后台备货，
+        // 它冒头时掐掉正在播放的请求，用户听到的就是「莫名其妙断了」。
+        // 所以预热请求既不取消别人，也不占用 lastTtsCallback / synthesizerJob
+        // （那两个是「当前正在播的那一笔」的登记位，被预热占了之后，
+        //  下一次真正的播放请求就破不到它、会两笔同时在跑）。
+        // 判据用**解析后**的结果，不用「JSON 非空」：只有 1 段时 parseBatchSegments
+        // 会回落 null（走单段路径），若这里仍按「非空=预热」判断，就会出现
+        // 「跳过了破窗却走了单段路径」的不一致状态。
+        val preloadBatch = parseBatchSegments(request.params.getString(PARAM_BATCH_JSON))
+        val isPreloadRequest = preloadBatch != null
 
-        mNotificationJob?.cancel()
-        reNewWakeLock()
-        startForegroundService()
-        mCurrentText = text
-        updateNotification(getString(R.string.systts_state_synthesizing), text)
+        if (!isPreloadRequest) {
+            // 🛠️ 强力破窗：新请求冒头时强制注销旧任务，解决阅读APP重新点击播放没反应
+            // 11-13：破窗掉的上一笔是「被新请求打断」，标「已取消」而不是失败——
+            // 用户连点跳段时同一段会出现多条请求行，只有最后一条有结果，
+            // 前几条此前是无结果的裸行，看着像卡了。标灰丸后一眼分清。
+            if (lastTtsCallback != null && synthesizerJob?.isActive == true) {
+                logCanceled()
+            }
+            onStop()
+            lastTtsCallback?.runCatching { error(TextToSpeech.ERROR_SYNTHESIS); done() }
+            lastTtsCallback = callback
+        } else {
+            // 预热不打断播放，但仍要保证服务处于前台可运行状态
+            reNewWakeLock()
+            startForegroundService()
+        }
+
+        // 预热不碰通知/当前文本：那两个是「用户正在听的那一段」的展示位，
+        // 被后台备货改写后，通知栏会显示成一段用户根本没在听的内容。
+        if (!isPreloadRequest) {
+            mNotificationJob?.cancel()
+            mCurrentText = text
+            updateNotification(getString(R.string.systts_state_synthesizing), text)
+        }
 
         val enabledBgm = request.params.getBoolean(PARAM_BGM_ENABLED, true)
         mTtsManager?.context?.cfg?.bgmEnabled = { enabledBgm }
@@ -527,8 +547,8 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
         // 只能在这里暂存、由 synthesize 内的 NormalEvent.Request 处理时取用（见 currentPara*）。
         currentParaIndex = request.params.getInt(PARAM_PARA_INDEX, -1)
         currentParaTotal = request.params.getInt(PARAM_PARA_TOTAL, 0)
-        // 11-15：批量段列表（可空）。解析失败按单段路径处理，绝不因此整笔失败。
-        currentBatchSegments = parseBatchSegments(request.params.getString(PARAM_BATCH_JSON))
+        // 11-15：批量段列表（可空，上面已解析过）。解析失败按单段路径处理，绝不因此整笔失败。
+        currentBatchSegments = preloadBatch
 
         runBlocking {
             var cfgId: Long? = getConfigIdFromVoiceName(request.voiceName ?: "").onFailure {
@@ -567,7 +587,17 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                 return@runBlocking
             }
 
+            // 11-15：预热请求的 Job 不写进 synthesizerJob——那个槽位是「当前正在
+            // 播放的那一笔」的登记位。被预热占掉后，下一次真正的播放请求破窗时就
+            // 取消不到它，会出现两笔同时在跑（还会把播放的 callback 登记挤掉）。
+            // 这里先存旧值，启动完再还原；预热 Job 本身照常跑、跑完自行结束。
+            val previousSynthJob = synthesizerJob
             synthesizerJob = mScope.launch(exceptionHandler) {
+                // 预热请求：进协程第一件事就把槽位还给「上一笔播放」。
+                // launch 是异步调度，这里存在极短暂的覆盖窗口，但预热请求本身
+                // 不会触发破窗（见上面的 isPreloadRequest 分支），所以窗口内
+                // 不存在「正被破窗取消」的路径，竞态无害。
+                if (isPreloadRequest) synthesizerJob = previousSynthJob
                 var isAudioOutputted = false
                 try {
                     // 确保引擎初始化完成后再合成，避免首次播放等待异步预热
