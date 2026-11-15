@@ -45,6 +45,11 @@ object CachedEngineManager :
         // 不做「借用/归还」计数——合成是短任务，计数器在多路取消/破窗时会漏减，
         // 漏减即永久少一路可用实例（比分配不均更糟）。轮转无状态、不会泄漏。
         // floorMod 而非 and：计数器溢成负数时取值仍连续（and 会跳变）。
+        //
+        // 不按音色分池：同一批内 tts 配置是 configs.values.random() 逐段挑的，
+        // 按音色分池会让实例数随配置数膨胀（N 配置 × 8 路），且池化收益就没了。
+        // 音色串音由引擎侧的临界区解决（source 挪进 mMutex 锁内赋值，见
+        // TtsPluginEngineV2.getAudio）——同实例上「设 source → 调 JS」不可被插队。
         val slot = Math.floorMod(parallelCursor.getAndIncrement(), poolSize)
         return getOrCreate("$baseKey#$slot", context, source, slot)
     }

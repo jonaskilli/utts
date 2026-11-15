@@ -183,12 +183,19 @@ open class TtsPluginEngineV2(val context: Context, var plugin: Plugin) {
     suspend fun getAudio(
         text: String, locale: String, voice: String,
         rate: Float = 1f, volume: Float = 1f, pitch: Float = 1f,
+        source: PluginTtsSource? = null,
         timeoutMs: Long = 30000L
     ): InputStream {
         val r = (rate * 50f).toInt(); val v = (volume * 50f).toInt(); val p = (pitch * 50f).toInt()
         Log.d("TtsPluginEngineV2", "getAudio: rate=$rate->$r, volume=$volume->$v, pitch=$pitch->$p, timeout=$timeoutMs")
 
         return mMutex.withLock {
+            // 2026-11-15（引擎实例池）：ttsrv.tts 是引擎上的**共享可变字段**，池化后同一实例
+            // 会被不同音色的请求复用。原来在进锁前赋值，两路并发时后到的会把前一路的
+            // tts.data 覆盖掉 → JS 读到别的音色（串音）。挪进锁内赋值，与 JS 调用同临界区，
+            // 保证「设 source → 调 JS」之间不被插队。
+            source?.let { this.source = it }
+
             val result = try {
                 runWithTimeout(timeoutMs) {
                     engine.invokeMethod(pluginJsObj, FUNC_GET_AUDIO, text, locale, voice, r, v, p)

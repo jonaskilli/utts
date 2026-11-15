@@ -46,9 +46,9 @@ open class PluginTtsProvider(
         val volume = if (route.pluginVolume) params.volume else 1f
         val pitch = if (route.pluginPitch) params.pitch else 1f
 
-        // source.data mapping to ttsrv.tts.data for javascript
-        mEngine?.source = source
-
+        // source.data mapping to ttsrv.tts.data for javascript：
+        // 2026-11-15（引擎实例池）改为随 getAudio 传入、在引擎锁内赋值。
+        // 原来在这里（锁外）赋值，池化后同一实例被不同音色复用时会被后一路覆盖 → 串音。
         return try {
             mEngine?.getAudio(
                 text = params.text,
@@ -57,6 +57,7 @@ open class PluginTtsProvider(
                 rate = speed,
                 volume = volume,
                 pitch = pitch,
+                source = source,
                 timeoutMs = params.requestTimeout
             ) ?: throw IllegalStateException("Engine not initialized: ${plugin.pluginId}")
         } catch (e: CancellationException) {
