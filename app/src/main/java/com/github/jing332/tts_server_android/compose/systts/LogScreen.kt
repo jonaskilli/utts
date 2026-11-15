@@ -317,14 +317,16 @@ internal class LogGroups(
             // 组已收卡时挂到刚收的那张组上（见 build 里 retry 分支）
             val retryCount: Int = 0,
             /**
-             * 11-15 用户令（「已取消和跳过，能不能也加个胶囊呀？如果真的有这种请求音频
-             * 半途而废的，还显示在日志里面，右上角还什么都没有，感觉都不知道这是啥」）：
-             * 本组是**半途而废的请求**——发过「请求音频」却永远等不到成功/失败行。
-             * 典型成因见下方「无结局孤儿卡」注释：取消标记落盘早于请求行，
-             * `logCanceled()` 静默返回，这笔就只剩一行光秃秃的请求正文。
-             * true → 组头行灯位挂一枚中性灰「已取消」胶囊，让这行不再是"啥也不是"。
+             * 11-15 用户令（两轮合并后的定稿口径）：
+             * 第一轮「如果真的有这种请求音频半途而废的，还显示在日志里面，右上角还什么都没有，
+             * 感觉都不知道这是啥」→ 要有个丸；
+             * 第二轮「**不想要被误标**，你可以显示请求中，然后他的结果是取消或者是成功，
+             * 或者是怎么样？」→ 丸只报**当前状态**，不做任何"它大概是被掐了"的猜测。
+             *
+             * 所以本字段＝「本组至今没有任何结局行」，无论它是真的在途、还是被掐掉后
+             * 永远等不到结局，一律如实显示「请求中」；成功/失败/取消行到达后随归组自动换丸。
              */
-            val canceled: Boolean = false,
+            val pending: Boolean = false,
         ) : Item()
     }
 
@@ -423,12 +425,12 @@ internal class LogGroups(
             fallbackBook: String = "",
             fallbackChapter: String = "",
             /**
-             * 11-15：「半途而废 → 已取消」标记只在**列表未被收窄**时启用。
+             * 11-15：「请求中」标记只在**列表未被收窄**时启用。
              * 收了窄（搜索 / 级别筛选 / 只看本书本章）时，结果行可能被滤掉，
-             * 正常卡片会退化成"看起来没结局"的孤儿——此时标记会把
-             * 「被筛掉的失败卡」误画成「已取消」，比不标更糟。
+             * 正常卡片会退化成"看起来没结局"——此时标「请求中」属于误标
+             *（被筛掉的失败卡会显示成没结果），比不标更糟。
              */
-            markCanceled: Boolean = true,
+            markPending: Boolean = true,
         ): LogGroups {
             val list = regroupByReqId(input)
             val raw = ArrayList<Item>(list.size)
@@ -707,31 +709,28 @@ internal class LogGroups(
                 }
             }
 
-            // ===== 11-15：给「半途而废」的孤儿卡挂一枚「已取消」胶囊 =====
+            // ===== 11-15：「没有结局」的卡片如实挂一枚「请求中」 =====
             //
-            // 用户原话：「已取消和跳过，能不能也加个胶囊呀？如果真的有这种请求音频
-            // 半途而废的，还显示在日志里面，右上角还什么都没有，感觉都不知道这是啥」。
+            // 用户定稿口径（第二轮原话）：「不想要被误标，你可以显示请求中，
+            // 然后他的结果是取消或者是成功，或者是怎么样？」
+            // ⇒ 这里**不做任何"它大概是被掐掉了"的推断**，只回答一个问题：
+            //    这张卡到现在有没有拿到结局行？没有 → 请求中。
+            //    （先前那版按「后面已出现新请求」猜成「已取消」，属于误标，已撤。）
             //
-            // 为什么会有这种行：取消（U阅 stop / 翻页 / 跳段 / 破窗）插在「请求行落盘之前」时，
-            // `logCanceled()` 拿不到 currentReqId 会静默返回；等这笔被掐掉的合成终于写出
-            // 请求行，它已经永远等不到成功/失败行——列表里就只剩一行光秃秃的请求正文，
-            // 灯位空白，看上去"啥也不是"（上方「无结局孤儿卡」注释描述的就是这批）。
-            //
-            // 判据（沿用上方孤儿定义）+ 一条硬约束：
-            //   · 无成功子行、无失败证据（未吸收失败全文、不在 failedHeads）
-            //   · **后面已经出现新的一笔请求**（存在更靠后的 Item.Group）
-            // 第二条是关键：不加它，最新那笔"正在合成、还没回来"的正常请求会被误标成已取消。
-            // 加它之后仍有一点竞态——并发预取时靠后的一笔先回来，前面那笔会被短暂误标，
-            // 等它自己的结果行到达即随重组消失；相比"永远空白"，这个代价可以接受。
-            val lastGroupIdx = if (markCanceled) raw.indexOfLast { it is Item.Group } else -1
-            if (lastGroupIdx > 0) {
-                for (ri in 0 until lastGroupIdx) {
+            // 判据＝无成功子行、无失败证据（未吸收失败全文、不在 failedHeads）。
+            // 覆盖两种真实情形，且都不需要区分：
+            //   ①真的在途（并发预取中，结果还没回来）；
+            //   ②取消标记落盘早于请求行、`logCanceled()` 静默返回留下的半途请求
+            //     （永远等不到结局，就一直是"请求中"——这是如实描述，不是猜测）。
+            // 一旦成功/失败/取消行进入本组，pending 随重组自动消失、改为成功/失败丸。
+            if (markPending) {
+                for (ri in raw.indices) {
                     val g = raw[ri] as? Item.Group ?: continue
-                    if (g.canceled) continue
+                    if (g.pending) continue
                     if (g.absorbError >= 0) continue
                     if (failedHeads.contains(g.head)) continue
                     if (g.members.any { groupHasSuccessSub(list[it]) }) continue
-                    raw[ri] = Item.Group(g.head, g.members, g.absorbError, g.retryCount, canceled = true)
+                    raw[ri] = Item.Group(g.head, g.members, g.absorbError, g.retryCount, pending = true)
                 }
             }
 
@@ -1761,11 +1760,11 @@ internal fun LogScreen(
                                         // 曾把成功字提到时间前，用户明确否掉，别再动。
                                         val retryPill = if (item.retryCount > 0)
                                             LogPill(LogPillKind.RETRY, "重试") else null
-                                        // 11-15 用户令：半途而废的请求也要有个说法 →
-                                        // 中性灰「已取消」（不是错，是你自己掐的，与失败红区分）。
-                                        // 只在 build 判定为孤儿卡时出现，正常结果卡不会同时挂它。
-                                        val canceledPill = if (item.canceled)
-                                            LogPill(LogPillKind.CANCELED, "已取消") else null
+                                        // 11-15 用户定稿：没有结局的卡如实显示「请求中」
+                                        // （中性灰，不借用成功绿、也不借用失败红）。
+                                        // 有结局的卡不会同时挂它——pending 只在无结果时置位。
+                                        val pendingPill = if (item.pending)
+                                            LogPill(LogPillKind.PENDING, "请求中") else null
                                         pillShown?.let {
                                             Box(Modifier.padding(start = 6.dp)) { StatusPill(it) }
                                         }
@@ -1773,7 +1772,7 @@ internal fun LogScreen(
                                         retryPill?.let {
                                             Box(Modifier.padding(start = 6.dp)) { StatusPill(it) }
                                         }
-                                        canceledPill?.let {
+                                        pendingPill?.let {
                                             Box(Modifier.padding(start = 6.dp)) { StatusPill(it) }
                                         }
                                         // 胶囊后的灰字（成功=「耗时，大小」/失败主行=截短原因），留 6dp 隙。
@@ -2218,7 +2217,11 @@ private fun tailTextOfRow(e: LogEntry): String? {
 
 // 11-13：CANCELED 暂不产出——用户选定「不显示」档，取消请求整组丢弃。
 // 枚举与配色保留（when 需穷尽），将来若要改回灰丸档可直接启用。
-internal enum class LogPillKind { OK, FAIL, RETRY, STANDBY, CANCELED, PLAYING }
+//
+// 11-15 新增 PENDING（「请求中」）：用户令「不想要被误标，你可以显示请求中，
+// 然后他的结果是取消或者是成功，或者是怎么样？」——即卡片**没有结果行**时
+// 就如实报「请求中」，绝不去猜它是不是被掐掉的；等成功/失败行到达自然换丸。
+internal enum class LogPillKind { OK, FAIL, RETRY, STANDBY, CANCELED, PENDING, PLAYING }
 internal data class LogPill(val kind: LogPillKind, val text: String)
 
 /**
@@ -2335,6 +2338,9 @@ private fun StatusPill(pill: LogPill) {
         LogPillKind.STANDBY -> if (dark) Color(0xFFC9A94E) else Color(0xFF9A7B14)
         // 11-13 取消：中性灰（比重试更淡一档），明确「不是错，是你自己掐的」
         LogPillKind.CANCELED -> if (dark) Color(0xFF8A9099) else Color(0xFF7D8790)
+        // 11-15 请求中：与取消同档中性灰——它只表示"还没有结局"，不是错误也不是成功，
+        // 不能借主题绿（会被误读成已完成）
+        LogPillKind.PENDING -> if (dark) Color(0xFF8A9099) else Color(0xFF7D8790)
         // 11-14 正在朗读：跟「成功」同走主题主色（身份 vs 结果，同色系两档由描边区分）
         LogPillKind.PLAYING -> primary
     }
@@ -2347,6 +2353,7 @@ private fun StatusPill(pill: LogPill) {
         LogPillKind.RETRY -> if (dark) Color(0xFF2A2D33) else Color(0xFFF3F5F8)
         LogPillKind.STANDBY -> if (dark) Color(0xFF3A3226) else Color(0xFFFDF7E7)
         LogPillKind.CANCELED -> if (dark) Color(0xFF2B2E33) else Color(0xFFF0F2F4)
+        LogPillKind.PENDING -> if (dark) Color(0xFF2B2E33) else Color(0xFFF0F2F4)
     }
     // Box 居中（10-12 用户令「字一定要居中对齐」）：Text 直接挂 padding 时字形上下留白
     // 随字重/基线浮动，视觉偏上；Box(contentAlignment=Center) + 内衬给 Box 才几何居中。

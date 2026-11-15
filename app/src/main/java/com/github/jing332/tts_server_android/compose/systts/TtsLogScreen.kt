@@ -268,9 +268,9 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
 
     // 归组结果（10-06 全链卡）：与 LogScreen 共用同一实例——搜索跳转要把条目下标
     // 换算成列表项下标（一张卡=一个列表项），必须用同一份归组才不会错位
-    // 11-15：列表是否被「收窄」（决定要不要给半途而废的请求标「已取消」）。
+    // 11-15：列表是否被「收窄」（决定要不要给无结局的卡标「请求中」）。
     // 必须用**全部**收窄来源：搜索词、级别筛选、只看本书/本章——
-    // 少算一项就会把「结果行被筛掉的正常卡」误标成已取消。
+    // 少算一项就会把「结果行被筛掉的正常卡」误标成请求中。
     val logNarrowed by remember(vm) {
         derivedStateOf {
             searchQuery.trim().isNotEmpty() ||
@@ -284,7 +284,7 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
             displayLogs,
             fallbackBook = pinnedFallback?.bookName.orEmpty(),
             fallbackChapter = pinnedFallback?.chapterTitle.orEmpty(),
-            markCanceled = !logNarrowed,
+            markPending = !logNarrowed,
         )
     }
 
