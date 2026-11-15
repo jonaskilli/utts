@@ -23,9 +23,7 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.LocalContentColor
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -74,20 +72,16 @@ import kotlinx.coroutines.launch
  * 只会把「图标+文字」硬裁（标签被切半），静态无法验证是否裁到——所以按用户
  * 「一次改成功」的要求，改成自绘 60dp，高度完全可控。
  *
- * 视觉不是回退到旧微信式：**选中胶囊（secondaryContainer 32dp）+ 图标 24dp +
- * 文字仅选中显示 + 顶缘 1dp 分隔线**全部保留，与官方那套只差「矮了 20dp」。
+ * 视觉（11-15 晚定稿）：**仿微信/QQ —— 无选中胶囊、图标 24dp + 四个标签常显、
+ * 选中只换颜色（primary）+ 顶缘 1dp 分隔线**。上一版是 M3 官方那套
+ *（选中胶囊 + 文字仅选中显示）压到 60dp，装机后用户拿微信/QQ 对比否掉了：
+ * 胶囊在 60dp 里重心偏上，且三个无字图标看不出是哪栏。
  *
  * ⚠️ 全仓凡是要「避让底栏」的地方一律引用本常量，不要再写 80.dp 字面量
  *（11-15 用户令：上次改高改矮之后到处漏适配，这次必须一次改全）。
  * 目前引用点：MainPager 的 bottomBarHeightPx、ListManagerScreen 的 FAB 底部内距。
  */
 internal val BottomBarHeight = 60.dp
-
-/** 选中胶囊高度（沿用 M3 官方 32dp；栏高压缩后外围留白从 24 收到 14）。 */
-private val BarIndicatorHeight = 32.dp
-
-/** 选中胶囊宽度（M3 官方 64dp，四项分宽时仍在单格内居中）。 */
-private val BarIndicatorWidth = 64.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
 val LocalBottomBarBehavior =
@@ -236,34 +230,28 @@ fun AnimatedContentScope.MainPager(sharedVM: SharedViewModel) {
                                             horizontalAlignment = Alignment.CenterHorizontally,
                                             verticalArrangement = Arrangement.Center,
                                         ) {
-                                            // 选中胶囊：M3 官方同款（secondaryContainer 32dp 圆角）
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(width = BarIndicatorWidth, height = BarIndicatorHeight)
-                                                    .clip(RoundedCornerShape(50))
-                                                    .background(
-                                                        if (isSelected)
-                                                            MaterialTheme.colorScheme.secondaryContainer
-                                                        else Color.Transparent
-                                                    ),
-                                                contentAlignment = Alignment.Center,
+                                            // 11-15 晚：用户拿微信/QQ 底栏对比后令「抄他们的思路」。
+                                            // 与 M3 官方那套的两处差别（也是唯二差别）：
+                                            //   ① 去掉选中胶囊——微信/QQ 都没有选中底块，选中只靠颜色；
+                                            //      60dp 矮栏里再塞 32dp 胶囊，重心偏上、和标签挤成一团；
+                                            //   ② 四个标签**常显**——微信/QQ 四个字都在，图标不配字
+                                            //      等于要求用户记住「扳手/文档/齿轮」各是哪栏。
+                                            // 这条替代了 11-15「仅选中显示文字」，理由见交接 011。
+                                            CompositionLocalProvider(
+                                                LocalContentColor provides if (isSelected) barPrimary else barIdle
                                             ) {
-                                                // icon() 里的 Icon 用 LocalContentColor 着色，
-                                                // 这里按选中与否染 primary / onSurfaceVariant
-                                                CompositionLocalProvider(
-                                                    LocalContentColor provides if (isSelected) barPrimary else barIdle
-                                                ) {
-                                                    destination.icon()
-                                                }
+                                                destination.icon()
                                             }
-                                            // 文字：**仅选中显示**（用户 11-15 选定）。
-                                            // 未选中用 Color.Transparent 而不是「不组合」——
-                                            // 保留占位，否则选中切换时图标会上下跳一截。
+                                            // 10sp：微信底栏那档密度（11sp 在 60dp 里和图标凑得太满）。
+                                            // 图标 24 + 间距 2 + 标签行高 14 = 40dp，60dp 内容区居中后
+                                            // 上下各 10dp；系统字号 1.12 放大时 10sp→11.2sp 仍单行不裁。
                                             Text(
                                                 text = stringResource(destination.strId),
-                                                fontSize = 11.sp,
+                                                fontSize = 10.sp,
+                                                lineHeight = 14.sp,
                                                 maxLines = 1,
-                                                color = if (isSelected) barPrimary else Color.Transparent,
+                                                color = if (isSelected) barPrimary else barIdle,
+                                                modifier = Modifier.padding(top = 2.dp),
                                             )
                                         }
                                     }
