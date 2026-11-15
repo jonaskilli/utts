@@ -52,11 +52,30 @@ object SynthesizedAudioCache {
      * @param cacheRoot 通常传 context.cacheDir，会建子目录 `synth_cache`。
      *   用 cacheDir 而非 filesDir：这是可再生成的加速数据，系统清缓存时一起清掉正合适。
      */
+    /**
+     * 缓存根目录（11-15 晚二改，用户提的思路）：从 App 私有 `cacheDir/synth_cache`
+     * 挪到**公共存储** `/storage/emulated/0/Download/chajian/utts_synth_cache`。
+     *
+     * 为什么挪：U阅 的「清音频缓存」（长按朗读引擎键 / 换引擎界面右上角清理键）
+     * 删不到本 App 的私有目录，只能靠 `.clear_synth_cache` 握手文件——绕。
+     * 放进公共目录后，U阅 直接删目录就行，语义直白、用户可控。
+     *
+     * 代价（写在这里，免得以后当成 bug）：
+     *  1. 外部存储走 FUSE/MediaProvider，命中时读文件比私有目录慢几毫秒到几十毫秒
+     *     （对比现场合成的 3–8 秒，仍是一个数量级的收益）；
+     *  2. 不在 cacheDir 里，系统「清除缓存」不会帮你清，容量靠本对象自带的 200MB 水位 trim；
+     *  3. 文件管理器可见、可能被别的 App 动——写入已是 tmp+rename，坏文件顶多 miss。
+     * 私有目录仍作兜底：公共目录不可写（无权限/存储缺失）时回落 cacheDir。
+     */
+    private const val SHARED_ROOT = "/storage/emulated/0/Download/chajian/utts_synth_cache"
+
     fun init(context: Context) {
         if (dir != null) return
         runCatching {
-            val d = File(context.cacheDir, "synth_cache")
-            if (!d.exists()) d.mkdirs()
+            val shared = File(SHARED_ROOT)
+            if (!shared.exists()) shared.mkdirs()
+            val d = if (shared.isDirectory && shared.canWrite()) shared
+            else File(context.cacheDir, "synth_cache").also { if (!it.exists()) it.mkdirs() }
             dir = d
             enabled = d.isDirectory && d.canWrite()
             Log.d(TAG, "init: ${d.absolutePath}, enabled=$enabled")
@@ -157,6 +176,8 @@ object SynthesizedAudioCache {
     /** 写入 PCM。失败只记日志，绝不影响合成主流程。 */
     fun put(key: String, pcm: ByteArray) {
         if (!enabled || pcm.isEmpty()) return
+        // 公共目录可能被 U阅 的「清音频缓存」整目录删掉——写之前补建，否则整池写不进去
+        dir?.let { if (!it.exists()) it.mkdirs() }
         val file = fileOf(key) ?: return
         runCatching {
             // 先写临时文件再改名：避免并发写入/中途被杀留下半截文件被当成有效缓存
