@@ -574,7 +574,19 @@ class TtsLogViewModel : ViewModel() {
         // 只有历史行/重启后/清空重读可见此问题。
         // 修法（最小侵入）：「获取成功：」前缀只由 logS(SUCCESS, indent=1) 产生，
         // 回读时据此还原子行身份；若日后新增其他子行前缀，走落盘格式加字段的路。
-        val isAcquiredSuffix = line.contains("获取成功：")
+        //
+        // 11-16 用户实报（截图）：前几段明明已经播完，卡片上却一直挂着「请求中」。
+        // 根因＝**前缀集合没跟着 11-15 的新前缀更新**：
+        //   11-15 晚「缓存命中也出日志卡」把命中行的前缀改成了
+        //   `获取成功（缓存）：`（SystemTtsService 1342 注释），而这里只认
+        //   `获取成功：`（后面紧跟全角冒号）。命中行于是**不带 indent** →
+        //   `groupHasSuccessSub`（要求 indent>0）判不出成功子行 →
+        //   LogScreen 的 markPending 认定「本组至今没有结局」→ 挂「请求中」。
+        // 真机实锤（04:17 那批）：被判「请求中」的卡 = 段 0/1/2/2/3，
+        // 与 `获取成功（缓存）` 的 5 行**逐一对应**；现场合成的 16 行无一误判。
+        // 修法：前缀判据覆盖两种写法（命中行同样由 logS(SUCCESS, indent=1) 产生，
+        // 只是文案不同），仍然只认"获取成功"这一族，不扩大到其它 SUCCESS。
+        val isAcquiredSuffix = line.contains("获取成功：") || line.contains("获取成功（缓存）：")
         // 11-13：带请求实例 id 的新格式（本次改造）——
         //   time | LEVEL | configId | roleName | §book | chapter | reqId | message
         // reqId 列可为空（旧行/无关联行）。判别：§ 段之后的第一个 " | " 分出的第 3 段
