@@ -1853,6 +1853,38 @@ private fun PinnedLogHeader(
                                     // 书名号占了 2 个字宽（《》各约 11.5dp，合计≈23dp），
                                     // 而"这是一本书"靠图标表达更快——省宽又更直观。
                                     text = shownBook,
+                                    leadingIcon = Icons.Default.Book,
+                                    stretchText = true,
+                                    onClick = { bookMenu = true },
+                                    // 11-14：筛选态也改 onSurface（与未筛选态同色）——
+                                    // 两态切换只该变底/描边，文字色跳变会显得控件"换了个东西"
+                                    textColor = MaterialTheme.colorScheme.onSurface,
+                                    opened = bookMenu,
+                                    // 撑满 weight 槽（同未筛选态，见那边注释）
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                                // 紧凑菜单（用户令「把这个框小一点……得和谐呀」）：
+                                // MD3 DropdownMenu 默认项 48dp 高/16sp 字，相对吸顶 11sp 小字巨大。
+                                // 自定义项：11.5sp、36dp 高、内衬 12×6，与吸顶区同视觉密度；
+                                // 触发字本身不动（仍是 11sp 原样式，不加箭头/不加框）。
+                                // 书名菜单**居左**（用户定稿）：锚点=书名文字小 Box，
+                                // offset 归零即从文字左缘向右展开，与行首自然对齐。
+                                // 11-14：改用 BookChapterPickerMenu（参照 GitHub 分支切换器：
+                                // 搜索框 + 当前项打勾 + 标题行）。旧版是一长串无搜索的列表。
+                                val bookMenuW = minOf(maxOf(bookTriggerW, 220.dp), screenW - 16.dp)
+                                BookChapterPickerMenu(
+                                    expanded = bookMenu,
+                                    onDismissRequest = { bookMenu = false },
+                                    // 11-15 定案：书菜单宽度=书框实宽（≥220dp 保底、≤屏宽−24），
+                                    // 卡片左缘=书框左缘（offsetX 默认 0）——上下合成一体。
+                                    menuWidth = bookMenuW,
+                                    items = knownBooks.map { b ->
+                                        Triple(
+                                            b,
+                                            null,
+                                            b == shownBook,
+                                        )
+                                    },
                                     onPick = { b ->
                                         bookMenu = false
                                         onSwitchBook(b)
@@ -1973,6 +2005,24 @@ private fun PinnedLogHeader(
                             PickerTrigger(
                                 // 同上：书名号 → 书图标
                                 text = shownBook,
+                                leadingIcon = Icons.Default.Book,
+                                stretchText = true,
+                                onClick = { bookMenu2 = true },
+                                opened = bookMenu2,
+                                // 撑满 weight 槽：PickerTrigger 的 Row 是 wrap content，
+                                // 不显式 fillMaxWidth 时短书名会让框缩回文字宽度、右边留白
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            // 书名菜单居左（锚点小 Box + offset 归零，从左缘展开）
+                            val bookMenuW2 = minOf(maxOf(bookTriggerW2, 220.dp), screenW - 16.dp)
+                            BookChapterPickerMenu(
+                                expanded = bookMenu2,
+                                onDismissRequest = { bookMenu2 = false },
+                                // 同筛选态：宽度=书框实宽，卡片左缘=书框左缘。
+                                menuWidth = bookMenuW2,
+                                items = knownBooks.map { b ->
+                                    Triple(b, null, b == shownBook)
+                                },
                                 onPick = { b ->
                                     bookMenu2 = false
                                     onSwitchBook(b)
@@ -2299,7 +2349,7 @@ private fun BookChapterPickerMenu(
     menuWidth: Dp = 220.dp,
     offsetX: Dp = 0.dp,
     // 11-16 用户定稿：红叉挂在**弹窗里每一行的最右侧**（每本书/每一章各一个），
-    // 不是挂在吸顶的书框/章框上——那里太容易误触，而且一屏只有两个框。
+    // 不是挂在吸顶的书框/章框上（那里一屏只有两个框，且更容易误触）。
     onClearItem: ((String) -> Unit)? = null,
 ) {
     if (!expanded) return
@@ -2383,7 +2433,7 @@ private fun BookChapterPickerMenu(
                         modifier = Modifier.weight(1f),
                     )
                     // 11-16 用户令「章节弹窗右侧不要加那个多少条的提示」：
-                    // 那格改放红叉，条数不再显示（列表本来就按条数排序，数字只是噪音）。
+                    // 那一格改放红叉，条数不再显示（列表本就按它排，数字只是噪音）。
                     onClearItem?.let { clear ->
                         Icon(
                             imageVector = Icons.Default.Close,
@@ -2393,7 +2443,7 @@ private fun BookChapterPickerMenu(
                                 .padding(start = 8.dp)
                                 .size(15.dp)
                                 .clickable(
-                                    // 子级 clickable 先消费：点叉只清日志，不会连带选中这一行
+                                    // 子级 clickable 先消费：点叉只清日志，不会连带选中该行
                                     interactionSource = remember { MutableInteractionSource() },
                                     indication = null,
                                 ) { clear(name) },
