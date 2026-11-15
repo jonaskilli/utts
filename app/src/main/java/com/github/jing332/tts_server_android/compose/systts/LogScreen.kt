@@ -79,7 +79,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -2137,8 +2136,8 @@ internal fun LogScreen(
                 // 底色比页底深一档：#F1F3ED → 在正文里能看出"这是个浮起来的圆"。
                 Surface(
                     shape = CircleShape,
-                    color = Color(0xFFF1F3ED),
-                    shadowElevation = 2.dp,
+                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.92f),
+                    shadowElevation = 3.dp,
                     modifier = Modifier.size(56.dp),
                 ) {
                     Box(contentAlignment = Alignment.Center) {
@@ -2156,40 +2155,19 @@ internal fun LogScreen(
                         // 箭头 = 近黑（#1B1D1B）：灰白底上要"一眼看清是箭头"，
                         // 灰（onSurfaceVariant）在半透/浅底上偏软，用户上一版就是嫌它不对。
                         // 不跟随主题主色：绿箭头=把工具键染成状态色（理由见 Surface 注释）。
-                        val arrowColor = Color(0xFF1B1D1B)
-                        Canvas(
+                        // 十版（11-16 01:2x 用户定稿）：
+                        // 「用备选方案」= 浅绿底 + **绿箭头**（primary），不再走灰白/近黑；
+                        // 「箭头还是用很早以前那个两个向下叠一起的那个」= `KeyboardDoubleArrowDown`
+                        //（11-14 04:12 之前那版就是它，当时 40dp 圆 / 图标 20dp / 底 secondaryContainer
+                        //  / onSecondaryContainer；本次保留 56dp 视觉键，只把图标和配色换回那套）。
+                        Icon(
+                            Icons.Default.KeyboardDoubleArrowDown,
+                            stringResource(id = R.string.move_to_bottom),
                             modifier = Modifier
                                 .size(26.dp)
-                                .semantics { contentDescription = cd }
-                        ) {
-                            val w = size.width
-                            val cx = w / 2f
-                            val stroke = 2.2.dp.toPx()
-                            val top = w * 0.10f
-                            val bottom = w * 0.90f
-                            val head = w * 0.34f
-                            drawLine(
-                                color = arrowColor,
-                                start = Offset(cx, top),
-                                end = Offset(cx, bottom),
-                                strokeWidth = stroke,
-                                cap = StrokeCap.Round
-                            )
-                            drawLine(
-                                color = arrowColor,
-                                start = Offset(cx - head, bottom - head),
-                                end = Offset(cx, bottom),
-                                strokeWidth = stroke,
-                                cap = StrokeCap.Round
-                            )
-                            drawLine(
-                                color = arrowColor,
-                                start = Offset(cx + head, bottom - head),
-                                end = Offset(cx, bottom),
-                                strokeWidth = stroke,
-                                cap = StrokeCap.Round
-                            )
-                        }
+                                .semantics { contentDescription = cd },
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
                     }
                 }
             }
