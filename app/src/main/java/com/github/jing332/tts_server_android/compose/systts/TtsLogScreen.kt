@@ -8,7 +8,6 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -50,8 +49,6 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.TextFieldDefaults
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -271,6 +268,7 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
     // 11-15：列表是否被「收窄」（决定要不要给无结局的卡标「请求中」）。
     // 必须用**全部**收窄来源：搜索词、级别筛选、只看本书/本章——
     // 少算一项就会把「结果行被筛掉的正常卡」误标成请求中。
+    // （11-15：selectedLevels 现在只由「只看错误」置位，分级筛选条已撤。）
     val logNarrowed by remember(vm) {
         derivedStateOf {
             searchQuery.trim().isNotEmpty() ||
@@ -293,7 +291,8 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
     // 跳到该条目所在卡并高亮。完整流归组单独建（与 displayLogs 归组不同实例）。
     val isFiltered by remember(vm) {
         derivedStateOf {
-            // 只认真正"收窄"视图的两项：搜索词、级别筛选（10-10 用户令）。
+            // 只认真正"收窄"视图的两项：搜索词、「只看错误」（10-10 用户令）。
+            // （11-15 分级筛选条整条撤除后，selectedLevels 已只剩"只看错误"一种非空取值）
             // 「插件」「朗读规则」两个调试开关是**追加型**——勾上往列表里加日志，
             // 一点都不收窄，与"回完整流找原位置"语义相反；此前把它们也算进 isFiltered，
             // 导致只要勾了调试开关每张卡右上角都冒原文键（用户实机反馈）。
@@ -643,61 +642,14 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                     }
                 }
 
-                // 筛选标签显示
-                // 11-11 用户令「只看错误的时候，不要出现上方的那个 WARN 和 ERROR」：
-                // 「只看错误」的实现是往 selectedLevels 塞 ERROR+WARN，于是这条分级筛选条
-                // 会跟着冒出来——用户看到的是一条本不该存在的筛选栏。
-                // 它是「只看错误」的副作用而非独立筛选意图，故该态下不显示。
-                AnimatedVisibility(
-                    visible = vm.selectedLevels.isNotEmpty() && !vm.isErrorsOnly(),
-                    enter = fadeIn(),
-                    exit = fadeOut()
-                ) {
-                    Column {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 8.dp, vertical = 8.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = stringResource(R.string.filter),
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            // chips 流式换行：一行放不下自动折第二行（用户 09-08：不想左右滑）
-                            FlowRow(
-                                modifier = Modifier.weight(1f),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalArrangement = Arrangement.spacedBy(2.dp)
-                            ) {
-                                vm.selectedLevels.forEach { level ->
-                                    FilterChip(
-                                        selected = true,
-                                        onClick = { vm.toggleLevel(level) },
-                                        label = { Text(getLevelName(level), maxLines = 1) },
-                                        trailingIcon = {
-                                            Icon(
-                                                Icons.Default.Clear,
-                                                contentDescription = null,
-                                                modifier = Modifier.height(16.dp).width(16.dp)
-                                            )
-                                        },
-                                        colors = FilterChipDefaults.filterChipColors(
-                                            selectedContainerColor = getLevelColor(level)
-                                        )
-                                    )
-                                }
-                            }
-                            // 清除所有筛选（"筛选"标签与清除键固定两侧，chips 在中间滚动）
-                            IconButton(onClick = { vm.clearFilter() }) {
-                                Icon(Icons.Default.Clear, null)
-                            }
-                        }
-                        HorizontalDivider()
-                    }
-                }
+                // 11-15 用户令「要撤呀，本来就没有做过级别筛选这个」——整条分级筛选条删除。
+                // 撤除依据（读码确认是死 UI，不是「暂时用不到」）：
+                //   `vm.toggleLevel()` 全仓**只有一个调用点**，就在这条筛选条自己的胶囊里；
+                //   也就是说它只能被自己打开——`selectedLevels` 实际只有两种取值：
+                //   空（全部）或 {ERROR, WARN}（「只看错误」三态开关塞进去的）。
+                //   于是这条一旦渲染出来就永远无法再次进入，属于自指死链。
+                // 保留：`selectedLevels` 这套存储与 showAllLevels/showErrorsOnly/isErrorsOnly
+                //   仍是「只看错误」的实现底座，未动；clearFilter() 仍被 locateOriginal 使用。
 
                 // ===================== 吸顶区（11-11 用户令）=====================
                 // 三行：①筛选开关 ②书名（点=切书）+章名（点=跳章）+进度行。
@@ -1381,28 +1333,8 @@ private fun logFileDisplayName(fileName: String): String? = when {
 }
 
 @Composable
-private fun getLevelName(level: Int): String {
-    return when (level) {
-        LogLevel.ERROR -> "ERROR"
-        LogLevel.WARN -> "WARN"
-        LogLevel.INFO -> "INFO"
-        LogLevel.DEBUG -> "DEBUG"
-        LogLevel.TRACE -> "VERBOSE"
-        else -> "UNKNOWN"
-    }
-}
 
 @Composable
-private fun getLevelColor(level: Int): Color {
-    return when (level) {
-        LogLevel.ERROR -> MaterialTheme.colorScheme.errorContainer
-        LogLevel.WARN -> Color(0xFFFFF3E0)
-        LogLevel.INFO -> MaterialTheme.colorScheme.secondaryContainer
-        LogLevel.DEBUG -> MaterialTheme.colorScheme.primaryContainer
-        // 10-10 纯白表：UNKNOWN 档本意中性灰，surfaceVariant 未被新管线覆写、绿主题下带绿灰，改灰档
-        else -> MaterialTheme.colorScheme.surfaceContainerHighest
-    }
-}
 
 // 富文本 → 纯文本（复制用，10-12 用户实报「复制出来全是标签」）：
 // ① <br> / <br/> → 换行；② 其余标签（<font …>、<b>、</…>）整个删掉；

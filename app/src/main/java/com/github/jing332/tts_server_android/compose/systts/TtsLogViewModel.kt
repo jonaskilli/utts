@@ -342,13 +342,9 @@ class TtsLogViewModel : ViewModel() {
         return s.ifEmpty { null }
     }
     
-    fun toggleLevel(level: Int) {
-        if (level in selectedLevels) {
-            selectedLevels.remove(level)
-        } else {
-            selectedLevels.add(level)
-        }
-    }
+    // 11-15：`toggleLevel()` 随分级筛选条一起删除——它的唯一调用点就在那条筛选条自己的
+    // 胶囊里（自指死链），级别筛选从未有过真正的入口。`selectedLevels` 保留为
+    // 「只看错误」三态开关的存储底座（showAllLevels / showErrorsOnly / isErrorsOnly）。
     
     fun clearFilter() {
         selectedLevels.clear()
