@@ -726,7 +726,12 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                     // 11-14 后台合成进度行 + 快照（内部自算书章行后缀）
                     playingSnap = progressSnap,
                 )
-                if (vm.logs.isNotEmpty())
+                // 11-16 用户令：「如果没有后台合成那一行文字，吸顶区下方那条分隔线也不要，
+                // 书名框和章节框的描边就能代替」。
+                // 所以这条线的存在性=**合成进度行是否会渲染**（同一判据，抽成 hasSynthLine，
+                // 免得两处各写一份又走样）。有进度行时它把"控件带"和"日志流"分开；
+                // 没进度行时，书框/章框那圈描边本身就是边界，再多一条线是重复。
+                if (vm.logs.isNotEmpty() && hasSynthLine(progressSnap))
                 HorizontalDivider(
                     color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
                 )
@@ -1477,6 +1482,16 @@ private fun BookPickRow(
 
 /** 按范围清日志的目标：chapter=null 表示清整本书（11-15 晚红叉用）。 */
 internal data class ClearScope(val book: String, val chapter: String?)
+
+/** 吸顶区③-b「合成进度行」是否会出现——吸顶区分隔线的存在性跟它走（11-16 用户令）。 */
+private fun hasSynthLine(
+    snap: com.github.jing332.tts_server_android.service.systts.help.ReadProgressReader.Snapshot?
+): Boolean {
+    val s = snap ?: return false
+    if (s.synthTotalSegs > 0) return true
+    if (shortChapterLabel(s.synthChapterTitle).isNotBlank()) return true
+    return s.synthChapterIndex >= 0
+}
 
 // ===================== 日志吸顶区（11-11 用户令「书名和章节名一直置顶」）=====================
 // 三行结构，从上到下：
