@@ -72,7 +72,7 @@ import kotlinx.coroutines.launch
  * 只会把「图标+文字」硬裁（标签被切半），静态无法验证是否裁到——所以按用户
  * 「一次改成功」的要求，改成自绘 60dp，高度完全可控。
  *
- * 视觉（11-15 晚定稿）：**仿微信/QQ —— 无选中胶囊、图标 24dp + 四个标签常显、
+ * 视觉（11-16 定稿）：**仿微信/QQ —— 无选中胶囊、图标 26dp + 四个标签常显 11.5sp、
  * 选中只换颜色（primary）+ 顶缘 1dp 分隔线**。上一版是 M3 官方那套
  *（选中胶囊 + 文字仅选中显示）压到 60dp，装机后用户拿微信/QQ 对比否掉了：
  * 胶囊在 60dp 里重心偏上，且三个无字图标看不出是哪栏。
@@ -245,13 +245,16 @@ fun AnimatedContentScope.MainPager(sharedVM: SharedViewModel) {
                                             ) {
                                                 destination.icon()
                                             }
-                                            // 10sp：微信底栏那档密度（11sp 在 60dp 里和图标凑得太满）。
-                                            // 图标 24 + 间距 2 + 标签行高 14 = 40dp，60dp 内容区居中后
-                                            // 上下各 10dp；系统字号 1.12 放大时 10sp→11.2sp 仍单行不裁。
+                                            // 11-16：10sp→**11.5sp**、行高 14→16。
+                                            // 用户拿 QQ 实拍对比：「图标和字都比咱们的大」——QQ 那档
+                                            // 标签约 12sp、图标约 26dp。60dp 内容高里
+                                            // 26 图标 + 2 间距 + 16 行高 = 44dp，上下各 8dp 够用；
+                                            // 系统字号 1.12 时 11.5→12.9sp，仍单行（「系统TTS」5 字 ≈65dp，
+                                            // 单格 ≈90dp）。
                                             Text(
                                                 text = stringResource(destination.strId),
-                                                fontSize = 10.sp,
-                                                lineHeight = 14.sp,
+                                                fontSize = 11.5.sp,
+                                                lineHeight = 16.sp,
                                                 maxLines = 1,
                                                 color = if (isSelected) barPrimary else barIdle,
                                                 modifier = Modifier.padding(top = 2.dp),
@@ -261,10 +264,22 @@ fun AnimatedContentScope.MainPager(sharedVM: SharedViewModel) {
                                 }
                             }
                         }
-                        // 顶缘分隔线（10-13 定的 outlineVariant@50%）已于 11-15 晚撤除：
-                        // 用户拿微信/QQ 对比后指出「他们没这条线，看着更宽松」。
-                        // 底栏与页底同色（10-13 用户令），分界交给 22dp 图标 + 留白本身；
-                        // 若日后觉得滚动内容与底栏糊在一起，把这条线按 25% 加回来即可。
+                        // 顶缘分隔线（outlineVariant@50%）——11-16 加回来。
+                        // 11-15 晚撤它是照搬微信/QQ「没线」，但漏了人家的前提：
+                        // **人家的底栏底色与内容区不同**（白/灰分工），靠色差分带；
+                        // 我们的底栏与页底同色（10-13 用户令），没有线就没有边界。
+                        // 用户 11-16 原话：「人家不加分隔线是因为颜色不一样，咱们颜色一样
+                        // 就得加分隔线，反正你要改颜色要不加分隔线」。
+                        // 选**加线**而不是改底色：全站只有一个页面底 (#FBFDF8)，
+                        // 为底栏新造一个色阶等于引入新色相，换主题/深色还要再配一套；
+                        // 一条 50% 的 1dp 线是现成档位，和日志页条目线同一口径。
+                        Box(
+                            Modifier
+                                .align(Alignment.TopCenter)
+                                .fillMaxWidth()
+                                .height(1.dp)
+                                .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                        )
                         }
                     }
                 }
