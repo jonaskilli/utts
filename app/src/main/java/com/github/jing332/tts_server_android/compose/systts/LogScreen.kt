@@ -574,21 +574,30 @@ internal class LogGroups(
                                 }
                             }
                         } else if (head >= 0) {
-                            // ===== 11-14 晚硬闸（用户实报「把第二个请求音频纳入第一个请求音频内，
-                            // 颜色也不对，不是本身请求音频和正文的颜色」）=====
+                            // ===== 11-15 用户令（恢复从前）：失败+重试一条卡，成功单独一条 =====
                             //
-                            // 这是**最后一道防线**：走到这个 else 说明前面所有判据都没命中
-                            // （configId 为 0、前缀判据也没中），但**内容明明是请求行**。
-                            // 此时绝不能把它当成员塞进上一张卡——成员区渲染不传 isRequestHead，
-                            // INFO 级会走主题绿 + 13sp，正是用户看到的"颜色不对"，
-                            // 而且它的成功行也会挂到上一张卡（卡头 32.7KB / 裸行 22.9KB 错配）。
+                            // 用户原话：「以前重试就是在失败日志加一个重试胶囊，跟成功胶囊类似那种」
+                            // 「就恢复从前就行了」。
                             //
-                            // 判据用「去 HTML 后含『请求音频：』」而不是 startsWith：
-                            // 个别路径（插件包装、异常前缀）前面可能多出字符，
-                            // 但只要出现这个唯一前缀就一定是请求行（该前缀只有 logI 一处产生）。
-                            // 命中就开新卡，与正常请求行走完全相同的渲染与归组。
+                            // 必须**先判老版式失败全文条**，再走下面那道请求前缀硬闸：
+                            // 失败全文条 = 错误串 + <br> + e.request.text()，而 text() 里
+                            // **内嵌着「请求音频：…」**。所以「含请求音频就开新卡」那道 11-14 硬闸
+                            // 会把它误判成一笔新请求 → 失败行自己开了一张新卡当卡头，
+                            // 紧跟着的成功行就作为成员挂进这张卡，重试行再挂个重试丸
+                            // ⇒ 用户截图里「失败 + 重试 + 成功挤成一坨」，且原请求行成了
+                            // 一张永远等不到结局的孤儿卡。
+                            //
+                            // 正确先后：失败全文条 → 记 groupFailed/absorbError 并**收掉本卡**
+                            //（渲染成「请求行 + 失败全文 +（后续重试丸）」一张卡）；
+                            // 之后的重试行无卡可归 → 按上面的「挂到刚收的失败组」逻辑加重试丸；
+                            // 之后若重试成功，成功行因 head<0 落成**独立裸行**（＝从前的观感）。
                             val plain = e.message.replace(Regex("<[^>]*>"), "").trim()
-                            if (plain.contains("请求音频：") || plain.contains("请求音频:")) {
+                            val isFullFail = e.level == LogLevel.ERROR && e.message.contains("<br>")
+                            if (isFullFail) {
+                                groupFailed = true
+                                errMemberIdx = i
+                                closeCard()
+                            } else if (plain.contains("请求音频：") || plain.contains("请求音频:")) {
                                 openCard(i)
                             } else {
                                 // 老版式失败全文条（10-11）：本条含请求全文（错误 + <br> +
@@ -598,14 +607,8 @@ internal class LogGroups(
                                 //（成员区只跳过 SUCCESS），进了就双重渲染。
                                 // 用「含 <br>」判别：配置为空/系统消息这类无正文的 ERROR
                                 // 不进吸收（保持原样：主行正文照旧显示）。
-                                val isFullFail = e.level == LogLevel.ERROR && e.message.contains("<br>")
-                                if (isFullFail) {
-                                    groupFailed = true
-                                    errMemberIdx = i
-                                } else {
-                                    members.add(i)
-                                    if (e.level == LogLevel.ERROR) groupFailed = true
-                                }
+                                members.add(i)
+                                if (e.level == LogLevel.ERROR) groupFailed = true
                                 closeCard()
                             }
                         } else raw.add(Item.Bare(i))
