@@ -1668,8 +1668,25 @@ internal fun LogScreen(
                                 it.level == LogLevel.SUCCESS &&
                                     !it.message.replace(Regex("<[^>]*>"), "").startsWith(CANCEL_MARKER)
                             }
+                            // 11-16（用户实报「命中了却只显示成功丸，没有预合成」）：
+                            // 组头丸的推导**抢在 pillOf 之前**——只要组里有 SUCCESS 子行
+                            // 就返回「成功」，pillOf 里「获取成功（预合成）→ 预合成丸」的
+                            // 判定根本轮不到。缓存命中卡同样有 SUCCESS 子行
+                            //（「获取成功（预合成）：」indent=1 是成员行），于是永远画「成功」。
+                            // 修法：successMember 命中后再分一路——子行是**预合成**（旧前缀
+                            // 「缓存/本地缓存/UTTS缓存」同样认）就画「预合成」丸；
+                            // 其余照旧「成功」。失败/吸收分支不动。
+                            fun isPreloadMember(m: com.github.jing332.common.LogEntry): Boolean {
+                                val msg = m.message.replace(Regex("<[^>]*>"), "")
+                                return msg.contains("获取成功（预合成）") ||
+                                    msg.contains("获取成功（UTTS缓存）") ||
+                                    msg.contains("获取成功（本地缓存）") ||
+                                    msg.contains("获取成功（缓存）")
+                            }
                             val pill = remember(item.head, successMember, absorbed, currentGroups) {
                                 when {
+                                    successMember != null && isPreloadMember(successMember) ->
+                                        LogPill(LogPillKind.CACHE, "预合成")
                                     successMember != null -> LogPill(LogPillKind.OK, "成功")
                                     // 丸只报状态（10-12 用户令）：原来写「源错误」——那是**原因**，
                                     // 不该占丸位。现在一律「失败」，原因交给正文首行（服务端
