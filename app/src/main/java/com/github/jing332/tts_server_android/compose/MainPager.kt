@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -47,7 +46,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.layout
@@ -75,9 +73,10 @@ import kotlinx.coroutines.launch
  * 「一次改成功」的要求，改成自绘 60dp，高度完全可控。
  *
  * 视觉（11-16 定稿）：**仿微信/QQ —— 无选中胶囊、图标 26dp + 四个标签常显 11.5sp、
- * 选中只换颜色（primary）+ 顶缘 1dp 分隔线**。上一版是 M3 官方那套
+ * 选中只换颜色（primary，落在图标和文字上）+ 顶缘 1dp 分隔线**。中间一版是 M3 官方那套
  *（选中胶囊 + 文字仅选中显示）压到 60dp，装机后用户拿微信/QQ 对比否掉了：
- * 胶囊在 60dp 里重心偏上，且三个无字图标看不出是哪栏。
+ * 胶囊在 60dp 里重心偏上，且三个无字图标看不出是哪栏；
+ * 再一版改成主题色填充胶囊，也被否掉（「绿色显示在图标和文字上，而不是作为填充色」）。
  *
  * ⚠️ 全仓凡是要「避让底栏」的地方一律引用本常量，不要再写 80.dp 字面量
  *（11-15 用户令：上次改高改矮之后到处漏适配，这次必须一次改全）。
@@ -176,7 +175,8 @@ fun AnimatedContentScope.MainPager(sharedVM: SharedViewModel) {
             Scaffold(
                 modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
                 bottomBar = {
-                    // 11-15 用户令「底栏改低一点」+「仅选中显示文字」→ 自绘 60dp 紧凑栏。
+                    // 11-15 用户令「底栏改低一点」→ 自绘 60dp 紧凑栏（当晚会同令改为
+                    // 四标签常显，见 BottomBarHeight 注释）。
                     // 视觉口径全部沿用官方那套，只是矮 20dp（细节见 BottomBarHeight 注释）。
                     // 滚动隐藏 v2 布局式裁剪原样适用（bottomBarHeight 裁的是整体高度，
                     // 自绘 Row 当内容装进去即可）；手势条 inset 由下方 Column 的
@@ -233,26 +233,22 @@ fun AnimatedContentScope.MainPager(sharedVM: SharedViewModel) {
                                     ) {
                                         Column(
                                             modifier = Modifier
-                                                // 11-16 定稿（用户拿列表里那个**绿色勾选框**作参照：
-                                                // 「选中框的填充色，跟随主题改」）：
-                                                // 选中项 = **主题色填充的胶囊**，图标/文字转 onPrimary；
-                                                // 未选中 = 无底、灰字。填充色取 colorScheme.primary，
-                                                // 换主题/深色自动跟随，不写死任何绿色。
-                                                // 尺寸：内容 26+2+16=44，胶囊内衬 3+3 → 50dp，仍在 60dp 栏内。
-                                                .clip(RoundedCornerShape(50))
-                                                .background(
-                                                    if (isSelected) barPrimary else Color.Transparent
-                                                )
+                                                // 11-16 用户令（晚）：填充胶囊否掉——「这个绿色
+                                                // 显示在图标和文字上，而不是作为填充色」。
+                                                // 即回到微信/QQ 的做法：选中只换颜色不换底，
+                                                // 图标+文字一起用主题 primary（换主题/深色自动跟随，
+                                                // 不写死绿色）；未选中=无底、灰字。
                                                 .padding(horizontal = 10.dp, vertical = 3.dp),
                                             horizontalAlignment = Alignment.CenterHorizontally,
                                             verticalArrangement = Arrangement.Center,
                                         ) {
                                             // 11-15 晚：用户拿微信/QQ 底栏对比后令「抄他们的思路」：
                                             // 四个标签常显、选中不靠"有没有字"区分（这条保留）；
-                                            // 11-16 又按勾选框的口径把选中态改成主题色填充。
+                                            // 11-16 晚：选中态定为「图标+文字同用主题色」，
+                                            // 撤掉填充胶囊（见上方 Column 注释）。
                                             CompositionLocalProvider(
                                                 LocalContentColor provides
-                                                    if (isSelected) MaterialTheme.colorScheme.onPrimary else barIdle
+                                                    if (isSelected) barPrimary else barIdle
                                             ) {
                                                 destination.icon()
                                             }
@@ -267,8 +263,7 @@ fun AnimatedContentScope.MainPager(sharedVM: SharedViewModel) {
                                                 fontSize = 11.5.sp,
                                                 lineHeight = 16.sp,
                                                 maxLines = 1,
-                                                color = if (isSelected)
-                                                    MaterialTheme.colorScheme.onPrimary else barIdle,
+                                                color = if (isSelected) barPrimary else barIdle,
                                                 modifier = Modifier.padding(top = 2.dp),
                                             )
                                         }
