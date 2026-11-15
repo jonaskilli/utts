@@ -586,7 +586,10 @@ class TtsLogViewModel : ViewModel() {
         // 与 `获取成功（缓存）` 的 5 行**逐一对应**；现场合成的 16 行无一误判。
         // 修法：前缀判据覆盖两种写法（命中行同样由 logS(SUCCESS, indent=1) 产生，
         // 只是文案不同），仍然只认"获取成功"这一族，不扩大到其它 SUCCESS。
-        val isAcquiredSuffix = line.contains("获取成功：") || line.contains("获取成功（缓存）：")
+        // 11-16 四改：前缀扩成「（本地缓存）」后这里同步认两种写法
+        //（旧日志文件里仍是「（缓存）」，历史行也要能还原成子行）
+        val isAcquiredSuffix = line.contains("获取成功：") ||
+            line.contains("获取成功（本地缓存）：") || line.contains("获取成功（缓存）：")
         // 11-13：带请求实例 id 的新格式（本次改造）——
         //   time | LEVEL | configId | roleName | §book | chapter | reqId | message
         // reqId 列可为空（旧行/无关联行）。判别：§ 段之后的第一个 " | " 分出的第 3 段
