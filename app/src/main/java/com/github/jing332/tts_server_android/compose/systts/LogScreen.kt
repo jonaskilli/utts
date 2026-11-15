@@ -2134,10 +2134,20 @@ internal fun LogScreen(
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         val cd = stringResource(id = R.string.move_to_bottom)
-                        val arrowColor = MaterialTheme.colorScheme.onSurface
+                        // 八版（11-15 晚）：
+                        // ① **箭头放大**：用户「参考图那个箭头比较大、比较明显」——参考图里
+                        //    箭头约占圆径 45%，我们原来 22/56 = 39%。改 26dp（46%），
+                        //    笔画仍 2.2dp（占圆径 3.9%，与参考图那档细线一致），
+                        //    只是长度变长，不靠加粗去「显眼」。
+                        // ② **颜色从主题绿换成灰**：用户「内部除了主题色能不能换别的，
+                        //    比如灰色，咱们卡片也是灰白色系」——底本来就是浅绿，
+                        //    箭头再深绿就整颗全绿、跟日志正文的灰阶脱节；
+                        //    改 onSurfaceVariant（#414941，与筛选行/书章同档灰），
+                        //    绿只留在底上，键的整体和卡片那种灰白色系对得上。
+                        val arrowColor = MaterialTheme.colorScheme.onSurfaceVariant
                         Canvas(
                             modifier = Modifier
-                                .size(22.dp)
+                                .size(26.dp)
                                 .semantics { contentDescription = cd }
                         ) {
                             val w = size.width
@@ -2145,7 +2155,7 @@ internal fun LogScreen(
                             val stroke = 2.2.dp.toPx()
                             val top = w * 0.10f
                             val bottom = w * 0.90f
-                            val head = w * 0.32f
+                            val head = w * 0.34f
                             drawLine(
                                 color = arrowColor,
                                 start = Offset(cx, top),
