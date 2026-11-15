@@ -1332,10 +1332,6 @@ private fun logFileDisplayName(fileName: String): String? = when {
     else -> null
 }
 
-@Composable
-
-@Composable
-
 // 富文本 → 纯文本（复制用，10-12 用户实报「复制出来全是标签」）：
 // ① <br> / <br/> → 换行；② 其余标签（<font …>、<b>、</…>）整个删掉；
 // ③ 顺手还原常见实体（&lt; &gt; &amp; &nbsp;）——粘到聊天框里能直接读。
