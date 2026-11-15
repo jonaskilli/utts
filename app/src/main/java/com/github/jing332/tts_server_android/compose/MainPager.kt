@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -46,6 +47,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.layout
@@ -230,18 +232,27 @@ fun AnimatedContentScope.MainPager(sharedVM: SharedViewModel) {
                                         contentAlignment = Alignment.Center,
                                     ) {
                                         Column(
+                                            modifier = Modifier
+                                                // 11-16 定稿（用户拿列表里那个**绿色勾选框**作参照：
+                                                // 「选中框的填充色，跟随主题改」）：
+                                                // 选中项 = **主题色填充的胶囊**，图标/文字转 onPrimary；
+                                                // 未选中 = 无底、灰字。填充色取 colorScheme.primary，
+                                                // 换主题/深色自动跟随，不写死任何绿色。
+                                                // 尺寸：内容 26+2+16=44，胶囊内衬 3+3 → 50dp，仍在 60dp 栏内。
+                                                .clip(RoundedCornerShape(50))
+                                                .background(
+                                                    if (isSelected) barPrimary else Color.Transparent
+                                                )
+                                                .padding(horizontal = 10.dp, vertical = 3.dp),
                                             horizontalAlignment = Alignment.CenterHorizontally,
                                             verticalArrangement = Arrangement.Center,
                                         ) {
-                                            // 11-15 晚：用户拿微信/QQ 底栏对比后令「抄他们的思路」。
-                                            // 与 M3 官方那套的两处差别（也是唯二差别）：
-                                            //   ① 去掉选中胶囊——微信/QQ 都没有选中底块，选中只靠颜色；
-                                            //      60dp 矮栏里再塞 32dp 胶囊，重心偏上、和标签挤成一团；
-                                            //   ② 四个标签**常显**——微信/QQ 四个字都在，图标不配字
-                                            //      等于要求用户记住「扳手/文档/齿轮」各是哪栏。
-                                            // 这条替代了 11-15「仅选中显示文字」，理由见交接 011。
+                                            // 11-15 晚：用户拿微信/QQ 底栏对比后令「抄他们的思路」：
+                                            // 四个标签常显、选中不靠"有没有字"区分（这条保留）；
+                                            // 11-16 又按勾选框的口径把选中态改成主题色填充。
                                             CompositionLocalProvider(
-                                                LocalContentColor provides if (isSelected) barPrimary else barIdle
+                                                LocalContentColor provides
+                                                    if (isSelected) MaterialTheme.colorScheme.onPrimary else barIdle
                                             ) {
                                                 destination.icon()
                                             }
@@ -256,7 +267,8 @@ fun AnimatedContentScope.MainPager(sharedVM: SharedViewModel) {
                                                 fontSize = 11.5.sp,
                                                 lineHeight = 16.sp,
                                                 maxLines = 1,
-                                                color = if (isSelected) barPrimary else barIdle,
+                                                color = if (isSelected)
+                                                    MaterialTheme.colorScheme.onPrimary else barIdle,
                                                 modifier = Modifier.padding(top = 2.dp),
                                             )
                                         }
