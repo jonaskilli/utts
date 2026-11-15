@@ -90,7 +90,7 @@ class SegmentEventGate {
             }
             pending = out
         }
-        pending.forEach(::dispatch)
+        pending.forEach { dispatch(it) }
     }
 
     /**
@@ -107,12 +107,22 @@ class SegmentEventGate {
             buffers.clear()
             pending = out
         }
-        pending.forEach(::dispatch)
+        pending.forEach { dispatch(it) }
     }
 
     /** 当前还在缓冲的段数（诊断用）。 */
     fun pendingSegments(): Int = synchronized(this) { buffers.size }
 
-    /** 实际派发出口。由 AbstractMixSynthesizer 在构造时注入 `context.event?.dispatch`。 */
-    var dispatch: (Event) -> Unit = {}
+    /**
+     * 实际派发出口。由 [AbstractMixSynthesizer.produceSegments] 在创建闸门时注入
+     * `context.event?.dispatch`。
+     *
+     * 用可变属性而不是构造参数：闸门要在合成器内部创建、出口又要指向合成器的
+     * context，两边互相依赖，构造参数会形成循环。
+     */
+    private var dispatch: (Event) -> Unit = {}
+
+    fun setDispatcher(fn: (Event) -> Unit) {
+        dispatch = fn
+    }
 }

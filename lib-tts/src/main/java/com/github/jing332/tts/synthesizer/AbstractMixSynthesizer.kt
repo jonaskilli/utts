@@ -637,7 +637,7 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
         // 与产物信箱同一套保序思路。以前产物有序、日志无序，用户看到的就是
         // 「声音顺序对，日志顺序全乱」。这里让两者共用同一个顺序事实：段下标。
         val eventGate = SegmentEventGate()
-        eventGate.dispatch = { ev -> context.event?.dispatch(ev) }
+        eventGate.setDispatcher { ev -> context.event?.dispatch(ev) }
         // 独立 scope：fetcher 失败不传染回填循环（SupervisorJob），随 finally 一并取消
         val fetcherScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
         val fetchers = List(concurrency) { worker ->
