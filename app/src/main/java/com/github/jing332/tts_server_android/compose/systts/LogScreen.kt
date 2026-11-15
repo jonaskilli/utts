@@ -2059,23 +2059,28 @@ internal fun LogScreen(
                 // 视觉键（56dp）：用户 11-15 三连令「键大一点防误触」+「隐形一点不遮挡」+
                 //「会不会看不清是箭头还是复原？」。
                 //
-                // 11-15 晚二次定档（用户实拍：「这个箭头的圆圈边界太丑了，怎么会这样」）：
-                // 改前 = secondaryContainer@55% + shadowElevation 1dp。丑的根因是**阴影**——
-                // Compose 对带 shape 的 Surface 即使 elevation=1dp 也会画 ambient+spot 两层，
-                // 在浅底上呈现 2~6px 灰晕圈，把 56dp 圆在视觉上放大一圈、边缘发虚；
-                // 再叠上 55% 半透明，圆与正文混色，边界彻底糊掉。
-                // 改后 = **不透明浅底 + 零阴影 + 1dp 描边**：边界由描边定死，晕圈消失。
-                // 为什么描边用 primary@26%：主色淡描边沿用「正在朗读」淡绿语义，
-                // 比 outlineVariant 灰线更贴合本页配色，且不抢图标。
+                // 11-15 晚三改定稿（用户令：「我还是想要那种透明的，只是它的边缘给改一下，
+                // 之前的边缘有问题」）。
+                //
+                // 沿革与真正的病根：
+                //   一版 = secondaryContainer@55% + shadowElevation 1dp → 用户实拍「圆圈边界太丑」。
+                //          病根是**阴影不是透明度**：Compose 对带 shape 的 Surface 即使 1dp
+                //          也会画 ambient+spot 两层，浅底上呈现 2~6px 灰晕圈，
+                //          把 56dp 圆视觉放大一圈、边缘发虚。
+                //   二版 = 不透明底 + 零阴影 + 1dp 描边 → 边缘干净了，但丢了用户要的透明感。
+                //   本版 = **保留 55% 透明 + 零阴影 + 1dp 描边**：透明感回来，
+                //          边界改由描边定死，晕圈不存在。
+                // 描边取 primary@32%（比二版的 26% 略重）：半透明底色上文字会透过来，
+                // 描边太淡会被正文线条吃掉、圆又重新变模糊——这是透明档必须加重一档的原因。
                 Surface(
                     shape = CircleShape,
-                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f),
                     shadowElevation = 0.dp,
                     modifier = Modifier
                         .size(56.dp)
                         .border(
                             width = 1.dp,
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.26f),
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.32f),
                             shape = CircleShape,
                         ),
                 ) {
