@@ -143,6 +143,17 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
         const val PARAM_PARA_TOTAL = "para_total"
 
         /**
+         * 11-15（任务书-U阅批量提交多段）：一次请求带多段并并行合成。
+         *
+         * 格式：JSON `{"segments":[{"text":"...","paraIndex":12}, ...]}`，
+         * 由调用方放进 request.params（Bundle）。**旧调用方不带此参数时行为完全不变**。
+         *
+         * 为什么不走「调用方并发提交多笔」：`onSynthesizeText` 开头的破窗会让
+         * 新请求取消旧请求，多笔并发必互相掐断——这也是当前合成严格串行的原因之一。
+         */
+        const val PARAM_BATCH_JSON = "batch_json"
+
+        /**
          * 更新配置
          */
         fun notifyUpdateConfig(isOnlyReplacer: Boolean = false) {
@@ -412,11 +423,57 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
     internal var currentParaIndex: Int = -1
     @Volatile
     internal var currentParaTotal: Int = 0
+
+    /**
+     * 11-15（任务书-U阅批量提交多段）：本笔请求携带的批量段列表。
+     * null = 单段路径（旧调用方/未启用批量），行为与改动前完全一致。
+     * 与 currentPara* 同样在 onSynthesizeText 里从 Bundle 读出、由合成协程消费一次。
+     */
+    @Volatile
+    internal var currentBatchSegments: List<
+        com.github.jing332.tts.synthesizer.BatchSegment>? = null
+
     private var mNotificationJob: Job? = null
 
     // 🛠️ 记住上一个 callback，解决系统队列死锁
     private var lastTtsCallback: android.speech.tts.SynthesisCallback? = null
 
+
+    /**
+     * 解析批量段列表（2026-11-15，任务书-U阅批量提交多段）。
+     *
+     * 入参形如 `{"segments":[{"text":"...","paraIndex":12}, ...]}`。
+     *
+     * ## 失败策略：一律返回 null（回落到单段路径）
+     *
+     * 批量是**优化**而不是功能前提。JSON 坏了、字段缺了、只有一个段——
+     * 都当「没传批量」处理，用 request.charSequenceText 的单段路径正常合成。
+     * 绝不因为批量格式问题让用户听不到声音（宁可没提速，也不能不出声）。
+     *
+     * ## 为什么单段也返回 null
+     *
+     * 只有 1 段时批量路径与单段路径等价，但单段路径经过真机长期验证（破窗/重试/
+     * 静音占位/段落标记全部覆盖）。能走老路就走老路，减少回归面。
+     */
+    private fun parseBatchSegments(
+        json: String?,
+    ): List<com.github.jing332.tts.synthesizer.BatchSegment>? {
+        if (json.isNullOrBlank()) return null
+        val root = runCatching { org.json.JSONObject(json) }.getOrNull() ?: return null
+        val arr = root.optJSONArray("segments") ?: return null
+        if (arr.length() <= 1) return null
+        val list = ArrayList<com.github.jing332.tts.synthesizer.BatchSegment>(arr.length())
+        for (i in 0 until arr.length()) {
+            val item = arr.optJSONObject(i) ?: return null
+            val text = item.optString("text", "")
+            if (text.isBlank()) return null
+            val paraIndex = item.optInt("paraIndex", -1)
+            list.add(
+                com.github.jing332.tts.synthesizer.BatchSegment(text = text, paraIndex = paraIndex)
+            )
+        }
+        return list.takeIf { it.size > 1 }
+    }
 
     private fun getConfigIdFromVoiceName(voiceName: String): Result<Long?, Unit> {
         if (voiceName.isNotBlank()) {
@@ -470,6 +527,8 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
         // 只能在这里暂存、由 synthesize 内的 NormalEvent.Request 处理时取用（见 currentPara*）。
         currentParaIndex = request.params.getInt(PARAM_PARA_INDEX, -1)
         currentParaTotal = request.params.getInt(PARAM_PARA_TOTAL, 0)
+        // 11-15：批量段列表（可空）。解析失败按单段路径处理，绝不因此整笔失败。
+        currentBatchSegments = parseBatchSegments(request.params.getString(PARAM_BATCH_JSON))
 
         runBlocking {
             var cfgId: Long? = getConfigIdFromVoiceName(request.voiceName ?: "").onFailure {
@@ -513,6 +572,8 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                             // 下一笔请求进来时成员变量已被覆盖，互不干扰。
                             paraIndex = currentParaIndex,
                             paraTotal = currentParaTotal,
+                            // 11-15：批量段列表（null=单段路径，行为不变）
+                            batchSegments = currentBatchSegments,
                             callback = object :
                                 com.github.jing332.tts.synthesizer.SynthesisCallback {
                                 override fun onSynthesizeStart(sampleRate: Int) {

@@ -18,6 +18,11 @@ interface Synthesizer {
         // 时随入口传入，一路透传到日志行；-1/0 = 调用方没带，全链不标。
         paraIndex: Int = -1,
         paraTotal: Int = 0,
+        // 11-15（任务书-U阅批量提交多段）：一次请求内带多段并并行合成。
+        // 为空 = 走原有的「单段 params.text」路径，行为完全不变。
+        // 为何必须是「一笔多段」而不是「多笔并发」：onSynthesizeText 开头的破窗
+        // 会让新请求取消旧请求，多笔并发必互相掐断（详见 BatchSegment 注释）。
+        batchSegments: List<BatchSegment>? = null,
     ): Result<Unit, SynthesisError>
 }
 

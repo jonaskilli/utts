@@ -125,11 +125,46 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
         // 11-14：段落位置透传（U阅 Bundle 带入，见 ITextProcessor.process 注释）
         paraIndex: Int = -1,
         paraTotal: Int = 0,
+        // 11-15（任务书-U阅批量提交多段）：一次请求内带多段。
+        // 每段仍**独立**调用一次 textProcessor.process——这是刻意的：
+        // 朗读规则引擎的分析缓存、跨章预标注、段落口径都以「段」为单位，
+        // 拼成一大段会让缓存键变化、角色识别上下文错乱。
+        // 这里只负责「把 N 段的分析结果汇成一个列表」，并行发生在下游 produceSegments。
+        batchSegments: List<BatchSegment>? = null,
     ): Result<List<TextSegment>, SynthesisError> {
         val presetConfig: TtsConfiguration? = presetConfigId?.run { repo.getTts(this) }
         if (presetConfigId != null && presetConfig == null) {
             return Err(SynthesisError.PresetMissing(presetConfigId))
         }
+
+        // 批量路径：逐段跑文本处理，按段序拼接结果（顺序即播放顺序，不可乱）
+        if (batchSegments != null) {
+            if (batchSegments.isEmpty()) return Ok(emptyList())
+            val merged = ArrayList<TextSegment>(batchSegments.size)
+            for (segment in batchSegments) {
+                if (segment.text.isBlank()) continue
+                val segmentIndex = if (segment.paraIndex >= 0) segment.paraIndex else paraIndex
+                var failure: SynthesisError? = null
+                textProcessor
+                    .process(segment.text, presetConfig, segmentIndex, paraTotal)
+                    .onSuccess { list ->
+                        // 与单段路径同口径：过滤纯静音段后再并入
+                        merged.addAll(list.filterNot { StringUtils.isSilent(it.text) })
+                    }
+                    .onFailure { err: TextProcessorError ->
+                        event(ErrorEvent.TextProcessor(err))
+                        failure = SynthesisError.TextHandle(err)
+                    }
+                // 单段文本处理失败即整批失败：与单段请求的失败语义一致，
+                // 绝不「跳过这一段继续」，否则会静默漏读一句
+                failure?.let { return Err(it) }
+            }
+            logger.info {
+                "batch textProcess: segments=${batchSegments.size}, unitCount=${merged.size}"
+            }
+            return Ok(merged)
+        }
+
         textProcessor
             .process(params.text, presetConfig, paraIndex, paraTotal)
             .onSuccess { list -> return Ok(list.filterNot { StringUtils.isSilent(it.text) }) }
@@ -524,6 +559,8 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
         // 11-14：段落位置透传（见 synthesize 注释）
         paraIndex: Int = -1,
         paraTotal: Int = 0,
+        // 11-15：批量段列表（见 textProcess 注释），null=单段路径
+        batchSegments: List<BatchSegment>? = null,
     ): Result<Unit, SynthesisError> = coroutineScope {
         if (mConfigs.isEmpty()) return@coroutineScope Err(SynthesisError.ConfigEmpty)
 
@@ -531,7 +568,7 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
 
         val channel =
             produce<ChannelPayload>(CoroutineName("Synthesis producer"), PROCUDE_CAPACITY) {
-                textProcess(params, presetConfigId, paraIndex, paraTotal)
+                textProcess(params, presetConfigId, paraIndex, paraTotal, batchSegments)
                     .onSuccess { list ->
                         try {
                             produceSegments(channel, params, list)
@@ -598,12 +635,16 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
         // ⚠️ override 不能带默认值（Kotlin 规则，CI 实锤 588:26），默认值由接口声明。
         paraIndex: Int,
         paraTotal: Int,
+        // 11-15（任务书-U阅批量提交多段）：一次请求内多段并行。
+        // null = 原单段路径，行为不变。
+        batchSegments: List<BatchSegment>?,
     ): Result<Unit, SynthesisError> = mutex.withLock {
         logger.atTrace {
             message = "synthesize"
             payload = mapOf(
                 "forceConfigId" to forceConfigId,
                 "params" to params,
+                "batchSize" to (batchSegments?.size ?: 0),
             )
         }
 
@@ -613,7 +654,7 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
 
         withMain { bgmPlayer.play() }
         try {
-            executeSynthesis(params, callback, forceConfigId, paraIndex, paraTotal)
+            executeSynthesis(params, callback, forceConfigId, paraIndex, paraTotal, batchSegments)
         } finally {
             logger.debug { "synthesize done" }
             withContext(NonCancellable) {
