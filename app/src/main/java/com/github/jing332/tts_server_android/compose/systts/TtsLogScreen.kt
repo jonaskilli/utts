@@ -1475,6 +1475,9 @@ private fun BookPickRow(
     }
 }
 
+/** 按范围清日志的目标：chapter=null 表示清整本书（11-15 晚红叉用）。 */
+internal data class ClearScope(val book: String, val chapter: String?)
+
 // ===================== 日志吸顶区（11-11 用户令「书名和章节名一直置顶」）=====================
 // 三行结构，从上到下：
 //   ① 筛选开关：实时 | 错误 ‖ 朗读规则 | 插件
@@ -1488,9 +1491,6 @@ private fun BookPickRow(
 // 字号按主次：书名 12.5sp 半粗 > 章名 11.5sp > 筛选 11sp（11-11 用户令全排统一）。
 // 关键判据：书名字号略小于日志正文，避免吸顶抢内容的视觉重心——它只是路标。
 @Composable
-/** 按范围清日志的目标：chapter=null 表示清整本书。 */
-internal data class ClearScope(val book: String, val chapter: String?)
-
 private fun PinnedLogHeader(
     errorOnly: Boolean,
     onToggleErrorOnly: () -> Unit,
