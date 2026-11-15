@@ -151,7 +151,9 @@ fun GroupItem(
             // 右缘 8（10-05 用户拍板：三行 ⋮ 统一 30dp 列）——卡片 ⋮ 被容器 8dp 内缩锁定在字形
             // ≈30dp，22 列永远凑不齐三行；本行 end=8 后 ⋮ 字形 ≈30dp 与子分组/卡片同列，
             // 48dp 热区完整在屏内（热区右缘距屏 8dp）
-            .padding(start = 6.dp, top = 4.dp, bottom = 4.dp, end = 8.dp),
+            // 11-15 晚：start 6→**8dp**，与音色卡片左缘（Item 的 start=8）同一条线。
+            // 左缘体系最终定为两档：**一级/卡片 = 8、子分组头 = 24**（见 SubGroupHeader）。
+            .padding(start = 8.dp, top = 4.dp, bottom = 4.dp, end = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         val rotationAngle by animateFloatAsState(
