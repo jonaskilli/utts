@@ -39,7 +39,7 @@ android {
     namespace 'com.github.jing332.tts_server_android'
 
     defaultConfig {
-        applicationId 'com.mumutts.app'
+        applicationId 'com.utts.app'
         minSdk libs.versions.minSdk.get().toInteger()
         targetSdk libs.versions.targetSdk.get().toInteger()
         versionCode gitCommits

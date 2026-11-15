@@ -98,7 +98,7 @@
             android:exported="true"
             android:label="@string/speech_rule_manager"
             android:configChanges="orientation|screenSize|keyboardHidden|uiMode"
-            android:taskAffinity="com.mumutts.app.speechrule" />
+            android:taskAffinity="com.utts.app.speechrule" />
         <activity
             android:name=".ui.ExoPlayerActivity"
             android:exported="false"
@@ -111,7 +111,7 @@
             android:name=".ui.ImportConfigActivity"
             android:exported="true"
             android:launchMode="singleTask"
-            android:taskAffinity="com.mumutts.app.import">
+            android:taskAffinity="com.utts.app.import">
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
 
