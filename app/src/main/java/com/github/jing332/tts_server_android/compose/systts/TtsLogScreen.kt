@@ -227,13 +227,20 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
     // ===== 11-14「正在朗读」播放快照 + 合成分子 =====
     //
     // playingSnap：轮询 readProgress.json（U阅 段切换时写）。快照带 mtime/size 缓存，
-    // 轮询本身只是 stat 一次文件，成本可忽略；文件没变时直接命中缓存不读盘。
+    // 文件没变时直接命中缓存不读盘 —— 但**必须放在 IO 线程**，理由见下方 11-15 晚修：
+    // 那个文件在 /storage/emulated/0（外部存储，走 FUSE/MediaProvider），
+    // 一次 File.exists() 平时是微秒级，碰上存储侧卡顿却能阻塞几秒到几分钟。
+    // 早期写在 produceState 里（默认跑在主线程）→ 主线程被 stat 卡死，
+    // MtWatchdog 记到「主线程卡死 626684ms」，整台朗读链跟着停摆（见 stall.log）。
     //
     val playingSnap by produceState<com.github.jing332.tts_server_android.service.systts.help.ReadProgressReader.Snapshot?>(
         initialValue = null,
         producer = {
             while (true) {
-                value = com.github.jing332.tts_server_android.service.systts.help.ReadProgressReader.read()
+                // 11-15 晚修（stall.log 实锤）：外部存储的 stat 绝不留在主线程。
+                value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    com.github.jing332.tts_server_android.service.systts.help.ReadProgressReader.read()
+                }
                 kotlinx.coroutines.delay(1000)
             }
         }
@@ -250,7 +257,10 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
         initialValue = null,
         producer = {
             while (true) {
-                value = com.github.jing332.tts_server_android.service.systts.help.ReadProgressReader.readRaw()
+                // 同 playingSnap：外部存储 stat 一律走 IO 线程（11-15 晚修）。
+                value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    com.github.jing332.tts_server_android.service.systts.help.ReadProgressReader.readRaw()
+                }
                 kotlinx.coroutines.delay(1000)
             }
         }
