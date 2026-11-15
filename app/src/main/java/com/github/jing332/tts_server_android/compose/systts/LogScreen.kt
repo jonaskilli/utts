@@ -2126,9 +2126,18 @@ internal fun LogScreen(
                 // 就靠描边补边界（然后被读成两个同心圆）。正解是**把 alpha 停在边界还站得住
                 // 的位置**：0.88 —— 正文隐约透得过一档（12%），边界仍是清晰的实面色块，
                 // 投影只负责托起。再往下（0.75 以下）才需要描边兜底。
+                // 九版（11-16 凌晨，用户拿参考图实拍对比「箭头和颜色都不对」后定稿）：
+                // **固定灰白底 + 近黑箭头**，不跟主题色走。
+                // 为什么浮钮可以用固定中性色（和底栏"必须跟随主题"不矛盾）：
+                //   · 底栏/勾选框是**状态**（选中、启用），必须跟主题表达层级；
+                //   · 浮钮是**工具浮层**，它不表达任何状态。用主题绿铺底会与页面里
+                //     「成功」丸、选中态撞成同一色系，读者会以为它跟朗读状态有关；
+                //   · 灰白底压在暖白正文上，与页底 #FBFDF8 差一档、边界由色差+投影
+                //     共同定（不再靠描边，也不会像纯白那样"只剩投影一条边界"）。
+                // 底色比页底深一档：#F1F3ED → 在正文里能看出"这是个浮起来的圆"。
                 Surface(
                     shape = CircleShape,
-                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.88f),
+                    color = Color(0xFFF1F3ED),
                     shadowElevation = 2.dp,
                     modifier = Modifier.size(56.dp),
                 ) {
@@ -2144,7 +2153,10 @@ internal fun LogScreen(
                         //    箭头再深绿就整颗全绿、跟日志正文的灰阶脱节；
                         //    改 onSurfaceVariant（#414941，与筛选行/书章同档灰），
                         //    绿只留在底上，键的整体和卡片那种灰白色系对得上。
-                        val arrowColor = MaterialTheme.colorScheme.onSurfaceVariant
+                        // 箭头 = 近黑（#1B1D1B）：灰白底上要"一眼看清是箭头"，
+                        // 灰（onSurfaceVariant）在半透/浅底上偏软，用户上一版就是嫌它不对。
+                        // 不跟随主题主色：绿箭头=把工具键染成状态色（理由见 Surface 注释）。
+                        val arrowColor = Color(0xFF1B1D1B)
                         Canvas(
                             modifier = Modifier
                                 .size(26.dp)
