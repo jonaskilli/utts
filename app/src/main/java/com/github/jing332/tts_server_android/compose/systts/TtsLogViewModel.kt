@@ -437,6 +437,86 @@ class TtsLogViewModel : ViewModel() {
     }
 
     /**
+     * 按书清理日志（11-15 晚用户令：吸顶区书框右端加红叉，点了就清这本）。
+     *
+     * 三处一起改，少一处就"清不干净、下次进页面又冒出来"：
+     *  1. 内存：logs/pluginLogs/speechRuleLogs 里匹配的条目移除，页面立刻少掉；
+     *  2. 磁盘 plugin.log / speech_rule.log：现开现关写的，直接读→过滤→重写；
+     *  3. 磁盘 system_tts.log：logback 持着句柄。先把它从 root logger 摘下来
+     *     （appender.stop() 会关掉文件），过滤重写完成后再 start() + addAppender 挂回。
+     *     摘挂之间只有几十毫秒，这期间的日志会走 logcat/debug.log、不进 system_tts.log
+     *     —— 丢的是"按下红叉这一下"的几行，换来的是能安全重写（不停写就只能整份清空）。
+     */
+    fun clearByBook(book: String) = clearMatchingLogs(book, null)
+
+    /** 按章清理日志（章框右端红叉）。 */
+    fun clearByChapter(book: String, chapter: String) = clearMatchingLogs(book, chapter)
+
+    private fun clearMatchingLogs(book: String, chapter: String?) {
+        val hit: (String, String) -> Boolean = { b, c ->
+            b == book && (chapter == null || c == chapter)
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            withMain {
+                logs.removeAll { hit(it.bookName, it.chapterTitle) }
+                pluginLogs.removeAll { hit(it.bookName, it.chapterTitle) }
+                speechRuleLogs.removeAll { hit(it.bookName, it.chapterTitle) }
+            }
+            listOfNotNull(consoleFile(isPlugin = true), consoleFile(isPlugin = false))
+                .forEach { rewriteFiltered(it, hit) }
+            rewriteMainFiltered(hit)
+        }
+    }
+
+    /** 主日志「按书/章过滤重写」：摘 appender → 重写 → 挂回（见 clearByBook 注释）。 */
+    private fun rewriteMainFiltered(hit: (String, String) -> Boolean) {
+        runCatching {
+            val ctx = org.slf4j.LoggerFactory.getILoggerFactory()
+                as? ch.qos.logback.classic.LoggerContext
+            val root = ctx?.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME)
+            val app = root?.getAppender("SystemTTS")
+            if (root == null || app == null) {
+                // 拿不到 logback 句柄（配置被改/换了实现）：退回直接重写，宁可可能丢后续写入
+                rewriteFiltered(file, hit)
+                return
+            }
+            root.detachAppender(app)
+            runCatching { app.stop() }
+            try {
+                rewriteFiltered(file, hit)
+            } finally {
+                runCatching {
+                    app.start()
+                    root.addAppender(app)
+                }.onFailure { Log.e(TAG, "重新挂回 SystemTTS appender 失败: ", it) }
+            }
+        }.onFailure { Log.e(TAG, "rewriteMainFiltered: ", it) }
+    }
+
+    /**
+     * 文本日志过滤重写（plugin/speech_rule/主日志通用）。
+     * 行格式：`时间 | 级别 | configId | 角色 | §书名 | 章名 | 正文`；正文里可能有 " | "，
+     * 所以 split 必须 limit=7，把正文整段留给最后一段。
+     */
+    private fun rewriteFiltered(f: File, hit: (String, String) -> Boolean) {
+        runCatching {
+            if (!f.exists() || f.length() == 0L) return
+            val kept = f.readLines().filterNot { line ->
+                val p = line.split(" | ", limit = 7)
+                if (p.size < 7) return@filterNot false
+                hit(p[4].trim().removePrefix("§"), p[5].trim())
+            }
+            val tmp = File(f.parentFile, f.name + ".tmp")
+            tmp.writeText(if (kept.isEmpty()) "" else kept.joinToString("\n", postfix = "\n"))
+            if (!tmp.exists()) return
+            if (!tmp.renameTo(f)) {
+                f.delete()
+                tmp.renameTo(f)
+            }
+        }.onFailure { Log.e(TAG, "rewriteFiltered(${f.name}): ", it) }
+    }
+
+    /**
      * 单删一个日志文件（11-11 用户令「每一项可以单独删除」）。
      *
      * ## 为什么分两种处理

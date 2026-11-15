@@ -14,6 +14,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -40,6 +41,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Description
@@ -122,6 +124,9 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
     var isSearchActive by rememberSaveable { mutableStateOf(false) }
     // 日志文件列表弹窗（用户 09-08：文件夹点开自由选择文件，不再直接扔给外部查看器）
     var showLogFilesDialog by remember { mutableStateOf(false) }
+    // 11-15 晚：书/章框小红叉的待确认目标（null=无弹窗）。确认后才真删——红叉紧挨着
+    // 书名/章名，误触代价是"这本书的日志没了"，必须过一次确认。
+    var pendingClear by remember { mutableStateOf<ClearScope?>(null) }
     // 待删文件（11-11 用户令「每一项可以单独删除」）：
     // 不弹二次确认框（弹窗套弹窗太吵），改用**点两下**——
     // 第一次点把该行标红并提示「再点一次删除」，2 秒内不点就自动复原。
@@ -687,6 +692,9 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                     // 书=切筛选范围（原书籍弹窗职责）；章=滚到该章首条（原章节弹窗职责）。
                     // 弹窗本体保留（章节弹窗还有"该章还没有日志"等兜底文案依赖，
                     // 若后续确认无入口再撤）。
+                    // 11-15 晚：书/章框右端小红叉 → 弹确认 → 按范围清日志
+                    onClearBook = { b -> pendingClear = ClearScope(b, null) },
+                    onClearChapter = { b, c -> pendingClear = ClearScope(b, c) },
                     onSwitchBook = { b ->
                         vm.scopeBook.value = b
                         vm.scopeChapter.value = null
@@ -926,6 +934,35 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
     //   · 行尾 🗑 = 删这一个文件（点两下确认，见 pendingDeleteName）；
     //   · 标题行右上角「全部清空」= 原顶栏垃圾桶的功能（清四份回读来源，逻辑仍在 vm.clear()）；
     //   · 底部「打开目录」保留（打开文件管理器看这个文件夹）。
+    pendingClear?.let { scope ->
+        val isChapter = scope.chapter != null
+        AlertDialog(
+            onDismissRequest = { pendingClear = null },
+            title = { Text(if (isChapter) "清理这一章的日志？" else "清理这本书的日志？") },
+            text = {
+                Text(
+                    buildString {
+                        append(scope.book)
+                        scope.chapter?.let { append("\n").append(it) }
+                        append("\n\n只删这一范围的行，其它书/章保留；删除后不可恢复。")
+                    }
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val c = scope.chapter
+                    if (c == null) vm.clearByBook(scope.book) else vm.clearByChapter(scope.book, c)
+                    pendingClear = null
+                }) {
+                    Text("清理", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingClear = null }) { Text("取消") }
+            },
+        )
+    }
+
     if (showLogFilesDialog) {
         // ⚠️ 用 fileCount 当 remember 的 key：删完一个文件后必须重新 listFiles，
         // 否则列表里还挂着已删的那行（原来只 remember 一次、无 key，等于永远不刷新）。
@@ -1451,6 +1488,9 @@ private fun BookPickRow(
 // 字号按主次：书名 12.5sp 半粗 > 章名 11.5sp > 筛选 11sp（11-11 用户令全排统一）。
 // 关键判据：书名字号略小于日志正文，避免吸顶抢内容的视觉重心——它只是路标。
 @Composable
+/** 按范围清日志的目标：chapter=null 表示清整本书。 */
+internal data class ClearScope(val book: String, val chapter: String?)
+
 private fun PinnedLogHeader(
     errorOnly: Boolean,
     onToggleErrorOnly: () -> Unit,
@@ -1482,6 +1522,9 @@ private fun PinnedLogHeader(
     // 在底部=你在看最新，吸顶显示最新那条的书章；往回翻=跟随视线。
     atBottom: Boolean = true,
     onClearScope: () -> Unit = {},
+    // 11-15 晚：书框/章框右端小红叉的落地动作（清了要确认，所以这里只上报范围）
+    onClearBook: (String) -> Unit = {},
+    onClearChapter: (String, String) -> Unit = {},
     // 「切过去」＝回到全部日志 + 实时最新 + 滚到底（用户 11-11 定案 A）。
     // ⚠️ 原来这里错用了 onSwitchBook(readingBook)，那只是**打开书单弹窗**，
     // 既没清筛选也没滚到底，用户实报「你说的切过去是切到全部日志的实时最新吧」——
@@ -1810,6 +1853,7 @@ private fun PinnedLogHeader(
                                     // 书名号占了 2 个字宽（《》各约 11.5dp，合计≈23dp），
                                     // 而"这是一本书"靠图标表达更快——省宽又更直观。
                                     text = shownBook,
+                                    onClear = { if (shownBook.isNotBlank()) onClearBook(shownBook) },
                                     leadingIcon = Icons.Default.Book,
                                     stretchText = true,
                                     onClick = { bookMenu = true },
@@ -1856,6 +1900,10 @@ private fun PinnedLogHeader(
                                 Box {
                                     PickerTrigger(
                                         text = chapLabel.trim() + playingProgressSuffix,
+                                        onClear = {
+                                            if (shownBook.isNotBlank() && shownChapter.isNotBlank())
+                                                onClearChapter(shownBook, shownChapter)
+                                        },
                                         onClick = { chapMenu = true },
                                         // 同上：筛选态与未筛选态同色
                                         textColor = MaterialTheme.colorScheme.onSurface,
@@ -1954,6 +2002,7 @@ private fun PinnedLogHeader(
                             PickerTrigger(
                                 // 同上：书名号 → 书图标
                                 text = shownBook,
+                                onClear = { if (shownBook.isNotBlank()) onClearBook(shownBook) },
                                 leadingIcon = Icons.Default.Book,
                                 stretchText = true,
                                 onClick = { bookMenu2 = true },
@@ -1993,6 +2042,10 @@ private fun PinnedLogHeader(
                                 // 11-14：章名触发框同款（带描边）
                                 PickerTrigger(
                                     text = chapLabel.trim() + playingProgressSuffix,
+                                    onClear = {
+                                        if (shownBook.isNotBlank() && shownChapter.isNotBlank())
+                                            onClearChapter(shownBook, shownChapter)
+                                    },
                                     onClick = { chapMenu2 = true },
                                     opened = chapMenu2,
                                     // 上限只作用在**框**：正常章名够不到它，长章名才在这里省略
@@ -2430,6 +2483,11 @@ private fun PickerTrigger(
     // 颜色不照抄 GitHub 的冷灰蓝，改用本项目主题：展开时底色走 primary 的极淡混合、
     // 描边走 primary 半透明——与「正在朗读」左轨/筛选选中同源，不引入新色相。
     opened: Boolean = false,
+    // 11-15 晚（用户令「删除不是加一个红叉号就行吗」）：书框/章框右端各挂一个小红叉，
+    // 点了就清掉**这个框所代表范围**的日志（书框=整本、章框=本章）。
+    // 为什么挂在框里而不是另开菜单：书/章下拉本来就是"选范围"的现成入口，
+    // 红叉贴着它，用户不需要再选一遍范围。
+    onClear: (() -> Unit)? = null,
     // 11-14 用户令：「把书名号删掉，前面改为书图标，章节不用加图标吧？」
     // 书名用图标（书=这是什么），章名不加（"第9章"文字本身已自解释，加图标是噪音）。
     // 图标尺寸跟箭头统一 14dp（用户同批要求「连箭头都统一」）。
@@ -2501,6 +2559,22 @@ private fun PickerTrigger(
             overflow = TextOverflow.Ellipsis,
             modifier = if (stretchText) Modifier.weight(1f) else Modifier.weight(1f, fill = false),
         )
+        onClear?.let { clear ->
+            Icon(
+                imageVector = Icons.Default.Close,
+                contentDescription = "清理这个范围的日志",
+                // 红色小叉：与顶栏「全部清空」的垃圾桶同属"破坏性动作"，
+                // 但尺寸压到 14dp（与箭头同档），不跟书名/章名抢宽度。
+                tint = MaterialTheme.colorScheme.error,
+                modifier = Modifier
+                    .size(14.dp)
+                    .clickable(
+                        // 子级 clickable 先消费事件，不会连带把下拉菜单点开
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                    ) { clear() },
+            )
+        }
         Icon(
             imageVector = Icons.Default.KeyboardArrowDown,
             contentDescription = null,
