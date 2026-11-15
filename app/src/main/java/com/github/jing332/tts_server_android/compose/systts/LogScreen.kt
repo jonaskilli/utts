@@ -45,7 +45,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckBox
 import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
@@ -80,6 +79,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -2101,32 +2101,57 @@ internal fun LogScreen(
                 //   二版 = 不透明底 + 零阴影 + 1dp 描边 → 边缘干净了，但丢了用户要的透明感。
                 //   本版 = **保留 55% 透明 + 零阴影 + 1dp 描边**：透明感回来，
                 //          边界改由描边定死，晕圈不存在。
-                // 四版（11-15 晚，用户问「描边比内部深，看着怪，常规怎么处理」）：
-                // **描边整个撤掉，改不透明底**——这是 Material 对圆形浮键的标准做法
-                //（FilledTonalIconButton：纯色 tonal 底、无描边、无投影，靠色差浮起）。
-                //
-                // 前三版都栽在同一处：圆是「底+描边」两层轮廓，只要描边比底深，眼睛就读成
-                // 两个同心圆（用户实拍那句「看着怪怪的」）。空心按钮才该有描边；实心浮键
-                // 一旦加描边，就等于把 56dp 缩成 54dp 再套一圈深色，边缘生硬、还跟下方
-                // 1dp 半透明分隔线不是同一档线材。
-                // 透明感的损失用「不透明但色差小」补：secondaryContainer 本就很浅，
-                // 盖在正文上不抢眼，也没有透字（半透明底透出正文反而更脏）。
+                // 五版（11-15 晚，用户甩来别的 App 的实拍图：「你看看人家咋处理的」）：
+                // 人家 = **白底圆 + 一圈很淡的软投影 + 描边细箭头**，没有描边。
+                // 这校正了四版的过度归纳：
+                //   · 描边确实不该有（四版判断对）；
+                //   · 但「连阴影也不能要」是错的——一版发虚的真因是「半透明底 + 阴影」：
+                //     底是透的，阴影又从底下漏出来，边界自然糊。换成不透明底 + 软阴影，
+                //     阴影只落在圆外沿，把键从正文里托起一层，正是人家那种「浮而不脏」。
+                //   · 箭头也从实心 ArrowDownward 改成**描边箭头**（Canvas 画、2.2dp 圆头）：
+                //     实心箭头在 56dp 白圆上是一坨黑，人家是细线。
                 Surface(
                     shape = CircleShape,
-                    color = MaterialTheme.colorScheme.secondaryContainer,
-                    shadowElevation = 0.dp,
+                    color = MaterialTheme.colorScheme.surface,
+                    shadowElevation = 2.dp,
                     modifier = Modifier.size(56.dp),
                 ) {
                     Box(contentAlignment = Alignment.Center) {
-                        // ↓ 用户令「真正的箭头，一竖下边一个箭头」：ArrowDownward
-                        //（material-icons-extended，本模块已依赖）。
-                        // ⟲ 复位符号已随「温和跟随」落地删除（回朗读位置由跟随自动承担）。
-                        Icon(
-                            Icons.Default.ArrowDownward,
-                            stringResource(id = R.string.move_to_bottom),
-                            modifier = Modifier.size(20.dp),
-                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                        )
+                        val cd = stringResource(id = R.string.move_to_bottom)
+                        val arrowColor = MaterialTheme.colorScheme.onSurface
+                        Canvas(
+                            modifier = Modifier
+                                .size(22.dp)
+                                .semantics { contentDescription = cd }
+                        ) {
+                            val w = size.width
+                            val cx = w / 2f
+                            val stroke = 2.2.dp.toPx()
+                            val top = w * 0.10f
+                            val bottom = w * 0.90f
+                            val head = w * 0.32f
+                            drawLine(
+                                color = arrowColor,
+                                start = Offset(cx, top),
+                                end = Offset(cx, bottom),
+                                strokeWidth = stroke,
+                                cap = StrokeCap.Round
+                            )
+                            drawLine(
+                                color = arrowColor,
+                                start = Offset(cx - head, bottom - head),
+                                end = Offset(cx, bottom),
+                                strokeWidth = stroke,
+                                cap = StrokeCap.Round
+                            )
+                            drawLine(
+                                color = arrowColor,
+                                start = Offset(cx + head, bottom - head),
+                                end = Offset(cx, bottom),
+                                strokeWidth = stroke,
+                                cap = StrokeCap.Round
+                            )
+                        }
                     }
                 }
             }
