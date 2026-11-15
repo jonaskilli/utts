@@ -293,12 +293,25 @@ internal class DefaultResultProcessor(
         return Ok(Unit)
     }
 
+    /**
+     * 11-16（段序保序）：派发一条**属于某段**的事件。
+     *
+     * 并发批次里该段的 RequestPayload 带着闸门，事件先进闸门按段下标缓冲，
+     * 等按序回填推进到该段再放行 ⇒ 日志行序恒等于段序。
+     * 单段/非并发路径 eventGate 为 null，直发，行为与改动前一致。
+     */
+    private fun dispatchOrdered(event: NormalEvent, request: RequestPayload) {
+        val gate = request.eventGate
+        if (gate != null) gate.push(request.segmentKey, event)
+        else context.event?.dispatch(event)
+    }
+
     private suspend fun getAudioStream(
         ins: InputStream,
         request: RequestPayload,
         requestCostMs: Long = 0,
     ): Result<InputStream, StreamProcessorError> = if (context.cfg.streamPlayEnabled()) {
-        context.event?.dispatch(NormalEvent.HandleStream(request))
+        dispatchOrdered(NormalEvent.HandleStream(request), request)
         Ok(ins)
     } else {
         try {
@@ -307,8 +320,9 @@ internal class DefaultResultProcessor(
                 val cost = measureTimeMillis { bytes = it.readBytes() }
                 // 请求段(插件内部下载) + 读流段(body下载) 相加：
                 // ByteArray型插件前段为主、流式插件后段为主，两种形态都得到完整真实耗时
-                context.event?.dispatch(
-                    NormalEvent.ReadAllFromStream(request, bytes.size, requestCostMs + cost)
+                dispatchOrdered(
+                    NormalEvent.ReadAllFromStream(request, bytes.size, requestCostMs + cost),
+                    request,
                 )
 
                 Ok(ByteArrayInputStream(bytes))

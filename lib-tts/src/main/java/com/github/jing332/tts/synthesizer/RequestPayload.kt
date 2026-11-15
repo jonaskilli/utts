@@ -33,6 +33,17 @@ data class RequestPayload(
     // 服务层见到本字段为 true 就不再落播放卡片（只在 DEBUG 日志留一行），
     // 预热进度改由「preload done: ok=x/M」那一行汇总。
     val isPreload: Boolean = false,
+    // 11-16（段序保序）：本笔所属的**段序闸门**与段下标。
+    //
+    // null = 未开并发/单段路径 → 事件直发，行为与改动前逐字节一致。
+    // 非 null = 并发批次：本笔的事件先进闸门按段下标缓冲，等「按序回填」推进到该段
+    // 才放行 ⇒ 日志行序恒等于段序，不再受「谁先合成完」影响。
+    //
+    // ⚠️ 之所以挂在载荷上而不是用合成器的成员变量：worker 是并发协程，
+    // 「当前在处理第几段」若存共享字段，两路并发会互相覆盖——正是 11-16 上午
+    // 刚修掉的 currentParaIndex 串值同型缺陷。载荷是不可变的，每笔各带各的。
+    val eventGate: SegmentEventGate? = null,
+    val segmentKey: Int = -1,
 ) {
     val text: String
         get() = params.text

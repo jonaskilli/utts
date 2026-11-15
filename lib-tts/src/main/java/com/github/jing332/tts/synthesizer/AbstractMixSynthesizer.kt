@@ -115,8 +115,21 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
                     ?: 16000
         }
 
-    private fun event(event: Event) {
-        context.event?.dispatch(event)
+    /**
+     * 派发一条事件。
+     *
+     * 11-16（段序保序）：并发合成时段完成顺序 ≠ 段序，而以前每个 worker 在自己完成
+     * 那一刻就直接派发 —— 日志文件的行序于是变成「谁先合成完谁先写」。真机实证
+     * 01:26 五笔请求行序 15、15、13、14、12（正文顺序 12、13、14、15）。
+     *
+     * 带 [request] 的事件走该请求自带的闸门（段序缓冲，等按序回填时再放行）；
+     * 无请求的全局事件（仓库错、BGM 等）直发。闸门与段号**随载荷传递**，
+     * 绝不用共享成员变量——那正是 11-16 上午刚修掉的串值形态。
+     */
+    private fun event(event: Event, request: RequestPayload? = null) {
+        val g = request?.eventGate
+        if (g != null) g.push(request.segmentKey, event)
+        else context.event?.dispatch(event)
     }
 
     /**
@@ -279,7 +292,7 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
                 ttsRequester.request(request.params, request.config)
             }
         } catch (e: TimeoutCancellationException) {
-            event(ErrorEvent.RequestTimeout(request))
+            event(ErrorEvent.RequestTimeout(request), request)
             return null
         } catch (e: CancellationException) {
             throw e
@@ -295,11 +308,11 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
         }.onFailure {
             when (it) {
                 is RequesterError.RequestError -> {
-                    event(ErrorEvent.Request(request, it.error))
+                    event(ErrorEvent.Request(request, it.error), request)
                 }
 
                 is RequesterError.StateError -> {
-                    event(ErrorEvent.Request(request, IllegalStateException(it.message)))
+                    event(ErrorEvent.Request(request, IllegalStateException(it.message)), request)
                 }
             }
 
@@ -387,6 +400,10 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
         // 单靠 emitHitLog 拦不住**未命中**那条路（它照样发 Request/ReadAllFromStream），
         // 于是预热段在日志页冒充播放卡。这里显式标到载荷上，由服务层统一丢弃。
         isPreload: Boolean = false,
+        // 11-16（段序保序）：并发批次的段序闸门 + 本笔段下标，随载荷透传。
+        // 重试/备用递归原样带（同一笔仍属同一段，事件必须仍排在同一位置）。
+        eventGate: SegmentEventGate? = null,
+        segmentKey: Int = -1,
     ) {
         val request = RequestPayload(
             params, config, roleName, failoverFromTag, bookName, chapterTitle,
@@ -394,6 +411,8 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
             paraIndex = paraIndex,
             paraTotal = paraTotal,
             isPreload = isPreload,
+            eventGate = eventGate,
+            segmentKey = segmentKey,
         )
 
         // 11-15（路 C）：合成结果缓存命中即直接产出，不再走插件请求。
@@ -410,8 +429,8 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
                     // 误判成「起点跳到页尾」（实测 21:23 段 24–27 全命中、首卡是段 28）。
                     // fromCache=true 让服务端多落一行「命中合成缓存」标明来路；耗时记 0.0s。
                     val hitRequest = request.copy(fromCache = true)
-                    event(NormalEvent.Request(hitRequest, 0))
-                    event(NormalEvent.ReadAllFromStream(hitRequest, cachedPcm.size, 0L))
+                    event(NormalEvent.Request(hitRequest, 0), hitRequest)
+                    event(NormalEvent.ReadAllFromStream(hitRequest, cachedPcm.size, 0L), hitRequest)
                 }
                 sink.trySendBlocking(ChannelPayload.Bytes(cachedPcm))
                 return
@@ -428,13 +447,14 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
                 val fromTag = config.speechInfo.tag
                 val toTag = config.standbyConfig?.speechInfo?.tag ?: ""
                 logger.info { "standby triggered: toggleTry=$toggleTryValue, retries=$retries, fromTag=$fromTag, toTag=$toTag" }
+                val standbyRequest = request.copy(config = config.standbyConfig)
                 event(NormalEvent.StandbyTts(
-                    request.copy(config = config.standbyConfig),
+                    standbyRequest,
                     fromTag = fromTag,
                     toTag = toTag,
                     reason = "retry",
                     isFallback = config.standbyIsFallback,
-                ))
+                ), standbyRequest)
                 // 带上「从哪个标签转来」：切换后的请求已被上面一条日志说明了来路，
                 // 服务层不能再把它当成「规则分析失败降级」重复报一次。
                 requestAndProcess(
@@ -477,7 +497,7 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
                 || curTag.startsWith("localSound")
             if (isFallbackOrSound) {
                 logger.error { "兜底/音效标签失败: tag=$curTag, text=${params.text.take(20)}" }
-                event(ErrorEvent.Request(request, IllegalStateException("功能标签($curTag)兜底发音人重试失败")))
+                event(ErrorEvent.Request(request, IllegalStateException("功能标签($curTag)兜底发音人重试失败")), request)
             }
             when (context.cfg.restartOnMaxRetryMode()) {
                 1 -> { // 不生成空音频直接重启
@@ -499,7 +519,7 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
         }
 
         logger.debug { "start request: $retries, ${params}, ${config}" }
-        event(NormalEvent.Request(request, retries))
+        event(NormalEvent.Request(request, retries), request)
 
         // 优先使用预取的流，避免重复请求；重试时 prefetchedStream=null 走正常请求路径
         // 请求段耗时单独计量：ByteArray型插件(豆包/千问)的下载发生在 requestInternal 内部，
@@ -533,14 +553,14 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
             }
         } catch (e: TimeoutCancellationException) {
             runCatching { stream.close() }
-            event(ErrorEvent.RequestTimeout(request))
+            event(ErrorEvent.RequestTimeout(request), request)
             return retry()
         } catch (e: CancellationException) {
             throw e
         }
 
         processResult.onFailure { e ->
-            event(ErrorEvent.ResultProcessor(request, e))
+            event(ErrorEvent.ResultProcessor(request, e), request)
             return retry()
         }
     }
@@ -613,6 +633,11 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
         val consumed = List(list.size) { CompletableDeferred<Unit>() }
         // 每段独立产物信箱：fetcher 的成品只进 box[i]，谁先完成都不影响顺序
         val boxes = List(list.size) { Channel<ChannelPayload?>(capacity = Channel.UNLIMITED) }
+        // 11-16（段序保序）：日志事件也走「按段下标缓冲、按序回填放行」——
+        // 与产物信箱同一套保序思路。以前产物有序、日志无序，用户看到的就是
+        // 「声音顺序对，日志顺序全乱」。这里让两者共用同一个顺序事实：段下标。
+        val eventGate = SegmentEventGate()
+        eventGate.dispatch = { ev -> context.event?.dispatch(ev) }
         // 独立 scope：fetcher 失败不传染回填循环（SupervisorJob），随 finally 一并取消
         val fetcherScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
         val fetchers = List(concurrency) { worker ->
@@ -633,6 +658,9 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
                             chapterTitle = segment.chapterTitle,
                             paraIndex = segment.paraIndex,
                             paraTotal = segment.paraTotal,
+                            // 11-16：事件进闸门，按段下标缓冲，等回填到本段再放行
+                            eventGate = eventGate,
+                            segmentKey = index,
                         )
                     } catch (e: CancellationException) {
                         throw e
@@ -672,6 +700,12 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
                         else -> channel.send(requireNotNull(payload))
                     }
                 }
+                // 11-16（段序保序）：本段产物已按序发出，现在把它的日志事件也放行。
+                //
+                // 时机刻意选在「box 消费完」之后：此刻该段的请求行、成功行、
+                // 重试链全部已进闸门（worker 收尾才 close box），一次按真实发生顺序
+                // 放出去，段内顺序完整、段间严格递增。于是日志行序 ≡ 段序 ≡ 播放顺序。
+                eventGate.flush(index)
                 // 该段直接播放（EmptyInputStream 无 Bytes 产物）时信箱为空，停顿照插
                 insertSegmentPause(channel, index, list.size)
                 // 通知同插件门：本段已消费完，可放行下一个同插件段
@@ -680,9 +714,15 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
             fetchers.forEach { it.join() }
             feeder.join()
         } finally {
-            // 无论正常收尾、致命错误还是外部取消（onStop 破窗），都掐掉 fetcher 与发号
+            // ⚠️ 顺序：先掐 worker（停止继续产生事件），再 flushAll 兜底。
+            // 反过来的话 worker 可能在 flushAll 之后才把事件推进闸门，
+            // 那段日志就永远滞留在缓冲里没人放行（丢行）。
+            // 无论正常收尾、致命错误还是外部取消（onStop 破窗），都掐掉 fetcher 与发号。
             indexCh.close()
             fetcherScope.cancel()
+            // 11-16：兜底——把还没放行的事件按段序全部吐出。
+            // 正常路径下回填循环已把每段 flush 过一遍，这里只剩取消/异常时的残尾。
+            eventGate.flushAll()
         }
     }
 
