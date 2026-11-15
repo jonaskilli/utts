@@ -245,6 +245,19 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
     // 数据来自快照的合成前沿字段（U阅 合成循环每笔提交时刷新，见 ReadProgressFile.
     // reportSynthFront）；「多合几段」= 前沿段号 - 播放段号，仅同章时可减（预取跨章时
     // 前沿在下一章，"多合几段"跨章无意义，此时只报章名与正在合第几段）。
+    // 11-15：进度行单独一条「原样快照」通道——用户令「停止朗读时合成进度行照样显示」，
+    // 而 playingSnap 在 playing=false 时恒为 null（见 ReadProgressReader.read），
+    // 拿它渲染进度行会导致整行（含合成段）随停止朗读一起消失。
+    // 高亮/跟随仍用 playingSnap，两者互不影响。
+    val progressSnap by produceState<com.github.jing332.tts_server_android.service.systts.help.ReadProgressReader.Snapshot?>(
+        initialValue = null,
+        producer = {
+            while (true) {
+                value = com.github.jing332.tts_server_android.service.systts.help.ReadProgressReader.readRaw()
+                kotlinx.coroutines.delay(1000)
+            }
+        }
+    )
     val synthesizedChapter = playingSnap?.synthChapterTitle.orEmpty()
     val synthesizedAhead = playingSnap?.let { snap ->
         if (snap.synthChapterIndex == snap.chapterIndex &&
@@ -729,7 +742,7 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                     readingBook = readingBook,
                     readingChapter = readingChapter,
                     // 11-14 后台合成进度行 + 快照（内部自算书章行后缀）
-                    playingSnap = playingSnap,
+                    playingSnap = progressSnap,
                 )
                 if (vm.logs.isNotEmpty())
                 HorizontalDivider(
@@ -2096,7 +2109,6 @@ private fun PinnedLogHeader(
             val synthIdx = snap.synthChapterIndex
             val synthName = shortChapterLabel(snap.synthChapterTitle)
             val playName = shortChapterLabel(snap.chapterTitle)
-            val sameChapter = synthIdx == snap.chapterIndex
             // 合成章已完成数：以「正在朗读丸+成功」的近似口径计——直接数该章内
             // 正文前缀已出现过请求行的段数上限不可靠，改用前沿段号+1（前沿之前的
             // 都提交过了；跨章预取按章内顺序合，段号即进度）。
@@ -2130,19 +2142,51 @@ private fun PinnedLogHeader(
                 synthIdxValid -> "第${synthIdx + 1}章"
                 else -> ""
             }
-            val text = buildString {
+            // ===== 11-15 用户令：进度行前面加「正在播放」 =====
+            // 定稿格式（一句两段，用 ｜ 分隔）：
+            //   正在播放：第x章  1/2 ｜ 合成进度：第x章  5/36
+            // 要点三条：
+            //   ① 播放段只报**章 + 段进度**，不报"后台合成"那套前缀（与合成段互不重复）；
+            //   ② 两段都恒带章名——用户要「一眼看出播放和合成各在哪一章」，同章也照写；
+            //   ③ **停止朗读时播放段隐藏，合成段照旧显示**（用户明确要求），
+            //      因此"正在播放"段的存在性由 playingNow，而非整行的存在性决定。
+            val playingNow = snap.playing
+            val playSegText = if (playTotal > 0) {
+                playDone.coerceAtMost(playTotal).toString() + "/" + playTotal
+            } else ""
+            val playNameOrNum = when {
+                playName.isNotBlank() -> playName
+                snap.chapterIndex >= 0 -> "第${snap.chapterIndex + 1}章"
+                else -> ""
+            }
+            val playingPart = buildString {
+                append("正在播放：")
+                if (playNameOrNum.isNotBlank()) append(playNameOrNum)
+                if (playSegText.isNotEmpty()) {
+                    // 双空格：章号与段进度之间留白，与合成段视觉一致（用户截图同款）
+                    if (playNameOrNum.isNotBlank()) append("  ")
+                    append(playSegText)
+                }
+            }.trim()
+            val synthPart = buildString {
                 append("合成进度：")
-                if (synthNameOrNum.isNotBlank()) append(synthNameOrNum).append(' ')
+                if (synthNameOrNum.isNotBlank()) append(synthNameOrNum)
                 if (synthTotal > 0) {
+                    if (synthNameOrNum.isNotBlank()) append("  ")
                     append(synthDone.coerceAtMost(synthTotal)).append('/').append(synthTotal)
                 }
             }.trim()
+            // 拼接：在朗读 → 「正在播放… ｜ 合成进度…」；已停 → 只留「合成进度…」。
+            // 分隔符用全角竖线 ｜，与页内其它并列信息同款。
+            val text = if (playingNow) playingPart + " ｜ " + synthPart else synthPart
             // 合成侧完全没数据（没开播/未上报）时这一行**整行不渲染**——否则只剩
             // 「合成进度：」四个字挂在那里，没有信息量还占 24dp。
             // ⚠️ 必须真用上这个门控（11-14 自查发现：上一版只声明没使用）。
             // 顺带影响：书章行 bottom 已改成 0（为与进度行贴成一组），
             // 若此时仍渲染空进度行不会有问题；但若整行隐藏，书章行会直接贴在
             // 列表首行上——故隐藏时把书章行的呼吸补回来，见下方 else 分支。
+            // 11-15：整行存在性只看**合成侧**有没有数据——用户令「停止朗读时，合成进度行
+            // 照样显示」，所以不能再因为 playing=false 就整行收起。
             val showProgLine = synthTotal > 0 || synthNameOrNum.isNotBlank()
             if (showProgLine) {
             Row(
@@ -2159,9 +2203,10 @@ private fun PinnedLogHeader(
                 Text(
                     text = text,
                     style = MaterialTheme.typography.labelSmall,
-                    // 11.5sp = 吸顶区小字档（书名/章名同档），不新开 10.5 孤例
-                    //（全站 10.5sp 只有日志文件弹窗的等宽预览在用，性质不同）
-                    fontSize = 11.5.sp,
+                    // 11-15 用户令加大：11.5→**12.5sp**。介于辅助档(12 时间戳)与
+                    // 正文档(13 裸行)之间——这行是辅助信息，不该跟正文一样重，
+                    // 但也不该比时间戳还小（改前就是这个问题）。
+                    fontSize = 12.5.sp,
                     // 灰=时间/尾串同档灰（onSurfaceVariant），不引入孤例
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
@@ -2470,7 +2515,9 @@ private fun PickerTrigger(
         }
         Text(
             text = text,
-            fontSize = 11.5.sp,
+            // 11-15 随筛选行一起放大：11.5→**13sp**（= 日志裸行档）。
+            // 书名/章号是每次都要用的选择器，11.5 太像说明文字。
+            fontSize = 13.sp,
             color = textColor,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -2536,9 +2583,10 @@ private fun PinnedChip(
     Text(
         text = label,
         style = MaterialTheme.typography.labelSmall,
-        // 全排统一 11sp（11-11 用户令「字号都要一致」）：
-        // 原 DEBUG 走 small = 10.5sp 分支，是唯一的字号差异来源，已撤。
-        fontSize = 11.sp,
+        // 11-15 用户令「日志的筛选和章节和进度字号我想改大」→ 11→**13sp**。
+        // 参照：13sp = 日志裸行/发音人行（LOG_BODY_SIZE），胶囊有描边不会显胀；
+        // 改前 11sp 比日志最小的 12sp 时间戳还小，整排像脚注。
+        fontSize = 13.sp,
         // 11-11 用户令「选中后文字太过了」：SemiBold(600) → Medium(500)。
         // 选中态原本同时变「底色 + 字色 + 字重」三个维度，字重那一维最扎眼；
         // 降到 500 后仍有轻微加粗感，但不会"跳出来"。未选中仍是 Normal(400)，差一档够用。
@@ -2603,7 +2651,9 @@ private fun PinnedFilterLabel() {
         Text(
             text = "筛选",
             style = MaterialTheme.typography.labelSmall,
-            fontSize = 11.sp,
+            // 11-15 随胶囊一起放大：11→12sp。刻意比胶囊(13)小一档——
+            // 它是行的标签不是可选项，同级会跟胶囊抢注意力。
+            fontSize = 12.sp,
             // 同图标：与胶囊/书章统一到 78% 档（理由见上方 Icon 注释）
             color = cs.onSurface.copy(alpha = 0.78f),
             maxLines = 1,

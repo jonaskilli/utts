@@ -14,6 +14,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -1990,19 +1991,27 @@ internal fun LogScreen(
                 contentAlignment = Alignment.Center,
             ) {
                 // 视觉键（56dp）：用户 11-15 三连令「键大一点防误触」+「隐形一点不遮挡」+
-                //「会不会看不清是箭头还是复原？」→ 最终口径：
-                //   · 底色压 55%（隐形的那半），阴影 1dp——正文字影透出来，不死挡；
-                //   · 图标**不透明 + 两态分色**：⟲ 用 primary（绿=回朗读，与"正在朗读"
-                //     淡绿底同一语义色系），↓ 用 onSecondaryContainer（中性=跳最新）。
-                //   为什么图标不能跟着底色一起透明：⟲（圆圈箭头）和 ↓（直箭头）同宽
-                //   同细线，半透明后扫一眼分不清当前是哪态——而两态行为完全不同
-                //   （回朗读 vs 跳最新），认错键=滚错方向。色相是比透明度更强的区分
-                //   信号，绿/灰一眼可辨，同时底色依然隐形。
+                //「会不会看不清是箭头还是复原？」。
+                //
+                // 11-15 晚二次定档（用户实拍：「这个箭头的圆圈边界太丑了，怎么会这样」）：
+                // 改前 = secondaryContainer@55% + shadowElevation 1dp。丑的根因是**阴影**——
+                // Compose 对带 shape 的 Surface 即使 elevation=1dp 也会画 ambient+spot 两层，
+                // 在浅底上呈现 2~6px 灰晕圈，把 56dp 圆在视觉上放大一圈、边缘发虚；
+                // 再叠上 55% 半透明，圆与正文混色，边界彻底糊掉。
+                // 改后 = **不透明浅底 + 零阴影 + 1dp 描边**：边界由描边定死，晕圈消失。
+                // 为什么描边用 primary@26%：主色淡描边沿用「正在朗读」淡绿语义，
+                // 比 outlineVariant 灰线更贴合本页配色，且不抢图标。
                 Surface(
                     shape = CircleShape,
-                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f),
-                    shadowElevation = 1.dp,
-                    modifier = Modifier.size(56.dp),
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    shadowElevation = 0.dp,
+                    modifier = Modifier
+                        .size(56.dp)
+                        .border(
+                            width = 1.dp,
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.26f),
+                            shape = CircleShape,
+                        ),
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         // ↓ 用户令「真正的箭头，一竖下边一个箭头」：ArrowDownward
