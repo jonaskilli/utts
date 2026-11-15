@@ -204,7 +204,10 @@ fun AnimatedContentScope.MainPager(sharedVM: SharedViewModel) {
                                 for (destination in PagerDestination.routes) {
                                     val isSelected = pagerState.currentPage == destination.index
                                     val barPrimary = MaterialTheme.colorScheme.primary
-                                    val barIdle = MaterialTheme.colorScheme.onSurfaceVariant
+                                    // 未选中降到 78%：与日志页筛选行、书章同一档（11-14 定的口径）。
+                                    // 100% 的 onSurfaceVariant 在 22dp 细线图标上仍偏重，压掉
+                                    // 「没选中但抢眼」的问题——微信/QQ 未选中都是浅一档的深灰。
+                                    val barIdle = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.78f)
                                     Box(
                                         modifier = Modifier
                                             .weight(1f)
@@ -258,19 +261,10 @@ fun AnimatedContentScope.MainPager(sharedVM: SharedViewModel) {
                                 }
                             }
                         }
-                        // 浅分隔线：overlay 叠在底栏顶缘，不参与布局，滚动隐藏量法不受影响。
-                        // 修正（10-13 晚）：线原本写在 NavigationBar content 里——NavigationBar 是一行 Row，
-                        // 标签项靠 weight 分宽，这条 fillMaxWidth() 的线不参与分配先吃满整行，
-                        // 三个标签被挤成 0 宽全消失（装机实锤）。挪到外层 Box 平级叠顶缘才是真 overlay。
-                        // 10-13 深夜用户令「线要更隐形」：裸 outlineVariant（100%）是全仓唯一没降档的线，
-                        // 改 0.5f——与日志页条目间线同档（LogScreen 799/1022），全仓线材口径一致。
-                        Box(
-                            Modifier
-                                .align(Alignment.TopCenter)
-                                .fillMaxWidth()
-                                .height(1.dp)
-                                .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                        )
+                        // 顶缘分隔线（10-13 定的 outlineVariant@50%）已于 11-15 晚撤除：
+                        // 用户拿微信/QQ 对比后指出「他们没这条线，看着更宽松」。
+                        // 底栏与页底同色（10-13 用户令），分界交给 22dp 图标 + 留白本身；
+                        // 若日后觉得滚动内容与底栏糊在一起，把这条线按 25% 加回来即可。
                         }
                     }
                 }

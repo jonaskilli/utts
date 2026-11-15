@@ -2101,19 +2101,21 @@ internal fun LogScreen(
                 //   二版 = 不透明底 + 零阴影 + 1dp 描边 → 边缘干净了，但丢了用户要的透明感。
                 //   本版 = **保留 55% 透明 + 零阴影 + 1dp 描边**：透明感回来，
                 //          边界改由描边定死，晕圈不存在。
-                // 描边取 primary@32%（比二版的 26% 略重）：半透明底色上文字会透过来，
-                // 描边太淡会被正文线条吃掉、圆又重新变模糊——这是透明档必须加重一档的原因。
+                // 四版（11-15 晚，用户问「描边比内部深，看着怪，常规怎么处理」）：
+                // **描边整个撤掉，改不透明底**——这是 Material 对圆形浮键的标准做法
+                //（FilledTonalIconButton：纯色 tonal 底、无描边、无投影，靠色差浮起）。
+                //
+                // 前三版都栽在同一处：圆是「底+描边」两层轮廓，只要描边比底深，眼睛就读成
+                // 两个同心圆（用户实拍那句「看着怪怪的」）。空心按钮才该有描边；实心浮键
+                // 一旦加描边，就等于把 56dp 缩成 54dp 再套一圈深色，边缘生硬、还跟下方
+                // 1dp 半透明分隔线不是同一档线材。
+                // 透明感的损失用「不透明但色差小」补：secondaryContainer 本就很浅，
+                // 盖在正文上不抢眼，也没有透字（半透明底透出正文反而更脏）。
                 Surface(
                     shape = CircleShape,
-                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f),
+                    color = MaterialTheme.colorScheme.secondaryContainer,
                     shadowElevation = 0.dp,
-                    modifier = Modifier
-                        .size(56.dp)
-                        .border(
-                            width = 1.dp,
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.32f),
-                            shape = CircleShape,
-                        ),
+                    modifier = Modifier.size(56.dp),
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         // ↓ 用户令「真正的箭头，一竖下边一个箭头」：ArrowDownward
