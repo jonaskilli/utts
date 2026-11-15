@@ -75,11 +75,18 @@ fun SubGroupHeader(
         label = ""
     )
 
-    // 按层级分配不同高度，让整体更协调
+    // 按层级分配不同高度，让整体更协调。
+    // 11-15 晚（用户选 A 档「行间距收紧」）：三档整体下移 2dp ——
+    //   10/8 → **8/6**、8/6 → **6/4**、6/4 → **4/2**。
+    // 为什么三档一起动、不是只改中间那档：只把 level1 压到 6/4 就与 level2 同高，
+    // 层级台阶当场消失。整体下移 2 保住「每级差 2dp」的梯度。
+    // 配 20dp 箭头后的实测行高（行高由文字行高决定，不是箭头）：
+    //   子分组 level0 ≈ 38dp、level1 ≈ 34dp、level2 ≈ 30dp；
+    //   一级分组行（GroupItem，箭头盒 36 + 4/4）= 44dp → 44 / 38 / 34 / 30 的台阶。
     val (paddingTop, paddingBottom) = when (level) {
-        0 -> 10.dp to 8.dp
-        1 -> 8.dp to 6.dp
-        else -> 6.dp to 4.dp
+        0 -> 8.dp to 6.dp
+        1 -> 6.dp to 4.dp
+        else -> 4.dp to 2.dp
     }
 
     var showOptions by remember { mutableStateOf(false) }
@@ -101,36 +108,43 @@ fun SubGroupHeader(
             .background(Color.Transparent)
             .clickable { if (!showOptions && !showExtraOptions) onClick() }
             .padding(
-                // 11-15 三次定档（用户实拍「子分组箭头跟上方序号没对齐」）：
-                // start 28→**32dp**。沿革：20（10-07 对齐一级箭头中心）→16（11-08
-                // 「缩得太狠」+错位半个箭头）→28（箭头盒整格缩进）→32（本轮，算出来的）。
+                // 11-15 晚终稿：start = **34dp**。
+                // 沿革：20（10-07 对齐一级箭头中心）→16（11-08「缩得太狠」）→
+                // 28（箭头盒整格缩进）→32（对齐 20dp 序号的中心，箭头还是 24dp）→
+                // 34（本轮：箭头缩到 20dp 后重算）。
                 //
-                // 为什么是 32，而不是 28：
+                // 为什么是 34（箭头 24→20dp 后重算）：
                 //   一级行 = padding 6 + 箭头盒 28，序号徽章（OrderBadge，20dp）左缘 34、
-                //   中心 44；子分组箭头是 24dp 图标，要让它**中心落在同一条 44 竖线**上，
-                //   start = 44 − 24/2 = **32**。28 时中心只有 40，肉眼差 4dp（用户看出来了）。
-                //   顺带把两条文字线也对齐：子名起点 = 32+24+3 = 59 ≈ 一级名字起点
-                //   = 6+28+20+6 = 60（差 1dp 是像素取整，肉眼无感）。
+                //   中心 44；子分组箭头缩到 **20dp**（用户令「小一号」，理由见下方 Icon），
+                //   要让它**中心仍落在 44 竖线**上 → start = 44 − 20/2 = **34**。
+                //   （上一轮 24dp 箭头时是 32；右移 2dp 是跟着箭头变小算出来的，不是拍脑袋。）
+                //   文字线同样对齐：子名起点 = 34 + 20 + 6 = **60** = 一级名字起点
+                //   （6+28+20+6）；上一轮 24dp 时是 32+24+3 = 59，差 1dp 是取整。
                 //   一句话口径：**子行箭头中心 = 父行序号中心；子行名字线 = 父行名字线**。
                 // 为什么 28：一级行是「start 6 + 箭头盒 28」，箭头字形落在 20 附近；
                 // 16 时子分组箭头与一级箭头只差 10dp，肉眼几乎看不出层级（用户实拍指出）。
                 // 28 = 正好缩进一个完整箭头盒，折叠箭头形成清晰台阶；子分组名起点
                 // 38→50dp，仍在一行放得下（名字 .weight(1f) + 省略号兜底）。
                 // end 8（10-05 用户拍板：三行 ⋮ 统一 30dp 列）
-                start = 32.dp,
+                start = 34.dp,
                 top = paddingTop,
                 bottom = paddingBottom,
                 end = 8.dp
             ),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // 11-08 回退细 chevron（用户装机实测「三角一般般」）；尺寸统一 24dp（用户令
-        // 「两级箭头差距太大」——大小一致、层级只靠缩进，树形列表通用画法）
+        // 11-08 回退细 chevron（用户装机实测「三角一般般」）。
+        // 尺寸 24→**20dp**（11-15 晚用户令「子分组箭头小一号」）：
+        // 这条**替换**了 11-08 那条「两级箭头大小一致」——当时是 30 vs 16（差一倍，
+        // 看着像两个体系的图标），现在 24 vs 20 只差 4dp，而两者角色本就不同：
+        // 父行箭头是「这一组能折叠」的操作入口，子行箭头是「层级台阶」的标记。
+        // 更要紧的一条新依据：子行箭头现在与父行 **20dp 的序号徽章**同列同中心（44dp），
+        // 同尺寸才像一列；24dp 箭头比徽章大一圈，会把序号压下去。
         Icon(
             imageVector = Icons.Default.ExpandMore,
             contentDescription = if (isExpanded) "收起" else "展开",
             modifier = Modifier
-                .size(24.dp)
+                .size(20.dp)
                 .rotate(rotationAngle),
             tint = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -145,9 +159,11 @@ fun SubGroupHeader(
             },
             color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier
-                // start 8→3（10-05 用户：折叠箭头离子分组名太远，间隙 ≈12.5→≈8，
-                // 与密钥页组头收紧同口径）
-                .padding(start = 3.dp)
+                // 11-15 晚：start 3→**6dp**，配合箭头 24→20dp 与整体右移 2dp，
+                // 让子名起点回到 34+20+6=**60**，与一级名字线严格同一条。
+                //（10-05 那次收紧到 3 是为了「箭头离名字太远」，20dp 箭头变窄后
+                //  3dp 会显得贴脸，6dp 的视觉间隙 ≈8dp 与当时的手感一致。）
+                .padding(start = 6.dp)
                 .weight(1f)
         )
 
