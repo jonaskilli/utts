@@ -1189,6 +1189,14 @@ internal fun LogScreen(
         //（此前还有「滑走即暂停 followPaused + ⟲ 复位钮」一版，因与本需求矛盾整撤）。
         //
         // 触发时机仍是「朗读段变化」+「用户手不在列表上」两条纪律不变。
+        //
+        // ===== 11-15 用户令：先保证「下边不被挡」 =====
+        // 用户原话：「你只要保证下边不被挡就行」。
+        // 旧判据是「目标出现在 visibleItemsInfo 里就算可见」——它**放过被视口下沿裁掉
+        // 大半的行**：朗读行有一半压在底部栏上，跟随却认为"已经在视野里"而不滚，
+        // 于是永远看不全。新判据＝整行必须**完整**落在视口内；
+        // 缺多少滚多少（仍是温和跟随的最小滚动量，不跳顶、不打断阅读）。
+        val followEdgePx = with(LocalDensity.current) { 8.dp.roundToPx() }
         LaunchedEffect(playingMatch?.listItem, playingMatch?.entryIndex) {
             val m = playingMatch ?: return@LaunchedEffect
             val target = m.listItem
@@ -1197,21 +1205,25 @@ internal fun LogScreen(
             if (listState.isScrollInProgress) return@LaunchedEffect
             val info = listState.layoutInfo
             val item = info.visibleItemsInfo.firstOrNull { it.index == target }
-            if (item != null) {
-                // 还在视野内：不滚动（哪怕只露一条边也算了——用户在主动看它附近）
+            if (item == null) {
+                // 完全在视口外（上方或下方）：整体滚到它（原行为保留，顶边露出）
+                runCatching { listState.scrollToItem(target) }
                 return@LaunchedEffect
             }
-            // 滑出了：用最小滚动量拉回。animateScrollToItem 会把目标顶到视口首，
-            // 偏差多大补多少：向上滑走的场景它其实就在当前视口上方不远，
-            // scrollToItem(target) 配 scrollOffset=0 等价于「顶边露出」；
-            // 而被新日志顶出下沿的场景，先判方向再定补偿。
+            val vStart = info.viewportStartOffset
+            val vEnd = info.viewportEndOffset
+            val overflowBottom = (item.offset + item.size) - vEnd
+            val overflowTop = vStart - item.offset
             runCatching {
-                if (target < listState.firstVisibleItemIndex) {
-                    // 在视口上方（向上滑走）：顶边露出
-                    listState.scrollToItem(target)
-                } else {
-                    // 在视口下方（被新日志顶下去）：滚到它即带进视野（底边露出）
-                    listState.scrollToItem(target)
+                when {
+                    // 行比视口还高（超长条目）：怎么滚都放不下，只对齐顶边
+                    overflowTop > 0 && overflowBottom > 0 -> listState.scrollToItem(target)
+                    // 底部被裁 → 正向滚动把它顶上来，额外留 8dp 呼吸，不紧贴底栏
+                    overflowBottom > 0 -> listState.scrollBy((overflowBottom + followEdgePx).toFloat())
+                    // 顶部被裁 → 反向滚动补回，同样留呼吸
+                    overflowTop > 0 -> listState.scrollBy(-(overflowTop + followEdgePx).toFloat())
+                    // 完整可见：一根手指都不动
+                    else -> Unit
                 }
             }
         }
