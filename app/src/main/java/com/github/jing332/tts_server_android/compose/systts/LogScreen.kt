@@ -316,6 +316,15 @@ internal class LogGroups(
             // 重试行不再落成独立行，改在组头行灯位后挂一枚「重试N」小丸；
             // 组已收卡时挂到刚收的那张组上（见 build 里 retry 分支）
             val retryCount: Int = 0,
+            /**
+             * 11-15 用户令（「已取消和跳过，能不能也加个胶囊呀？如果真的有这种请求音频
+             * 半途而废的，还显示在日志里面，右上角还什么都没有，感觉都不知道这是啥」）：
+             * 本组是**半途而废的请求**——发过「请求音频」却永远等不到成功/失败行。
+             * 典型成因见下方「无结局孤儿卡」注释：取消标记落盘早于请求行，
+             * `logCanceled()` 静默返回，这笔就只剩一行光秃秃的请求正文。
+             * true → 组头行灯位挂一枚中性灰「已取消」胶囊，让这行不再是"啥也不是"。
+             */
+            val canceled: Boolean = false,
         ) : Item()
     }
 
@@ -413,6 +422,13 @@ internal class LogGroups(
             input: List<LogEntry>,
             fallbackBook: String = "",
             fallbackChapter: String = "",
+            /**
+             * 11-15：「半途而废 → 已取消」标记只在**列表未被收窄**时启用。
+             * 收了窄（搜索 / 级别筛选 / 只看本书本章）时，结果行可能被滤掉，
+             * 正常卡片会退化成"看起来没结局"的孤儿——此时标记会把
+             * 「被筛掉的失败卡」误画成「已取消」，比不标更糟。
+             */
+            markCanceled: Boolean = true,
         ): LogGroups {
             val list = regroupByReqId(input)
             val raw = ArrayList<Item>(list.size)
@@ -688,6 +704,34 @@ internal class LogGroups(
                     raw.forEachIndexed { idx, it -> if (!drop[idx]) kept.add(it) }
                     raw.clear()
                     raw.addAll(kept)
+                }
+            }
+
+            // ===== 11-15：给「半途而废」的孤儿卡挂一枚「已取消」胶囊 =====
+            //
+            // 用户原话：「已取消和跳过，能不能也加个胶囊呀？如果真的有这种请求音频
+            // 半途而废的，还显示在日志里面，右上角还什么都没有，感觉都不知道这是啥」。
+            //
+            // 为什么会有这种行：取消（U阅 stop / 翻页 / 跳段 / 破窗）插在「请求行落盘之前」时，
+            // `logCanceled()` 拿不到 currentReqId 会静默返回；等这笔被掐掉的合成终于写出
+            // 请求行，它已经永远等不到成功/失败行——列表里就只剩一行光秃秃的请求正文，
+            // 灯位空白，看上去"啥也不是"（上方「无结局孤儿卡」注释描述的就是这批）。
+            //
+            // 判据（沿用上方孤儿定义）+ 一条硬约束：
+            //   · 无成功子行、无失败证据（未吸收失败全文、不在 failedHeads）
+            //   · **后面已经出现新的一笔请求**（存在更靠后的 Item.Group）
+            // 第二条是关键：不加它，最新那笔"正在合成、还没回来"的正常请求会被误标成已取消。
+            // 加它之后仍有一点竞态——并发预取时靠后的一笔先回来，前面那笔会被短暂误标，
+            // 等它自己的结果行到达即随重组消失；相比"永远空白"，这个代价可以接受。
+            val lastGroupIdx = if (markCanceled) raw.indexOfLast { it is Item.Group } else -1
+            if (lastGroupIdx > 0) {
+                for (ri in 0 until lastGroupIdx) {
+                    val g = raw[ri] as? Item.Group ?: continue
+                    if (g.canceled) continue
+                    if (g.absorbError >= 0) continue
+                    if (failedHeads.contains(g.head)) continue
+                    if (g.members.any { groupHasSuccessSub(list[it]) }) continue
+                    raw[ri] = Item.Group(g.head, g.members, g.absorbError, g.retryCount, canceled = true)
                 }
             }
 
@@ -1717,11 +1761,19 @@ internal fun LogScreen(
                                         // 曾把成功字提到时间前，用户明确否掉，别再动。
                                         val retryPill = if (item.retryCount > 0)
                                             LogPill(LogPillKind.RETRY, "重试") else null
+                                        // 11-15 用户令：半途而废的请求也要有个说法 →
+                                        // 中性灰「已取消」（不是错，是你自己掐的，与失败红区分）。
+                                        // 只在 build 判定为孤儿卡时出现，正常结果卡不会同时挂它。
+                                        val canceledPill = if (item.canceled)
+                                            LogPill(LogPillKind.CANCELED, "已取消") else null
                                         pillShown?.let {
                                             Box(Modifier.padding(start = 6.dp)) { StatusPill(it) }
                                         }
                                         // 成功但重试过：过程同样要看得见 → 「成功 重试」
                                         retryPill?.let {
+                                            Box(Modifier.padding(start = 6.dp)) { StatusPill(it) }
+                                        }
+                                        canceledPill?.let {
                                             Box(Modifier.padding(start = 6.dp)) { StatusPill(it) }
                                         }
                                         // 胶囊后的灰字（成功=「耗时，大小」/失败主行=截短原因），留 6dp 隙。
