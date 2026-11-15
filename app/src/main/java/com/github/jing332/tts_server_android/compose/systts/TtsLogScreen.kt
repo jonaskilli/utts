@@ -1523,8 +1523,8 @@ private fun PinnedLogHeader(
     atBottom: Boolean = true,
     onClearScope: () -> Unit = {},
     // 11-15 晚：书框/章框右端小红叉的落地动作（清了要确认，所以这里只上报范围）
-    onClearBook: (String) -> Unit = {},
-    onClearChapter: (String, String) -> Unit = {},
+    onClearBook: (String) -> Unit = { _ -> },
+    onClearChapter: (String, String) -> Unit = { _, _ -> },
     // 「切过去」＝回到全部日志 + 实时最新 + 滚到底（用户 11-11 定案 A）。
     // ⚠️ 原来这里错用了 onSwitchBook(readingBook)，那只是**打开书单弹窗**，
     // 既没清筛选也没滚到底，用户实报「你说的切过去是切到全部日志的实时最新吧」——
