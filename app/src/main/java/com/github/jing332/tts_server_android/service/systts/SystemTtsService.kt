@@ -54,6 +54,7 @@ import com.github.jing332.tts.error.StreamProcessorError
 import com.github.jing332.tts.error.SynthesisError
 import com.github.jing332.tts.error.TextProcessorError
 import com.github.jing332.tts.synthesizer.RequestPayload
+import com.github.jing332.tts.synthesizer.RequestSnapshot
 import com.github.jing332.tts.synthesizer.SystemParams
 import com.github.jing332.tts.synthesizer.event.ErrorEvent
 import com.github.jing332.tts.synthesizer.event.Event
@@ -415,25 +416,19 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
     // finally 清空（见 normalEvent 的 finally），所以必须在这里另存一份。
     private var currentReqBook: String = ""
     private var currentReqChapter: String = ""
-    // 11-14：本笔请求的段落位置（onSynthesizeText 从 Bundle 读出）。
-    // 传递路径：Bundle → 成员变量 → SystemParams 没有位置 → 由 synthesize 协程
-    // 在发 NormalEvent.Request 前临时读走（见 mTtsManager.synthesize 包装处）。
-    // index=-1/total=0 表示调用方没带（旧版 U阅/第三方），落盘与渲染全部跳过。
-    @Volatile
-    internal var currentParaIndex: Int = -1
-    @Volatile
-    internal var currentParaTotal: Int = 0
+    private var mNotificationJob: Job? = null
 
     /**
-     * 11-15（任务书-U阅批量提交多段）：本笔请求携带的批量段列表。
-     * null = 单段路径（旧调用方/未启用批量），行为与改动前完全一致。
-     * 与 currentPara* 同样在 onSynthesizeText 里从 Bundle 读出、由合成协程消费一次。
+     * 11-16：当前在跑的**后台预热批次** Job（路 C 的备货请求）。
+     *
+     * 为什么需要单独一个句柄：预热刻意不写进 [synthesizerJob]（那是「用户正在听的
+     * 那一笔」的登记位，被预热占掉后播放请求就破不到它，会两笔同跑）。
+     * 代价是 [onStop] 的破窗取消不到预热 —— 而预热又整段持有合成器 mutex，
+     * 于是它一跑十几秒、用户点播放就得排队干等（真机实测堵了 9.6 秒）。
+     * 所以播放请求冒头时，除了常规破窗，还要在这里把预热掐掉：**播放优先，预热让路**。
+     * 被掐掉的批次只是没备上货，那些段后续仍由播放请求现场合成，功能上无损失。
      */
-    @Volatile
-    internal var currentBatchSegments: List<
-        com.github.jing332.tts.synthesizer.BatchSegment>? = null
-
-    private var mNotificationJob: Job? = null
+    private var preloadJob: Job? = null
 
     // 🛠️ 记住上一个 callback，解决系统队列死锁
     private var lastTtsCallback: android.speech.tts.SynthesisCallback? = null
@@ -524,6 +519,19 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
             onStop()
             lastTtsCallback?.runCatching { error(TextToSpeech.ERROR_SYNTHESIS); done() }
             lastTtsCallback = callback
+            // 11-16（播放优先预热让路）：**掐掉正在跑的后台预热批次**。
+            //
+            // 为什么必须掐：SystemTtsService 的合成走 MixSynthesizer.synthesize()，
+            // 它整段都持有 mutex；预热批次在锁内一跑就是十几秒（4 段 × 2 并发）。
+            // 用户此时点播放，新请求只能排在 mutex 上干等——真机实测
+            // 「preloadSegments 01:26:47.492 → preload done 01:26:57.036」，
+            // 而用户那一段的 onSynthesizeStart 直到 01:26:57.041 才开始，
+            // 中间 9.6 秒完全没声音。这不是「日志顺序乱」，是**播放被预热堵住了**。
+            //
+            // 而且预热 Job 刻意不占 synthesizerJob 槽位（见下方注释），
+            // 所以上面的 onStop() 破窗取消不到它 —— 必须在这里单独记一个句柄。
+            preloadJob?.cancel()
+            preloadJob = null
         } else {
             // 预热不打断播放，但仍要保证服务处于前台可运行状态
             reNewWakeLock()
@@ -540,15 +548,21 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
 
         val enabledBgm = request.params.getBoolean(PARAM_BGM_ENABLED, true)
         mTtsManager?.context?.cfg?.bgmEnabled = { enabledBgm }
-        // 11-14：段落位置（用户令「每个请求音频日志都标 1/5 这种段落标记」）。
-        // U阅 synthesizeToFile 的 Bundle 带 paraIndex(0-based)/paraTotal(本章总段数)；
-        // 旧版 U阅/其他调用方不带 → 默认 -1/0，落盘与渲染全部跳过（老日志行为不变）。
-        // 读出后存成员变量：synthesize() 入口只有 SystemParams，段号不在其中，
-        // 只能在这里暂存、由 synthesize 内的 NormalEvent.Request 处理时取用（见 currentPara*）。
-        currentParaIndex = request.params.getInt(PARAM_PARA_INDEX, -1)
-        currentParaTotal = request.params.getInt(PARAM_PARA_TOTAL, 0)
-        // 11-15：批量段列表（可空，上面已解析过）。解析失败按单段路径处理，绝不因此整笔失败。
-        currentBatchSegments = preloadBatch
+
+        // 11-16（串值修复）：段落位置 + 批量段列表打包成**本笔请求的不可变快照**。
+        //
+        // 为什么必须打包：这三项此前是 SystemTtsService 的 @Volatile 成员变量，
+        // 在 onSynthesizeText 里赋值、在 `mScope.launch` 起的合成协程里**异步读**。
+        // 预热请求与播放请求几乎同时进入时，后一笔直接覆盖前一筆，协程读到的是别人的值。
+        // 真机实证（11-16 01:26:47.494 同一毫秒两笔请求）：两笔的 paraTotal 一个 105、
+        // 一个为空，随后又都变成 647。最坏后果已经能推演出来——播放请求读到预热的
+        // batch 值就会只回 50ms 静音、不输出真实音频（漏读），预热读到 null 则退化成
+        // 单段合成（白烧一次 API）。打包后每个协程只认自己那份，与谁并发都互不影响。
+        val reqSnapshot = RequestSnapshot(
+            paraIndex = request.params.getInt(PARAM_PARA_INDEX, -1),
+            paraTotal = request.params.getInt(PARAM_PARA_TOTAL, 0),
+            batchSegments = preloadBatch,
+        )
 
         runBlocking {
             var cfgId: Long? = getConfigIdFromVoiceName(request.voiceName ?: "").onFailure {
@@ -570,7 +584,11 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                 } else {
                     logE("Synthesize Crash Caught: ${e.javaClass.simpleName}: ${e.message}", e)
                 }
-                callback.error(TextToSpeech.ERROR_SYNTHESIS)
+                // 11-16：预热批次被播放请求掐掉是设计内行为（播放优先），不报错。
+                // 与下面 catch 分支同一口径——两处都补，否则取消仍可能从这里漏一次 -3。
+                if (!(isCancel && isPreloadRequest)) {
+                    callback.error(TextToSpeech.ERROR_SYNTHESIS)
+                }
                 callback.done()
             }
 
@@ -580,24 +598,20 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
             // 回一段极短静音让调用方正常收尾，这些段后续仍由播放请求现场合成。
             // 判据用「当前是否已有合成在进行」，不是严格同步的锁，但对预热这种
             // 纯优化请求来说，「偶尔白跳一次」远好于「阻塞用户点播」。
-            if (currentBatchSegments != null && mTtsManager?.isSynthesizing == true) {
+            if (reqSnapshot.batchSegments != null && mTtsManager?.isSynthesizing == true) {
                 logger.info { "preload skipped: synthesizer busy" }
                 callback.start(16000, AudioFormat.ENCODING_PCM_16BIT, 1)
                 callback.done()
                 return@runBlocking
             }
 
-            // 11-15：预热请求的 Job 不写进 synthesizerJob——那个槽位是「当前正在
+            // 11-15：预热请求的 Job **不写进 synthesizerJob**——那个槽位是「当前正在
             // 播放的那一笔」的登记位。被预热占掉后，下一次真正的播放请求破窗时就
             // 取消不到它，会出现两笔同时在跑（还会把播放的 callback 登记挤掉）。
-            // 这里先存旧值，启动完再还原；预热 Job 本身照常跑、跑完自行结束。
-            val previousSynthJob = synthesizerJob
-            synthesizerJob = mScope.launch(exceptionHandler) {
-                // 预热请求：进协程第一件事就把槽位还给「上一笔播放」。
-                // launch 是异步调度，这里存在极短暂的覆盖窗口，但预热请求本身
-                // 不会触发破窗（见上面的 isPreloadRequest 分支），所以窗口内
-                // 不存在「正被破窗取消」的路径，竞态无害。
-                if (isPreloadRequest) synthesizerJob = previousSynthJob
+            //
+            // 11-16 修正：以前是「先赋值再在协程内还原」，中间有一段预热占位的窗口。
+            // 现在干脆不赋值——预热只记 [preloadJob]，synthesizerJob 一律留给播放。
+            val newJob = mScope.launch(exceptionHandler) {
                 var isAudioOutputted = false
                 try {
                     // 确保引擎初始化完成后再合成，避免首次播放等待异步预热
@@ -610,13 +624,12 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                             requestTimeout = SysTtsConfig.requestTimeout.toLong()
                         ),
                             forceConfigId = cfgId,
-                            // 11-14：段落位置接力（onSynthesizeText 从 Bundle 读的成员变量）。
-                            // 本协程处理的就是这一笔请求，读一次快照即可；
-                            // 下一笔请求进来时成员变量已被覆盖，互不干扰。
-                            paraIndex = currentParaIndex,
-                            paraTotal = currentParaTotal,
-                            // 11-15：批量段列表（null=单段路径，行为不变）
-                            batchSegments = currentBatchSegments,
+                            // 11-16：段落位置与批量段列表取自**本笔请求自己的快照**
+                            //（reqSnapshot 在上面的 onSynthesizeText 栈帧里构造，同一时刻
+                            //  不可能被别的请求改写）——这是并发串值的根治点。
+                            paraIndex = reqSnapshot.paraIndex,
+                            paraTotal = reqSnapshot.paraTotal,
+                            batchSegments = reqSnapshot.batchSegments,
                             callback = object :
                                 com.github.jing332.tts.synthesizer.SynthesisCallback {
                                 override fun onSynthesizeStart(sampleRate: Int) {
@@ -661,7 +674,14 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                     } else {
                         logE("Synthesize Interrupted: ${e.javaClass.simpleName}: ${e.message}", e)
                     }
-                    callback.error(TextToSpeech.ERROR_SYNTHESIS)
+                    // 11-16：**预热批次被播放请求掐掉**属于设计内行为，不报错。
+                    // 预热本来就是「有空就备货」，用户点播放时它让路是正确结果；
+                    // 若照常 error(-3)，调用方（U阅）会收到一次「批量预热失败」，
+                    // 白白多一条失败记录，还可能触发它对这段话的重试逻辑。
+                    // 真正的失败（网络/插件错）仍走下面那一行照常上报。
+                    if (!(isCancel && isPreloadRequest)) {
+                        callback.error(TextToSpeech.ERROR_SYNTHESIS)
+                    }
                 } finally {
                     // 🛠️ 结案铁律：确保必须调用 done()，防止队列挂起
                     // ⚠️ 顺序铁律：先注销 lastTtsCallback，再 done()。
@@ -677,7 +697,14 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                 }
             }
 
-            synthesizerJob?.join()
+            // 11-16：两类请求各归各位——
+            //   · 播放请求：照旧登记进 synthesizerJob，下一笔请求的破窗才取消得到它；
+            //   · 预热请求：只记 preloadJob，播放请求冒头时用它掐掉本批（播放优先）。
+            if (isPreloadRequest) preloadJob = newJob else synthesizerJob = newJob
+            newJob.join()
+            // 批次自己收尾后清掉句柄，免得播放请求以后去 cancel 一个已结束的 Job
+            // （cancel 已完成的 Job 无害，但留着旧引用会让「有没有在跑预热」判断失真）
+            if (isPreloadRequest && preloadJob === newJob) preloadJob = null
         }
 
 
@@ -1198,6 +1225,22 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
     }
 
     private fun normalEvent(e: NormalEvent) {
+        // 11-16（日志顺序修复）：后台预热批次的合成事件**不落日志页**。
+        //
+        // 为什么：预热与播放共用同一条 requestAndProcess 管线，未命中时它照样派发
+        // Request / ReadAllFromStream。真机实证 02:12:10.092–21.901 那 12 秒：
+        // 日志页先后冒出 5 张「请求音频」卡（parTotal 为空、无段号），全部来自预热；
+        // 用户正在听的段 13 的卡直到 22.348 才出现，排在它们后面 —— 看起来就是
+        // 「日志顺序不对」，实际是**别的请求的卡插进了播放卡该在的位置**。
+        //
+        // 预热的进度信息没有丢：合成器仍在 DEBUG 日志里打
+        // 「preloadSegments: concurrency=N, segments=M」与「preload done: ok=x/M」，
+        // 那是给排查用的工程日志，不属于「用户这一耳朵听到了什么」。
+        if (e is NormalEvent.Request && e.request.isPreload) return
+        if (e is NormalEvent.ReadAllFromStream && e.request.isPreload) return
+        if (e is NormalEvent.StandbyTts && e.request.isPreload) return
+        if (e is NormalEvent.HandleStream && e.request.isPreload) return
+
         when (e) {
             is NormalEvent.Request ->
                 if (e.retries > 0) {
@@ -1299,10 +1342,19 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                     // 11-15 晚二改：命中缓存用「获取成功（缓存）：」——渲染层据此把「成功」丸
                     // 换成「缓存」丸（同一行，不新增高度）。用户令「日志卡片第一行已经很挤了」，
                     // 所以不再为命中加子行，改动只落在这一行的前缀 + 丸上。
+                    //
+                    // ⚠️ 11-16（口径修正）：两条路径的 size **不是同一个东西**，必须标出来。
+                    //   现场合成：e.size = 插件回来的**压缩流**字节（日志实测 20.5 / 49.0 / 73.5 KB）
+                    //   缓存命中：e.size = 缓存里的**解码后 PCM**（日志实测 462.5 / 408.4 KB）
+                    // 同一个「大小」字段差 10 倍，用户看到的就是「缓存段怎么这么大 / 合成段怎么这么小」。
+                    // 不改数（两者都真实，PCM 本来就比 mp3 大一个量级），改为在缓存行标注「PCM」，
+                    // 一眼能看出口径不同；仍是一行、不加高度，也仍是「耗时在前」的既有排序。
+                    val sizeText = if (e.request.fromCache) e.size.sizeToReadable() + "（PCM）"
+                    else e.size.sizeToReadable()
                     logS(
                         "<font color=\"" + META_INFO_COLOR + "\">获取成功" +
                             (if (e.request.fromCache) "（缓存）" else "") + "：</font>" +
-                            e.size.sizeToReadable() + " · " + costText,
+                            sizeText + " · " + costText,
                         indent = 1,
                         // 书章取自事件自带的 request（MDC 此时已被 finally 清掉，取不到）
                         bookName = e.request.bookName,
@@ -1356,6 +1408,19 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
     }
 
     private fun errorEvent(e: ErrorEvent) {
+        // 11-16：预热批次的失败**同样不落日志页**——与 normalEvent 开头同一口径。
+        // 预热是后台备货，它失败时用户耳朵里什么都没发生，却在页面中间冒一条红字，
+        // 只会让人以为「正在听的那段失败了」。真因仍可在 debug.log 里按
+        // 「preload failed / preload done: ok=x/M」查到。
+        val preloadReq = when (e) {
+            is ErrorEvent.Request -> e.request
+            is ErrorEvent.RequestTimeout -> e.request
+            is ErrorEvent.DirectPlay -> e.payload
+            is ErrorEvent.ResultProcessor -> e.request
+            else -> null
+        }
+        if (preloadReq?.isPreload == true) return
+
         when (e) {
             is ErrorEvent.TextProcessor -> handleTextProcessorError(e.error)
             is ErrorEvent.Request -> {

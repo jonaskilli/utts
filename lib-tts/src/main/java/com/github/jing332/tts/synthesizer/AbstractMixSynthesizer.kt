@@ -219,6 +219,10 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
                 paraTotal = segment.paraTotal,
                 // 预热不出日志卡片（见 requestAndProcess 的 emitHitLog）
                 emitHitLog = false,
+                // 11-16：关键是这一个 —— 只关 emitHitLog 拦不住「未命中」那条路，
+                // 它照样发 Request/ReadAllFromStream，于是预热段在日志页冒充播放卡
+                //（真机 02:12:10–21 实证：5 张预热卡挤在用户正听的卡前面）。
+                isPreload = true,
             )
         } catch (e: CancellationException) {
             throw e
@@ -379,12 +383,17 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
         paraTotal: Int = 0,
         // 11-15 晚：预热路径传 false——预热只是备货，不该在日志页生成卡片。
         emitHitLog: Boolean = true,
+        // 11-16：本笔属于后台预热批次。见 RequestPayload.isPreload 的注释——
+        // 单靠 emitHitLog 拦不住**未命中**那条路（它照样发 Request/ReadAllFromStream），
+        // 于是预热段在日志页冒充播放卡。这里显式标到载荷上，由服务层统一丢弃。
+        isPreload: Boolean = false,
     ) {
         val request = RequestPayload(
             params, config, roleName, failoverFromTag, bookName, chapterTitle,
             reqId = reqId.ifEmpty { "r" + System.identityHashCode(params).toString(36) + System.nanoTime().toString(36).takeLast(6) },
             paraIndex = paraIndex,
             paraTotal = paraTotal,
+            isPreload = isPreload,
         )
 
         // 11-15（路 C）：合成结果缓存命中即直接产出，不再走插件请求。
@@ -434,6 +443,8 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
                     bookName = bookName, chapterTitle = chapterTitle,
                     reqId = request.reqId,
                     paraIndex = paraIndex, paraTotal = paraTotal,
+                    // 11-16：预热的失败链也不能在日志里冒成播放卡
+                    isPreload = isPreload,
                 )
             } else {
                 val next = retries + 1
@@ -452,6 +463,7 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
                     bookName = bookName, chapterTitle = chapterTitle,
                     reqId = request.reqId,
                     paraIndex = paraIndex, paraTotal = paraTotal,
+                    isPreload = isPreload,
                 )
             }
         }

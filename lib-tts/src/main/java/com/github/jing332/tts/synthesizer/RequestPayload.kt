@@ -24,6 +24,15 @@ data class RequestPayload(
     // 否则命中段只有「获取成功」没有来路，看着和现场合成一模一样（用户实测被这点骗过：
     // 段 24–27 全部命中、都不出卡片，日志页第一张卡是段 28，误以为起点跳到倒数第二段）。
     val fromCache: Boolean = false,
+    // 11-16：本笔属于**后台预热批次**（路 C 的备货请求），不是用户正在听的那一段。
+    //
+    // 为什么要在载荷上标：预热走的是同一条 requestAndProcess → 同一条事件派发，
+    // 服务层没办法从别的字段把两者分开（paraIndex 两边都有、fromCache 只标命中）。
+    // 真机实证 02:12:10–21 那 12 秒：日志页先后冒出 5 张「请求音频」卡，全部来自预热，
+    // 用户正听的段 13 的卡反而排在它们后面 —— 看起来就是「日志顺序不对」。
+    // 服务层见到本字段为 true 就不再落播放卡片（只在 DEBUG 日志留一行），
+    // 预热进度改由「preload done: ok=x/M」那一行汇总。
+    val isPreload: Boolean = false,
 ) {
     val text: String
         get() = params.text

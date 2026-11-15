@@ -34,3 +34,34 @@ data class BatchSegment(
     val text: String,
     val paraIndex: Int = -1,
 )
+
+/**
+ * 一笔系统 TTS 请求的**不可变入参快照**（2026-11-16，并发串值修复）。
+ *
+ * ## 为什么需要它
+ *
+ * 段号与批量段列表原先存在 `SystemTtsService` 的 `@Volatile` 成员变量里：
+ * `onSynthesizeText` 写入 → `mScope.launch` 起的合成协程异步读出。
+ * 预热请求与播放请求几乎同时进入时，后一笔直接覆盖前一筆，协程读到别人的值。
+ *
+ * 真机实证（2026-11-16 01:26:47.494，两笔请求同一毫秒落地）：
+ * 两笔的 `paraTotal` 一个是 105、一个是空，随后同一章的命中请求又都变成 647。
+ *
+ * 最坏后果（按代码推演，未等真机复现）：
+ *  - 播放请求读到预热的 `batchSegments` → 走预热分支，只回 50ms 静音、**不输出音频**（漏读）；
+ *  - 预热请求读到 null → 退化成单段合成（白烧一次 API 且缓存没备上）。
+ *
+ * 所以改成「进入 onSynthesizeText 时就地构造快照，随调用栈一路传下去」，
+ * 每个协程只认自己那份，与谁并发都互不影响。
+ *
+ * @property paraIndex 段号（0-based），-1 = 调用方没带
+ * @property paraTotal 本章总段数，0 = 调用方没带
+ * @property batchSegments 批量段列表，null = 单段路径
+ */
+data class RequestSnapshot(
+    val paraIndex: Int = -1,
+    val paraTotal: Int = 0,
+    val batchSegments: List<BatchSegment>? = null,
+) {
+    val isPreload: Boolean get() = batchSegments != null
+}
