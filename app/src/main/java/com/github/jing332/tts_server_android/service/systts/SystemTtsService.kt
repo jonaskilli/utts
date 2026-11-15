@@ -1343,18 +1343,20 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                     // 换成「缓存」丸（同一行，不新增高度）。用户令「日志卡片第一行已经很挤了」，
                     // 所以不再为命中加子行，改动只落在这一行的前缀 + 丸上。
                     //
-                    // ⚠️ 11-16（口径修正）：两条路径的 size **不是同一个东西**，必须标出来。
-                    //   现场合成：e.size = 插件回来的**压缩流**字节（日志实测 20.5 / 49.0 / 73.5 KB）
-                    //   缓存命中：e.size = 缓存里的**解码后 PCM**（日志实测 462.5 / 408.4 KB）
-                    // 同一个「大小」字段差 10 倍，用户看到的就是「缓存段怎么这么大 / 合成段怎么这么小」。
-                    // 不改数（两者都真实，PCM 本来就比 mp3 大一个量级），改为在缓存行标注「PCM」，
-                    // 一眼能看出口径不同；仍是一行、不加高度，也仍是「耗时在前」的既有排序。
-                    val sizeText = if (e.request.fromCache) e.size.sizeToReadable() + "（PCM）"
-                    else e.size.sizeToReadable()
+                    // 11-16 三改（用户终令「去掉 pcm 的大小耗时」）：**缓存命中行不再带大小+耗时**。
+                    // 沿革：11-16 曾给缓存行加「（PCM）」标注以区分口径，但用户反馈术语看不懂、
+                    // 还把首行挤到折行。深究后两个数字对缓存行**都没有信息量**：
+                    //   耗时恒 0.0s（本地读盘毫秒级，没意义）；
+                    //   大小是解码后 PCM，与现场合成的压缩流不可比（278.7KB≈3 秒音频，
+                    //   同长度 mp3 才 ~48KB），只会让人误读成「缓存段特别大」。
+                    // 缓存行保留的就是有信息量的部分：「缓存」丸（来路）+ 段号（位置）。
+                    // 现场合成行照旧「大小 · 耗时」，两者口径从此天然分开，无需标注。
+                    val sizeText = e.size.sizeToReadable()
+                    val detail = if (e.request.fromCache) "" else sizeText + " · " + costText
                     logS(
                         "<font color=\"" + META_INFO_COLOR + "\">获取成功" +
                             (if (e.request.fromCache) "（缓存）" else "") + "：</font>" +
-                            sizeText + " · " + costText,
+                            detail,
                         indent = 1,
                         // 书章取自事件自带的 request（MDC 此时已被 finally 清掉，取不到）
                         bookName = e.request.bookName,
