@@ -45,7 +45,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckBox
 import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.KeyboardDoubleArrowDown
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
@@ -80,6 +79,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -2139,7 +2139,9 @@ internal fun LogScreen(
                     shape = CircleShape,
                     color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.92f),
                     shadowElevation = 3.dp,
-                    modifier = Modifier.size(56.dp),
+                    // 11-16 01:57 用户令「40 和 56 中间取一个值」→ **48dp**。
+                    // 触摸区仍是外层 72dp（误触防护不受影响），底距 20dp 不变。
+                    modifier = Modifier.size(48.dp),
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         val cd = stringResource(id = R.string.move_to_bottom)
@@ -2156,21 +2158,26 @@ internal fun LogScreen(
                         // 箭头 = 近黑（#1B1D1B）：灰白底上要"一眼看清是箭头"，
                         // 灰（onSurfaceVariant）在半透/浅底上偏软，用户上一版就是嫌它不对。
                         // 不跟随主题主色：绿箭头=把工具键染成状态色（理由见 Surface 注释）。
-                        // 十版（11-16 01:2x 用户定稿）：
-                        // 「用备选方案」= 浅绿底 + **绿箭头**（primary），不再走灰白/近黑；
-                        // 「箭头还是用很早以前那个两个向下叠一起的那个」= `KeyboardDoubleArrowDown`
-                        //（11-14 04:12 之前那版就是它，当时 40dp 圆 / 图标 20dp / 底 secondaryContainer
-                        //  / onSecondaryContainer；本次保留 56dp 视觉键，只把图标和配色换回那套）。
-                        Icon(
-                            Icons.Default.KeyboardDoubleArrowDown,
-                            stringResource(id = R.string.move_to_bottom),
+                        // 十一版（11-16 01:57 用户定稿）：
+                        // 「箭头用单箭头，竖直向下那个」——回到 11-15 那支 Canvas 描边单箭头
+                        //（竖直杆 + 圆头 + 34% 头宽），不用 ⇊ 了。
+                        // 尺寸按 48dp 圆配 **18dp**（占圆径 37%，与之前 56/20=36% 同一比例）。
+                        val arrowColor = MaterialTheme.colorScheme.primary
+                        Canvas(
                             modifier = Modifier
-                                // 11-16 01:3x 用户参照实拍「箭头跟圆匹配」：⇊ 占圆径约 36%
-                                //（56dp 圆 / 20dp 图标），此前 26dp 占到 46%、偏大压圆。
-                                .size(20.dp)
-                                .semantics { contentDescription = cd },
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
+                                .size(18.dp)
+                                .semantics { contentDescription = cd }
+                        ) {
+                            val w = size.width
+                            val cx = w / 2f
+                            val stroke = 2.2.dp.toPx()
+                            val top = w * 0.10f
+                            val bottom = w * 0.90f
+                            val head = w * 0.34f
+                            drawLine(arrowColor, Offset(cx, top), Offset(cx, bottom), stroke, StrokeCap.Round)
+                            drawLine(arrowColor, Offset(cx - head, bottom - head), Offset(cx, bottom), stroke, StrokeCap.Round)
+                            drawLine(arrowColor, Offset(cx + head, bottom - head), Offset(cx, bottom), stroke, StrokeCap.Round)
+                        }
                     }
                 }
             }

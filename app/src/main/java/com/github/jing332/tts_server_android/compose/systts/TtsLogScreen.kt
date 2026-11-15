@@ -2166,14 +2166,16 @@ private fun PinnedLogHeader(
                 synthIdxValid -> "第${synthIdx + 1}章"
                 else -> ""
             }
-            // ===== 11-15 用户令：进度行前面加「正在播放」 =====
-            // 定稿格式（一句两段，用 ｜ 分隔）：
-            //   正在播放：第x章  1/2 ｜ 合成进度：第x章  5/36
-            // 要点三条：
-            //   ① 播放段只报**章 + 段进度**，不报"后台合成"那套前缀（与合成段互不重复）；
-            //   ② 两段都恒带章名——用户要「一眼看出播放和合成各在哪一章」，同章也照写；
-            //   ③ **停止朗读时播放段隐藏，合成段照旧显示**（用户明确要求），
-            //      因此"正在播放"段的存在性由 playingNow，而非整行的存在性决定。
+            // ===== 11-16 02:2x 用户定稿格式 =====
+            //   同章：当前：62/362｜缓存：68/362        （同章**不写章名**）
+            //   跨章：当前：第二章 62/362｜缓存：第三章 5/40（两侧都写，否则分不清归属）
+            //   停止：缓存：第二章 68/362               （「当前」整段消失、**靠右**、
+            //                                            并无条件带章名——见下方 synthHead 注释）
+            // 与旧版的差别（用户逐条确认）：
+            //   ① 标签从「正在播放/合成进度」压成「当前/缓存」——两个字，省一半宽；
+            //   ② 同章不重复章名（书章行已经写着当前章），跨章才两边都补，
+            //      避免「62/362 到底是哪一章的」这种歧义；
+            //   ③ 停止朗读时只留后半段，后半段**居右**（TextAlign.End 而不是留一大片空白在左）。
             val playingNow = snap.playing
             val playSegText = if (playTotal > 0) {
                 playDone.coerceAtMost(playTotal).toString() + "/" + playTotal
@@ -2183,26 +2185,38 @@ private fun PinnedLogHeader(
                 snap.chapterIndex >= 0 -> "第${snap.chapterIndex + 1}章"
                 else -> ""
             }
-            val playingPart = buildString {
-                append("正在播放：")
-                if (playNameOrNum.isNotBlank()) append(playNameOrNum)
-                if (playSegText.isNotEmpty()) {
-                    // 双空格：章号与段进度之间留白，与合成段视觉一致（用户截图同款）
-                    if (playNameOrNum.isNotBlank()) append("  ")
-                    append(playSegText)
+            // 跨章判定：章号都有效且不同（章号缺失时按"同章"处理，宁可不写重复章名）
+            val crossChapter = snap.synthChapterIndex >= 0 &&
+                snap.chapterIndex >= 0 && snap.synthChapterIndex != snap.chapterIndex
+            val playHead = buildString {
+                if (playNameOrNum.isNotBlank() && crossChapter) {
+                    append(playNameOrNum).append(' ')
                 }
-            }.trim()
-            val synthPart = buildString {
-                append("合成进度：")
-                if (synthNameOrNum.isNotBlank()) append(synthNameOrNum)
+                append(playSegText)
+            }
+            val synthHead = buildString {
+                // 11-16 02:3x 用户二次澄清：「停止朗读了，要显示第x章，不分是否跨章」。
+                // 所以「缓存」侧的章名条件是 **crossChapter || !playingNow**：
+                //   · 在朗读且同章 → 省略（书章行已写着当前章）；
+                //   · 跨章 → 写（否则分不清数字归属）；
+                //   · 已停止 → 一律写（此时没有「当前」可比，不写就不知道缓存停在哪一章）。
+                if (synthNameOrNum.isNotBlank() && (crossChapter || !playingNow)) {
+                    append(synthNameOrNum).append(' ')
+                }
                 if (synthTotal > 0) {
-                    if (synthNameOrNum.isNotBlank()) append("  ")
                     append(synthDone.coerceAtMost(synthTotal)).append('/').append(synthTotal)
                 }
-            }.trim()
-            // 拼接：在朗读 → 「正在播放… ｜ 合成进度…」；已停 → 只留「合成进度…」。
-            // 分隔符用全角竖线 ｜，与页内其它并列信息同款。
-            val text = if (playingNow) playingPart + " ｜ " + synthPart else synthPart
+            }
+            // 竖线两侧**不留空格**（用户给的样例就是 1/25｜缓存）；全角竖线本身自带间距。
+            val text = if (playingNow && playHead.isNotBlank()) {
+                "当前：" + playHead + "｜缓存：" + synthHead
+            } else {
+                "缓存：" + synthHead
+            }
+            // 停止朗读时后半段居右（用户 11-16 令「后半段要居右放」）；
+            // 在朗读时整行左对齐，两段连成一句读起来更顺。
+            val progTextAlign = if (playingNow && playHead.isNotBlank())
+                TextAlign.Start else TextAlign.End
             // 合成侧完全没数据（没开播/未上报）时这一行**整行不渲染**——否则只剩
             // 「合成进度：」四个字挂在那里，没有信息量还占 24dp。
             // ⚠️ 必须真用上这个门控（11-14 自查发现：上一版只声明没使用）。
@@ -2235,6 +2249,7 @@ private fun PinnedLogHeader(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    textAlign = progTextAlign,
                     modifier = Modifier.weight(1f),
                 )
             }
