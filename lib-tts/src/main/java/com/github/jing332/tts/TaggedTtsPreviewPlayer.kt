@@ -92,7 +92,7 @@ object TaggedTtsPreviewPlayer {
                         toast(context, "试听失败：配置项解析失败")
                         return@launch
                     }
-                    val provider = CachedEngineManager.getEngine(context.applicationContext, resolved.configuration.source)
+                    val provider = CachedEngineManager.getEngineForPreview(context.applicationContext, resolved.configuration.source)
                     if (provider == null) {
                         toast(context, "试听失败：目标插件未启用或不存在")
                         return@launch

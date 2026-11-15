@@ -404,11 +404,21 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
         // 仍由 JS 异步填充，同插件的下一笔请求会重置其 WS/忙标志 → 「请等待当前请求完成」
         // 「Broken pipe」。规则：同一插件在本批内按段序串行——第 i 段须等它之前最近一个
         // 同插件段「消费完」才能发请求；不同插件仍并行（Fish 等 V1 流式收益不受影响）。
+        //
+        // 11-15 修正（引擎实例池）：本门按 pluginId 一律生效，会让池化完全失效——
+        // 同插件第二段仍要等第一段「消费完」才发请求，多开的引擎实例根本拿不到并行请求。
+        // 现在只对**不可池化**插件保留本门（它们才是 1da91f21 要防的对象）；
+        // 插件标记 allowParallel=true 的（每请求自建连接、无共享状态）直接跳过，
+        // 让 N 个引擎实例真正并行。判据与白名单见 DatabaseManager.MIGRATION_35_36。
         val samePluginPrev = arrayOfNulls<Int>(list.size)
         run {
             val lastByPlugin = HashMap<String, Int>()
             list.forEachIndexed { i, seg ->
-                val pid = (seg.tts.source as? PluginTtsSource)?.pluginId ?: return@forEachIndexed
+                val pluginSource = seg.tts.source as? PluginTtsSource ?: return@forEachIndexed
+                val pid = pluginSource.pluginId
+                // 池化插件不分实例号串行：它们的并行是安全的（判定依据见上）
+                val parallelSafe = pluginSource.plugin?.allowParallel == true
+                if (parallelSafe) return@forEachIndexed
                 lastByPlugin[pid]?.let { samePluginPrev[i] = it }
                 lastByPlugin[pid] = i
             }
@@ -625,6 +635,10 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
             event(ErrorEvent.ConfigEmpty)
             return@withLock
         }
+
+        // 引擎实例池大小跟随预取并发数（2026-11-15，用户定稿：不新增设置项）。
+        // 用 provider 而非取值：并发数原本就是 ValueProvider，用户改设置后无需重建合成器。
+        CachedEngineManager.poolSizeProvider = { context.cfg.prefetchConcurrency() }
 
         // 引擎预热：提前初始化所有引擎，避免首请求时同步初始化延迟
         mConfigs.values.map { it.source }.distinctBy { it.getKey() }.forEach { source ->

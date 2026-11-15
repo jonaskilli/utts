@@ -15,6 +15,12 @@ import java.io.InputStream
 open class PluginTtsProvider(
     val context: Context,
     val plugin: Plugin,
+    /**
+     * 引擎实例池槽位（2026-11-15，任务书-UTTS引擎实例池）。
+     * 0 = 不分池（默认，与旧行为一致）；>0 = 该 provider 独占一个 Rhino 引擎实例。
+     * 由 CachedEngineManager 在可池化插件上按轮转分配。
+     */
+    val engineSlot: Int = 0,
 ) : TextToSpeechProvider<PluginTtsSource>() {
 
     private var mEngine: TtsPluginEngineV2? = null
@@ -93,7 +99,7 @@ open class PluginTtsProvider(
     override suspend fun onInit() {
         state = EngineState.Initializing
         if (mEngine == null)
-            mEngine = TtsPluginEngineManager.get(context, plugin)
+            mEngine = TtsPluginEngineManager.get(context, plugin, engineSlot)
 
         state = EngineState.Initialized
     }
@@ -106,7 +112,10 @@ open class PluginTtsProvider(
     override fun onDestroy() {
         state = EngineState.Uninitialized()
         mEngine?.onStop()
-        TtsPluginEngineManager.remove(plugin.pluginId)
+        // 只清自己那一份实例：池化时若按 pluginId 全清，销毁一路会带走其它路的引擎，
+        // 正在并行的另外几段会突然失去引擎（「Object PluginJS not found」）。
+        // 整池清理走 CachedEngineManager.removeEngine/removeByPluginId。
+        TtsPluginEngineManager.removeOne(plugin.pluginId, engineSlot)
         mEngine = null
     }
 }

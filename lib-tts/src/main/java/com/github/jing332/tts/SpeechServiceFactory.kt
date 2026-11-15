@@ -11,13 +11,22 @@ import com.github.jing332.tts.speech.plugin.PluginTtsProvider
 
 @Suppress("UNCHECKED_CAST")
 object SpeechServiceFactory {
-    fun createEngine(context: Context, source: TextToSpeechSource): TextToSpeechProvider<TextToSpeechSource>? {
+    /**
+     * @param engineSlot 引擎实例池槽位（2026-11-15）。0=不分池；>0=该 provider 独占一个
+     *   Rhino 引擎实例，用于同插件多实例并行合成。只有插件标记 allowParallel 才会 >0。
+     */
+    fun createEngine(
+        context: Context,
+        source: TextToSpeechSource,
+        engineSlot: Int = 0,
+    ): TextToSpeechProvider<TextToSpeechSource>? {
         return when (source) {
             is LocalTtsSource -> LocalTtsProvider(context, source.engine)
             is PluginTtsSource -> {
                 PluginTtsProvider(
                     context,
-                    source.plugin ?: dbm.pluginDao.getEnabled(source.pluginId) ?: return null
+                    source.plugin ?: dbm.pluginDao.getEnabled(source.pluginId) ?: return null,
+                    engineSlot = engineSlot,
                 )
             }
 

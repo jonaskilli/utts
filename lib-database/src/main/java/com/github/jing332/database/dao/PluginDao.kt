@@ -24,20 +24,20 @@ interface PluginDao {
      * 轻量Flow查询：code返回空字符串，避免大code导致Cursor窗口溢出闪退
      * 用于插件管理列表等不需要code的场景
      */
-    @Query("SELECT id, isEnabled, version, name, pluginId, author, iconUrl, '' AS code, defVars, userVars, `order`, audioParams, pluginHandlesSpeed, pluginHandlesVolume, pluginHandlesPitch FROM plugin ORDER BY `order` ASC")
+    @Query("SELECT id, isEnabled, version, name, pluginId, author, iconUrl, '' AS code, defVars, userVars, `order`, audioParams, pluginHandlesSpeed, pluginHandlesVolume, pluginHandlesPitch, allowParallel FROM plugin ORDER BY `order` ASC")
     fun flowAllWithoutCode(): Flow<List<Plugin>>
 
     /**
      * 轻量查询：code返回空字符串，避免加载2MB+大code导致Cursor窗口溢出
      * 用于列表展示等不需要code的场景
      */
-    @Query("SELECT id, isEnabled, version, name, pluginId, author, iconUrl, '' AS code, defVars, userVars, `order`, audioParams, pluginHandlesSpeed, pluginHandlesVolume, pluginHandlesPitch FROM plugin ORDER BY `order` ASC")
+    @Query("SELECT id, isEnabled, version, name, pluginId, author, iconUrl, '' AS code, defVars, userVars, `order`, audioParams, pluginHandlesSpeed, pluginHandlesVolume, pluginHandlesPitch, allowParallel FROM plugin ORDER BY `order` ASC")
     fun getAllWithoutCode(): List<Plugin>
 
     /**
      * 轻量查询：code返回空字符串，仅返回已启用的插件，避免大code导致Cursor窗口溢出
      */
-    @Query("SELECT id, isEnabled, version, name, pluginId, author, iconUrl, '' AS code, defVars, userVars, `order`, audioParams, pluginHandlesSpeed, pluginHandlesVolume, pluginHandlesPitch FROM plugin WHERE isEnabled = '1' ORDER BY `order` ASC")
+    @Query("SELECT id, isEnabled, version, name, pluginId, author, iconUrl, '' AS code, defVars, userVars, `order`, audioParams, pluginHandlesSpeed, pluginHandlesVolume, pluginHandlesPitch, allowParallel FROM plugin WHERE isEnabled = '1' ORDER BY `order` ASC")
     fun getAllEnabledWithoutCode(): List<Plugin>
 
     /**
@@ -45,7 +45,7 @@ interface PluginDao {
      * 09-07 崩溃实锤：resolveTtsPlayback 曾用 SELECT * 的 getByPluginId，
      * 5MB+ 插件 JS 撑爆 CursorWindow 致点击朗读即 OOM。参数解析只需元数据。
      */
-    @Query("SELECT id, isEnabled, version, name, pluginId, author, iconUrl, '' AS code, defVars, userVars, `order`, audioParams, pluginHandlesSpeed, pluginHandlesVolume, pluginHandlesPitch FROM plugin WHERE pluginId = :pluginId LIMIT 1")
+    @Query("SELECT id, isEnabled, version, name, pluginId, author, iconUrl, '' AS code, defVars, userVars, `order`, audioParams, pluginHandlesSpeed, pluginHandlesVolume, pluginHandlesPitch, allowParallel FROM plugin WHERE pluginId = :pluginId LIMIT 1")
     fun getMetaByPluginId(pluginId: String): Plugin?
 
     /** 双条件孪生查询（10-10 用户令：导入覆盖须 pluginId+name 全同才 REPLACE，防止同 id 不同名插件被静默顶掉） */
@@ -56,7 +56,7 @@ interface PluginDao {
      * 轻量全表：全部插件元数据（code 为空串）。
      * getAllTts 批量解析时一次查完建缓存，消灭逐条配置全量查插件的 N+1。
      */
-    @Query("SELECT id, isEnabled, version, name, pluginId, author, iconUrl, '' AS code, defVars, userVars, `order`, audioParams, pluginHandlesSpeed, pluginHandlesVolume, pluginHandlesPitch FROM plugin")
+    @Query("SELECT id, isEnabled, version, name, pluginId, author, iconUrl, '' AS code, defVars, userVars, `order`, audioParams, pluginHandlesSpeed, pluginHandlesVolume, pluginHandlesPitch, allowParallel FROM plugin")
     fun getAllMeta(): List<Plugin>
 
     @get:Query("SELECT count(*) FROM plugin")

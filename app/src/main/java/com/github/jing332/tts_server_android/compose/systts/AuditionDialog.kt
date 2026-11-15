@@ -127,7 +127,7 @@ fun AuditionDialog(
     LaunchedEffect(systts) {
         launch(Dispatchers.IO) {
             runCatching {
-                val e = engine ?: CachedEngineManager.getEngine(appCtx, config.source) ?: return@runCatching
+                val e = engine ?: CachedEngineManager.getEngineForPreview(appCtx, config.source) ?: return@runCatching
                 // !Initialized(含预热中 Initializing):挂起等待完成,保证预热协程结束时引擎必然就绪
                 if (e.state != EngineState.Initialized) e.onInit()
             }
@@ -142,7 +142,7 @@ fun AuditionDialog(
         info = ""
         launch(Dispatchers.IO) {
             try {
-                val e = engine ?: CachedEngineManager.getEngine(appCtx, config.source)
+                val e = engine ?: CachedEngineManager.getEngineForPreview(appCtx, config.source)
                 ?: throw IllegalStateException("engine is null")
 
                 // 必须用 !Initialized 判定:预热协程可能正把 state 置为 Initializing,

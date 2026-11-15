@@ -60,6 +60,21 @@ data class Plugin(
 
     @ColumnInfo(defaultValue = "0")
     var pluginHandlesPitch: Boolean = false,
+
+    /**
+     * 该插件允许同时存在多个引擎实例（2026-11-15，任务书-UTTS引擎实例池）。
+     *
+     * 判定口径：插件 JS 在每次请求里自建连接/局部状态，模块级无共享 WS/忙标志，
+     * 两个请求同时打过去互不干扰 → true。有模块级 `var ws`/`isWsReady`/全局 callback
+     * 的 WS 型插件（豆包/猫箱/千问型）第二笔请求会重置第一笔的连接（1da91f21 实锤
+     * 「请等待当前请求完成/Broken pipe」）→ 必须 false。
+     *
+     * 默认 false = 安全优先：未判定的新插件一律走现行单实例路径，
+     * 行为与引入本列之前逐字节一致。11-15 实读 23 项插件 JS 判定的白名单在
+     * MIGRATION_35_36 里灌入。
+     */
+    @ColumnInfo(defaultValue = "0")
+    var allowParallel: Boolean = false,
 ) : Parcelable {
     val mutableUserVars: MutableMap<String, String>
         get() = userVars as MutableMap<String, String>

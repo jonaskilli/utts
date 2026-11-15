@@ -36,6 +36,9 @@ val dbm: DatabaseManager by lazy {
             // 注意本文件里的 createDatabase() 也注册了它，但那个函数全仓零调用；
             // 真正生效的是这里。加迁移时两处都要对，别只改看得见的那一处。
             DatabaseManager.MIGRATION_34_35,
+            // ⚠️ 同上：@Database(version = 36) 升版后这里必须同步加 35→36，
+            // 否则升级路径缺失 → 启动即闪退（11-11 装机实锤过同类问题）。
+            DatabaseManager.MIGRATION_35_36,
         )
         .allowMainThreadQueries()
         .openHelperFactory(LargeCursorOpenHelperFactory())
@@ -44,7 +47,7 @@ val dbm: DatabaseManager by lazy {
 
 
 @Database(
-    version = 35,
+    version = 36,
     entities = [
         SystemTts::class,
         SystemTtsV2::class,
@@ -254,6 +257,60 @@ abstract class DatabaseManager : RoomDatabase() {
             }.getOrNull()
         }
 
+        /**
+         * 插件并发安全标记（2026-11-15，任务书-UTTS引擎实例池）。
+         *
+         * 新列 allowParallel 默认 0（安全优先）——未判定插件一律走单实例路径，
+         * 行为与升版前逐字节一致。这里把 11-15 实读 23 项插件 JS 判定出的
+         * 「可开池」白名单灌成 1（判据见《技术文档/任务书-UTTS引擎实例池-20261115.md》§3.1）。
+         *
+         * 为什么用白名单而不是黑名单：判错的代价不对称。把不可开池插件误判成可开
+         * → 第二笔请求重置第一笔的 WS（「请等待当前请求完成/Broken pipe」）；
+         * 把可开池插件漏判 → 只是没提速，不出错。所以只灌确定的。
+         *
+         * pluginId 精确匹配（不做前缀通配）：同平台不同作者改的插件形态可能不同
+         * （如千问分享版与千问QK39 同为通义但一个走账号级壳会话），通配会误伤。
+         */
+        val MIGRATION_35_36 = object : Migration(35, 36) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // 表不存在说明是全新库（Room 会直接建到最新版本），无需补列
+                val hasTable = db.query(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='Plugin'"
+                ).use { it.moveToFirst() }
+                if (!hasTable) return
+                db.execSQL("ALTER TABLE Plugin ADD COLUMN allowParallel INTEGER NOT NULL DEFAULT 0")
+                for (pid in PARALLEL_SAFE_PLUGIN_IDS) {
+                    db.execSQL("UPDATE Plugin SET allowParallel = 1 WHERE pluginId = ?", arrayOf(pid))
+                }
+            }
+        }
+
+        /**
+         * 11-15 判定：每请求自建连接/局部状态、无模块级共享 WS 或忙标志的插件。
+         * 主力五个（本悦读/纳米AI36/百度云端/讯飞配音/火山翻译）全部在列。
+         */
+        private val PARALLEL_SAFE_PLUGIN_IDS = arrayOf(
+            // 主力：旁白/对话实际在用的五个
+            "readin.official.zhcn.54.direct.emotion.20260817",      // 本悦读（每段新建 TCP，socket 是局部变量）
+            "nami.ai.official.36.nologin.jtts.fixed.20260816",      // 纳米AI36（纯无状态 POST）
+            "com.baidu.webdemo.tts.nokey.dual.cn73.universal",      // 百度云端（自带 2 路并发+信号量）
+            "peiyin.xunfei.cm.officialcn348.jreadurl.fxpicker.20260703", // 讯飞配音（签名→GET 签名 URL）
+            "translate.volcengine.com",                             // 火山翻译（整包 base64）
+            // 其余实读判定的可开池插件
+            "com.microsoft.translator",                             // 模块级只缓存 token，401 才重取
+            "ytbarrage.tencent.official.25.nologin.emobridge.jtts.20260816", // 仅 auth 缓存（时间戳）
+            "com.tencent.hunyuan.tts",                              // 签名→下载
+            "cn.ttson.acgn.zh",                                     // 海豚配音（每次尝试换 IP+设备身份）
+            "ai.breezeblue.tts",                                    // 微风蓝
+            "ai.breezeblue.tts.pro",                                // 微风蓝 Pro
+            "moting.peiyinshenqi.web.20261104",                      // 配音神器（提交→轮询→下载）
+            "moting.fishaudio.voice.marketplace.zh.20260903",        // Fish 广场（每请求新 openConnection）
+            "moting.fish.clone.mimo-library.20261014",               // Fish MiMo（httpPost 单请求）
+            "com.yx520.tts",                                        // 剪映 yx520 中转版（第三方 HTTP）
+            "jread.yuanbao.official.zh11.ws.v1",                     // 元宝（WS 但每请求新建+局部 state）
+            "wenxin.official.5.nologin.emotion.20260814",            // 文心（同元宝型，每块新建）
+        )
+
         fun createDatabase(context: Context) = Room
             .databaseBuilder(context, DatabaseManager::class.java, DATABASE_NAME)
             .addMigrations(
@@ -261,6 +318,7 @@ abstract class DatabaseManager : RoomDatabase() {
                 MIGRATION_32_33,
                 MIGRATION_33_34,
                 MIGRATION_34_35,
+                MIGRATION_35_36,
             )
             .allowMainThreadQueries()
             .openHelperFactory(LargeCursorOpenHelperFactory())

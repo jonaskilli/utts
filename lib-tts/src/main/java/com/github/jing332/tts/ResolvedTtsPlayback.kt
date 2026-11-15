@@ -115,6 +115,13 @@ fun resolveTtsPlayback(
             pluginHandlesSpeed = route.pluginSpeed,
             pluginHandlesVolume = route.pluginVolume,
             pluginHandlesPitch = route.pluginPitch,
+            // 2026-11-15：把解析好的插件元数据回填进 source。
+            // 此前 source.plugin 恒为 null，SpeechServiceFactory 每次都要回查 DB——
+            // 而 getAllTts 已一次性查好 pluginMeta 缓存（见 TtsRepository），
+            // 回填后朗读链与合成器都能直接读到 allowParallel，不必再查库。
+            // 元数据查询的 code 是空串，不会把 5MB 插件 JS 拖进内存（09-07 OOM 教训）。
+            source = (dto.source as? PluginTtsSource)?.let { if (plugin != null) it.copy(plugin = plugin) else it }
+                ?: dto.source,
         ),
         plugin = plugin,
         pluginRoute = route,
