@@ -45,6 +45,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckBox
 import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.KeyboardDoubleArrowDown
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
@@ -2164,7 +2165,9 @@ internal fun LogScreen(
                             Icons.Default.KeyboardDoubleArrowDown,
                             stringResource(id = R.string.move_to_bottom),
                             modifier = Modifier
-                                .size(26.dp)
+                                // 11-16 01:3x 用户参照实拍「箭头跟圆匹配」：⇊ 占圆径约 36%
+                                //（56dp 圆 / 20dp 图标），此前 26dp 占到 46%、偏大压圆。
+                                .size(20.dp)
                                 .semantics { contentDescription = cd },
                             tint = MaterialTheme.colorScheme.primary,
                         )
