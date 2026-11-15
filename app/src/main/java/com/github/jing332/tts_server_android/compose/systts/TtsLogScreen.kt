@@ -1853,42 +1853,13 @@ private fun PinnedLogHeader(
                                     // 书名号占了 2 个字宽（《》各约 11.5dp，合计≈23dp），
                                     // 而"这是一本书"靠图标表达更快——省宽又更直观。
                                     text = shownBook,
-                                    onClear = { if (shownBook.isNotBlank()) onClearBook(shownBook) },
-                                    leadingIcon = Icons.Default.Book,
-                                    stretchText = true,
-                                    onClick = { bookMenu = true },
-                                    // 11-14：筛选态也改 onSurface（与未筛选态同色）——
-                                    // 两态切换只该变底/描边，文字色跳变会显得控件"换了个东西"
-                                    textColor = MaterialTheme.colorScheme.onSurface,
-                                    opened = bookMenu,
-                                    // 撑满 weight 槽（同未筛选态，见那边注释）
-                                    modifier = Modifier.fillMaxWidth(),
-                                )
-                                // 紧凑菜单（用户令「把这个框小一点……得和谐呀」）：
-                                // MD3 DropdownMenu 默认项 48dp 高/16sp 字，相对吸顶 11sp 小字巨大。
-                                // 自定义项：11.5sp、36dp 高、内衬 12×6，与吸顶区同视觉密度；
-                                // 触发字本身不动（仍是 11sp 原样式，不加箭头/不加框）。
-                                // 书名菜单**居左**（用户定稿）：锚点=书名文字小 Box，
-                                // offset 归零即从文字左缘向右展开，与行首自然对齐。
-                                // 11-14：改用 BookChapterPickerMenu（参照 GitHub 分支切换器：
-                                // 搜索框 + 当前项打勾 + 标题行）。旧版是一长串无搜索的列表。
-                                val bookMenuW = minOf(maxOf(bookTriggerW, 220.dp), screenW - 16.dp)
-                                BookChapterPickerMenu(
-                                    expanded = bookMenu,
-                                    onDismissRequest = { bookMenu = false },
-                                    // 11-15 定案：书菜单宽度=书框实宽（≥220dp 保底、≤屏宽−24），
-                                    // 卡片左缘=书框左缘（offsetX 默认 0）——上下合成一体。
-                                    menuWidth = bookMenuW,
-                                    items = knownBooks.map { b ->
-                                        Triple(
-                                            b,
-                                            null,
-                                            b == shownBook,
-                                        )
-                                    },
                                     onPick = { b ->
                                         bookMenu = false
                                         onSwitchBook(b)
+                                    },
+                                    onClearItem = { b ->
+                                        bookMenu = false
+                                        onClearBook(b)
                                     },
                                 )
                             }
@@ -1900,10 +1871,6 @@ private fun PinnedLogHeader(
                                 Box {
                                     PickerTrigger(
                                         text = chapLabel.trim() + playingProgressSuffix,
-                                        onClear = {
-                                            if (shownBook.isNotBlank() && shownChapter.isNotBlank())
-                                                onClearChapter(shownBook, shownChapter)
-                                        },
                                         onClick = { chapMenu = true },
                                         // 同上：筛选态与未筛选态同色
                                         textColor = MaterialTheme.colorScheme.onSurface,
@@ -1937,6 +1904,10 @@ private fun PinnedLogHeader(
                                         onPick = { name ->
                                             chapMenu = false
                                             onSwitchChapter(shownBook, name)
+                                        },
+                                        onClearItem = { name ->
+                                            chapMenu = false
+                                            onClearChapter(shownBook, name)
                                         },
                                     )
                                 }
@@ -2002,28 +1973,13 @@ private fun PinnedLogHeader(
                             PickerTrigger(
                                 // 同上：书名号 → 书图标
                                 text = shownBook,
-                                onClear = { if (shownBook.isNotBlank()) onClearBook(shownBook) },
-                                leadingIcon = Icons.Default.Book,
-                                stretchText = true,
-                                onClick = { bookMenu2 = true },
-                                opened = bookMenu2,
-                                // 撑满 weight 槽：PickerTrigger 的 Row 是 wrap content，
-                                // 不显式 fillMaxWidth 时短书名会让框缩回文字宽度、右边留白
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-                            // 书名菜单居左（锚点小 Box + offset 归零，从左缘展开）
-                            val bookMenuW2 = minOf(maxOf(bookTriggerW2, 220.dp), screenW - 16.dp)
-                            BookChapterPickerMenu(
-                                expanded = bookMenu2,
-                                onDismissRequest = { bookMenu2 = false },
-                                // 同筛选态：宽度=书框实宽，卡片左缘=书框左缘。
-                                menuWidth = bookMenuW2,
-                                items = knownBooks.map { b ->
-                                    Triple(b, null, b == shownBook)
-                                },
                                 onPick = { b ->
                                     bookMenu2 = false
                                     onSwitchBook(b)
+                                },
+                                onClearItem = { b ->
+                                    bookMenu2 = false
+                                    onClearBook(b)
                                 },
                             )
                             }
@@ -2042,10 +1998,6 @@ private fun PinnedLogHeader(
                                 // 11-14：章名触发框同款（带描边）
                                 PickerTrigger(
                                     text = chapLabel.trim() + playingProgressSuffix,
-                                    onClear = {
-                                        if (shownBook.isNotBlank() && shownChapter.isNotBlank())
-                                            onClearChapter(shownBook, shownChapter)
-                                    },
                                     onClick = { chapMenu2 = true },
                                     opened = chapMenu2,
                                     // 上限只作用在**框**：正常章名够不到它，长章名才在这里省略
@@ -2069,6 +2021,10 @@ private fun PinnedLogHeader(
                                     onPick = { name ->
                                         chapMenu2 = false
                                         onSwitchChapter(shownBook, name)
+                                    },
+                                    onClearItem = { name ->
+                                        chapMenu2 = false
+                                        onClearChapter(shownBook, name)
                                     },
                                 )
                                 }
@@ -2342,6 +2298,9 @@ private fun BookChapterPickerMenu(
     // 章菜单仍居右：调用方传 offsetX = 章框实宽 − menuWidth，让卡片右缘=章框右缘。
     menuWidth: Dp = 220.dp,
     offsetX: Dp = 0.dp,
+    // 11-16 用户定稿：红叉挂在**弹窗里每一行的最右侧**（每本书/每一章各一个），
+    // 不是挂在吸顶的书框/章框上——那里太容易误触，而且一屏只有两个框。
+    onClearItem: ((String) -> Unit)? = null,
 ) {
     if (!expanded) return
     androidx.compose.material3.DropdownMenu(
@@ -2423,12 +2382,21 @@ private fun BookChapterPickerMenu(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
                     )
-                    if (count != null) {
-                        Text(
-                            text = "$count 条",
-                            fontSize = 10.5.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(start = 8.dp),
+                    // 11-16 用户令「章节弹窗右侧不要加那个多少条的提示」：
+                    // 那格改放红叉，条数不再显示（列表本来就按条数排序，数字只是噪音）。
+                    onClearItem?.let { clear ->
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "清理这个范围的日志",
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier
+                                .padding(start = 8.dp)
+                                .size(15.dp)
+                                .clickable(
+                                    // 子级 clickable 先消费：点叉只清日志，不会连带选中这一行
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                ) { clear(name) },
                         )
                     }
                 }
@@ -2483,11 +2451,6 @@ private fun PickerTrigger(
     // 颜色不照抄 GitHub 的冷灰蓝，改用本项目主题：展开时底色走 primary 的极淡混合、
     // 描边走 primary 半透明——与「正在朗读」左轨/筛选选中同源，不引入新色相。
     opened: Boolean = false,
-    // 11-15 晚（用户令「删除不是加一个红叉号就行吗」）：书框/章框右端各挂一个小红叉，
-    // 点了就清掉**这个框所代表范围**的日志（书框=整本、章框=本章）。
-    // 为什么挂在框里而不是另开菜单：书/章下拉本来就是"选范围"的现成入口，
-    // 红叉贴着它，用户不需要再选一遍范围。
-    onClear: (() -> Unit)? = null,
     // 11-14 用户令：「把书名号删掉，前面改为书图标，章节不用加图标吧？」
     // 书名用图标（书=这是什么），章名不加（"第9章"文字本身已自解释，加图标是噪音）。
     // 图标尺寸跟箭头统一 14dp（用户同批要求「连箭头都统一」）。
@@ -2559,22 +2522,6 @@ private fun PickerTrigger(
             overflow = TextOverflow.Ellipsis,
             modifier = if (stretchText) Modifier.weight(1f) else Modifier.weight(1f, fill = false),
         )
-        onClear?.let { clear ->
-            Icon(
-                imageVector = Icons.Default.Close,
-                contentDescription = "清理这个范围的日志",
-                // 红色小叉：与顶栏「全部清空」的垃圾桶同属"破坏性动作"，
-                // 但尺寸压到 14dp（与箭头同档），不跟书名/章名抢宽度。
-                tint = MaterialTheme.colorScheme.error,
-                modifier = Modifier
-                    .size(14.dp)
-                    .clickable(
-                        // 子级 clickable 先消费事件，不会连带把下拉菜单点开
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                    ) { clear() },
-            )
-        }
         Icon(
             imageVector = Icons.Default.KeyboardArrowDown,
             contentDescription = null,
