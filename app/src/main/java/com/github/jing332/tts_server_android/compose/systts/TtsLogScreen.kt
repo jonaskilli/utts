@@ -1504,8 +1504,9 @@ private fun hasSynthLine(
 //   ③ 合成进度行（沉底，紧贴日志列表）
 //
 // 书章行只在有数据时显示（老规则/单语音模式下整块隐藏，不出现空条）。
-// 字号按主次（11-16 换位后）：书章 13sp 主角 > 筛选 12sp = 胶囊 12sp > 合成 12.5sp。
+// 字号按主次（11-16 换位后）：书章 13sp 主角 > 筛选 12sp = 胶囊 12sp = 合成 12sp。
 // 字色：书章 100% onSurface（黑色，你令提黑但不加粗）；筛选/胶囊/合成 78% 灰。
+// 合成进度行另有一枚前置绿点做「这行是活的」的提示（11-16 用户令），颜色仍按筛选行走。
 @Composable
 private fun PinnedLogHeader(
     errorOnly: Boolean,
@@ -2233,21 +2234,51 @@ private fun PinnedLogHeader(
                     // 11-16 换位后这行沉到**第三排**、紧贴日志列表：top 与上方筛选行
                     // 成一组（筛选 bottom6 + 本行 top1 = 7dp），bottom 留呼吸与列表分开。
                     .padding(start = 8.dp, end = 8.dp, top = 1.dp, bottom = 7.dp),
+                // 11-16：整行靠右 = 点 + 读数作为一个整体贴在右缘（原先 Text 独占
+                // weight 会把点甩到最左边、和读数中间空半屏）。改成
+                // Arrangement.End，点跟着文字走，读起来就一句「● 当前：…｜缓存：…」。
+                horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                // 11-16 用户令（第三轮定稿）：「在**前面加一个绿色点**表示提示，
+                // 字体颜色就按照筛选行字体颜色」。
+                //
+                // 为什么加点是正解、而前两轮「提黑/深绿」都不对：
+                //   · 提黑（A）= 跟书章抢同一档；书章是「身份」，进度是「状态」，
+                //     同一黑会把吸顶三行的层级压平。
+                //   · 深绿（C）= 整行染绿，但这页已满页绿（成功丸、胶囊选中、
+                //     目录键），再来一行绿会被读成「又一个状态」。
+                //   · **点**只占 5dp、只表达「这行是活的」，不改变字的灰度——
+                //     字色归队筛选行（78% 灰），身份靠一枚点单独表达，两件事分开。
+                //
+                // 点的规格（与全站圆点同口径：见本页 1462 的时间轴圆点、LogScreen 的
+                // 成功丸前置点，都是 5dp + CircleShape），取 primary 主色。
+                // 位置：Row 内居中对齐（verticalAlignment=CenterVertically），
+                // 与文字同一视觉中线；右侧留 5dp（点 5 + 间隙 5 ≈ 一个字的半宽，
+                // 不会跟「当前：」贴死，也不至于看起来像两个独立元素）。
+                Box(
+                    Modifier
+                        .size(5.dp)
+                        .background(MaterialTheme.colorScheme.primary, CircleShape)
+                )
+                Spacer(Modifier.width(5.dp))
                 Text(
                     text = text,
                     style = MaterialTheme.typography.labelSmall,
-                    // 11-15 用户令加大：11.5→**12.5sp**。介于辅助档(12 时间戳)与
-                    // 正文档(13 裸行)之间——这行是辅助信息，不该跟正文一样重，
-                    // 但也不该比时间戳还小（改前就是这个问题）。
-                    fontSize = 12.5.sp,
-                    // 灰=时间/尾串同档灰（onSurfaceVariant），不引入孤例
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    // 11-16 用户令「字号跟筛选行统一」：12.5 → **12sp**，
+                    // 与筛选标签、胶囊同档（理由：这行是第二排的读数，不该比
+                    // 它自己那一排的标题大半档；旧 12.5 是 11-15「介于 12/13」的残留）。
+                    fontSize = 12.sp,
+                    // 11-16 用户令「字体颜色就按照筛选行」：改回 78% 灰
+                    // （原 onSurfaceVariant #414941 与 78% ≈#4B4E4A 几乎同灰，
+                    // 改后与筛选标签、胶囊、书章的灰阶彻底同源）。
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.78f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     textAlign = progTextAlign,
-                    modifier = Modifier.weight(1f),
+                    // 交给 Arrangement.End 贴右；不再 weight 抢宽——抢宽会把
+                    // 前面的绿点顶到行首，点与读数分家。
+                    modifier = Modifier.weight(1f, fill = false),
                 )
             }
             } else {
