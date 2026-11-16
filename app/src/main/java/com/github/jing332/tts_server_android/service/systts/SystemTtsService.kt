@@ -224,7 +224,11 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
     private var mReady = CompletableDeferred<Unit>()
 
     fun initManager() {
-        logger.debug { "initialize or load configruation" }
+        // 11-17 排障插桩（02:07）：00:26:19 朗读中途出现 initManager 重跑（规则实例内存态
+        // 被清、书章就绪重复打）。触发路径存疑：onCreate / awaitReady 兜底 / UPDATE_CONFIG
+        // 广播三处都可能到达。打一行调用来源（栈第 3 帧），下轮装机日志一锤定音。
+        val caller = Thread.currentThread().stackTrace.getOrNull(3)?.let { "${it.className.substringAfterLast('.')}.${it.methodName}" } ?: "?"
+        logger.debug { "initialize or load configruation (from=$caller)" }
         mReady = CompletableDeferred()
         mScope.launch {
             // 🚀 核心初始化同步完成（建好合成器并 init），避免首次播放被 awaitReady 阻塞，
