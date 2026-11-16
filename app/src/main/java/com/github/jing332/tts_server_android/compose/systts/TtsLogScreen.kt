@@ -2140,8 +2140,9 @@ private fun PinnedLogHeader(
                 // 左右仍是 8dp，与书章框左缘同线（11-14 定的吸顶控件带口径不变）。
                 .padding(start = 8.dp, end = 8.dp, top = 9.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
-            // 间距回 3dp：11-15 删掉「最新日志」后只剩 3 颗，每颗分到更宽，
-            // 不必再挤成 2dp。
+            // 11-17 用户令「均匀分布」：删掉混入组/筛错误/最新之间的两枚 10dp 组间距
+            // Spacer——四颗全是 weight(1f) 等宽，唯一不匀的就是组间距把空隙撕成
+            // 3/13/13dp。现在整排统一 3dp，视觉均匀。
             horizontalArrangement = Arrangement.spacedBy(3.dp),
         ) {
             // 11-11 用户令：这排到底是什么，得有个名分。
@@ -2155,41 +2156,41 @@ private fun PinnedLogHeader(
             // 于是四颗胶囊从「等分一屏、左右对齐」退化成「固有宽度、挤在左边、宽窄参差」。
             // 用户要的是原来的等分观感，不是能左滑。
             //
-            // 现改回等分 + 去掉横滑：3 颗（朗读规则/插件/错误）全靠 weight 平分
-            // 剩余宽度（360dp 屏约 85dp/颗，四字标签 11sp 实测 12.28dp/字 = 49.1dp
-            // + 内衬 12dp = 61.1dp，宽松）。窄屏（320dp）等比压缩，靠 Ellipsis 兜底不溢出。
+            // 现改回等分 + 去掉横滑：4 颗全靠 weight 平分剩余宽度
+            //（360dp 屏约 69dp/颗，四字「朗读规则」13sp 实测 56dp + 内衬 12dp = 68dp，
+            // 刚好装下；插件/错误/最新两字更宽松）。窄屏（320dp）等比压缩，
+            // 靠 Ellipsis 兜底不溢出。
             // ⚠️ 别再套回 horizontalScroll——它会解除 weight，胶囊立刻又变参差。
-            // 11-16 晚用户令：吸顶两排语义区分——「错误」=筛出（收窄），「+前缀」=混入
-            // （往正文日志里加）；行内不再叫筛选。来源整页视图走搜索框选项条（仅朗读规则/仅插件）。
+            // 11-16 晚语义分工保留：「错误」=筛出（收窄），「朗读规则/插件」=混入
+            // （往正文日志里加）。
+            // 11-17 用户令：胶囊改名（+规则日志→朗读规则、+插件日志→插件、
+            // 筛错误→错误），去「+」前缀——混入/筛出的区分由互斥逻辑承担，
+            // 不再靠文案前缀。
             PinnedChip(
-                label = "+规则日志",
+                label = "朗读规则",
                 selected = showRule,
                 onClick = onToggleRule,
                 modifier = Modifier.weight(1f),
                 horizontalPadding = 6.dp,
             )
             PinnedChip(
-                label = "+插件日志",
+                label = "插件",
                 selected = showPlugin,
                 onClick = onTogglePlugin,
                 modifier = Modifier.weight(1f),
                 horizontalPadding = 6.dp,
             )
-            // 混入组（+前缀）与筛选组（错误）之间的组间距（11-16 晚语义分组）
-            Spacer(Modifier.width(10.dp))
             PinnedChip(
-                label = "筛错误",
+                label = "错误",
                 selected = errorOnly,
                 onClick = onToggleErrorOnly,
                 error = true,
                 modifier = Modifier.weight(1f),
                 horizontalPadding = 6.dp,
             )
-            // 第三块「定最新」与第二块「筛错误」之间的组间距（11-16 晚三块分组）
-            Spacer(Modifier.width(10.dp))
             // 11-16 晚：滚动三态「跟随最新」模式胶囊（用户定稿：放本排**最右侧**）。
             // 选中=强制固定日志底部（新日志到达自动滚底，拖拽不退出）；取消=回跟随朗读。
-            // 与「实时」（跳最新一次的正交浮钮链）区分。
+            // 与 ↓ 浮钮（跳最新一次的正交链）区分。
             PinnedChip(
                 label = "最新",
                 selected = latestMode,
