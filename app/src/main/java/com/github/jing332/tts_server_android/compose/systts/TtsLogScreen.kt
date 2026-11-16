@@ -117,7 +117,9 @@ import com.github.jing332.compose.widgets.DenseTextField
 import com.github.jing332.tts_server_android.compose.systts.role.FlatTextAction
 import com.github.jing332.tts_server_android.compose.systts.role.softFillBarColor
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.runtime.withFrameNanos
 import java.io.File
 
@@ -252,7 +254,12 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                 value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                     com.github.jing332.tts_server_android.service.systts.help.ReadProgressReader.read()
                 }
-                kotlinx.coroutines.delay(1000)
+                // 11-16 晚：1s 死等 → 事件驱动。FileObserver 盯 readProgress.json，
+                // U阅 段切换一写就立刻重读（「正在朗读」高亮/跟随不再迟 1~2s）；
+                // 1s 超时兜底，个别机型 FUSE 不派事件时轮询功能不失效。
+                kotlinx.coroutines.withTimeoutOrNull(1000) {
+                    com.github.jing332.tts_server_android.service.systts.help.ReadProgressReader.changes.first()
+                }
             }
         }
     )
@@ -272,7 +279,10 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                 value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                     com.github.jing332.tts_server_android.service.systts.help.ReadProgressReader.readRaw()
                 }
-                kotlinx.coroutines.delay(1000)
+                // 同上：事件驱动 + 1s 兜底（合成前沿/进度行也即时刷新）
+                kotlinx.coroutines.withTimeoutOrNull(1000) {
+                    com.github.jing332.tts_server_android.service.systts.help.ReadProgressReader.changes.first()
+                }
             }
         }
     )

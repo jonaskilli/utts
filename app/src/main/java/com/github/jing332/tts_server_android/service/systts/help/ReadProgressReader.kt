@@ -1,6 +1,10 @@
 package com.github.jing332.tts_server_android.service.systts.help
 
+import android.os.FileObserver
 import android.util.Log
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
 import org.json.JSONObject
 import java.io.File
 
@@ -60,8 +64,49 @@ object ReadProgressReader {
 
     private data class Cache(val mtime: Long, val size: Long, val snap: Snapshot)
 
+    // 11-16 晚：跨线程可见（FileObserver 回调线程会写 null，读方在 IO 线程）
     @Volatile
     private var cached: Cache? = null
+
+    // ===== 11-16 晚：文件变更事件（修「正在朗读高亮迟 1~2s」）=====
+    // 时延构成：U阅 段切换 → 200ms 字幕循环写 readProgress.json → 本页（UTTS 日志页）
+    // 1s 轮询读。轮询是第二级、也是最大头（0~1s，实测感知「迟个一两秒」）。
+    // 现在盯文件变更：U阅 一写立即 tryEmit，消费方（TtsLogScreen 两个 produceState）
+    // 收到事件马上重读，时延压到 ~0.2-0.4s；1s 轮询降级为兜底——个别机型
+    // FUSE 可能不派 inotify 事件，兜底保证功能不失效。
+    // ⚠️ 盯**目录**而不是文件：U阅 平时是读改写（writeText 同一路径截断重写），
+    // 但 stopSubtitleSync 的 clear() 会**删文件**，下次朗读再新建——盯文件在
+    // inode 更换后会静默失效；盯目录按文件名过滤，删/建/写三种都收得到。
+    val changes: SharedFlow<Unit> get() = _changes
+    private val _changes = MutableSharedFlow<Unit>(
+        extraBufferCapacity = 4,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+
+    private val observer: FileObserver by lazy {
+        object : FileObserver(File(BASE_DIR), CLOSE_WRITE or DELETE or MOVED_TO or CREATE) {
+            override fun onEvent(event: Int, path: String?) {
+                if (path == FILE_NAME) {
+                    cached = null // 事件线程清缓存：下次读必落盘，不吃旧 mtime
+                    _changes.tryEmit(Unit)
+                }
+            }
+        }
+    }
+
+    @Volatile
+    private var watching = false
+    private val watcherLock = Any()
+
+    /** 首次读之前把观察器拉起来（read/readRaw 都会经过 rawSnapshot）。 */
+    private fun ensureWatching() {
+        if (watching) return
+        synchronized(watcherLock) {
+            if (watching) return
+            observer.startWatching()
+            watching = true
+        }
+    }
 
     /** 播放活跃态：读不到 / playing=false / 超时都返回 null。给「正在朗读」高亮与跟随用。 */
     fun read(): Snapshot? = rawSnapshot()?.takeIf {
@@ -79,6 +124,7 @@ object ReadProgressReader {
 
     /** 纯解析 + mtime/size 缓存，不做任何语义过滤。 */
     private fun rawSnapshot(): Snapshot? {
+        ensureWatching()
         val f = dataFile()
         if (!f.exists()) return null
         val mtime = f.lastModified()
