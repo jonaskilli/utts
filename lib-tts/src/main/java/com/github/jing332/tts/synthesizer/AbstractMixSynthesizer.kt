@@ -230,6 +230,18 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
                 chapterTitle = segment.chapterTitle,
                 paraIndex = segment.paraIndex,
                 paraTotal = segment.paraTotal,
+                // ⚠️ 11-16 用户令（「预热是辅助提速，不能拖后腿」）：**预热不重试、不切备用**。
+                //
+                // 为什么必须掐死重试链（真机实证 06:40:18–06:46:07）：
+                // 预热撞上同插件串行门（「请等待当前请求完成」）后照常走
+                //   retry → 等引擎超时 2 分钟 → 切备用 → 再等 2 分钟 → ...
+                // 整整 6 分钟，日志页一行不显示（预热事件本就不落页），
+                // 用户看到的就是「点了没声音、等了很久」。
+                //
+                // 预热是纯优化：这一笔失败，最坏结果只是该段播放时现场合成（约 1.3 秒）。
+                // 为一个可省 1.3 秒的动作去等 6 分钟，方向完全反了。
+                // maxRetries=0 ⇒ 首轮失败即收手，最多花一次 requestTimeout。
+                maxRetries = 0,
                 // 预热不出日志卡片（见 requestAndProcess 的 emitHitLog）
                 emitHitLog = false,
                 // 11-16：关键是这一个 —— 只关 emitHitLog 拦不住「未命中」那条路，
@@ -262,7 +274,18 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
         params: SystemParams,
     ): Int {
         if (segments.isEmpty()) return 0
-        val concurrency = context.cfg.prefetchConcurrency().coerceIn(1, 8)
+        // 11-16（跨批插件门上线后回填）：预热并行度 = **2**。
+        //
+        // 沿革：起初恒串行 1 路，理由是「预热路径不走批内串行门，2 路必然撞门」——
+        // 那时 preloadSegments 是 map+async 直接并发，同插件两段会真发两个请求。
+        //
+        // 现在有了 [pluginGates] 跨批全局锁：同 pluginId 的请求在任何批次间都串行，
+        // 不同插件照常并行。于是 2 路并发的实际效果是：
+        //   · 两段同属豆包 → 全局锁排队，**撞不上门**（与 1 路等价，只是多一个等待位）；
+        //   · 一段豆包一段讯飞 → 真正并行，这正是 11-13 起就有的「不同插件并发」收益。
+        // 取 2 而非更高：预热是后台备货，2 路已够追上播放节奏（每段约 1.3 秒），
+        // 再高只会让瞬时占用的插件种类变多，收益趋零而排队面变大。
+        val concurrency = 2
         logger.info {
             "preloadSegments: concurrency=$concurrency, segments=${segments.size}"
         }
@@ -283,6 +306,21 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
      * @return null means request failed, [EmptyInputStream] means direct play
      *
      */
+    /**
+     * 11-16：跨批插件门（见 [pluginGates] 注释）。
+     *
+     * 拿不到锁（别的批次正在用同一插件）就是**排队等待**：这正是设计目标——
+     * 让预热批和播放批**共用**同一个插件锁，而不是各自为政撞出
+     * 「请等待当前请求完成」。
+     */
+    private suspend fun <T> withPluginGate(
+        request: RequestPayload,
+        block: suspend () -> T,
+    ): T {
+        val gate = gateFor(request) ?: return block()
+        return gate.withLock { block() }
+    }
+
     private suspend fun requestInternal(
         request: RequestPayload,
         playCallback: suspend (ITtsRequester.ISyncPlayCallback) -> Unit,
@@ -521,48 +559,64 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
         logger.debug { "start request: $retries, ${params}, ${config}" }
         event(NormalEvent.Request(request, retries), request)
 
-        // 优先使用预取的流，避免重复请求；重试时 prefetchedStream=null 走正常请求路径
-        // 请求段耗时单独计量：ByteArray型插件(豆包/千问)的下载发生在 requestInternal 内部，
-        // 流式插件的下载发生在后续读流阶段，两段相加才是完整的真实耗时(获取成功日志)
-        val reqStart = SystemClock.elapsedRealtime()
-        val stream = prefetchedStream ?: requestInternal(request, playCallback = {
-                logger.debug { "send direct play callback..." }
-                sink.send(ChannelPayload.DirectPlayCallback(request, it))
-            })
-        val requestCostMs = if (prefetchedStream != null)
-            prefetchedCostMs
-        else
-            SystemClock.elapsedRealtime() - reqStart
+        // ===== 11-16 跨批插件门 =====
+        // 锁覆盖「发请求 + 读流」整段：两步都占用插件通道，只锁前一步不够
+        // （流式插件在 invoke 返回后仍持有连接，那时第二批照样会撞）。
+        //
+        // ⚠️ 重试动作必须挪到锁**外**执行：`retry()` 会递归回到本函数，
+        // 若还在锁内递归，就会去抢一把自己已持有的锁 ⇒ 死锁。
+        // 所以这里先只记录「需要重试」，退出锁区后再真正重试。
+        var needRetry = false
+        withPluginGate(request) {
+            // 优先使用预取的流，避免重复请求；重试时 prefetchedStream=null 走正常请求路径
+            // 请求段耗时单独计量：ByteArray型插件(豆包/千问)的下载发生在 requestInternal 内部，
+            // 流式插件的下载发生在后续读流阶段，两段相加才是完整的真实耗时(获取成功日志)
+            val reqStart = SystemClock.elapsedRealtime()
+            val stream = prefetchedStream ?: requestInternal(request, playCallback = {
+                    logger.debug { "send direct play callback..." }
+                    sink.send(ChannelPayload.DirectPlayCallback(request, it))
+                })
+            val requestCostMs = if (prefetchedStream != null)
+                prefetchedCostMs
+            else
+                SystemClock.elapsedRealtime() - reqStart
 
-        if (stream == null) return retry() // request failed
-        else if (stream is EmptyInputStream) return // direct play
-
-        // 流处理（解码/读取）不在 requestInternal 的 withTimeout 范围内，
-        // 网络流的 read() 可能无限阻塞导致既不成功也不失败、卡住无法重试。
-        // 这里用超时保护，超时后关闭流打断阻塞 IO 并触发重试。
-        val streamTimeout = maxOf(context.cfg.requestTimeout() * 3, 30_000L)
-        val processResult = try {
-            withTimeout(streamTimeout) {
-                streamProcessor.processStream(
-                    ins = stream,
-                    request = request,
-                    targetSampleRate = maxSampleRate,
-                    callback = { pcm -> sink.trySendBlocking(ChannelPayload.Bytes(pcm.toByteArray())) },
-                    requestCostMs = requestCostMs,
-                )
+            if (stream == null) {          // request failed
+                needRetry = true
+                return@withPluginGate
             }
-        } catch (e: TimeoutCancellationException) {
-            runCatching { stream.close() }
-            event(ErrorEvent.RequestTimeout(request), request)
-            return retry()
-        } catch (e: CancellationException) {
-            throw e
-        }
+            if (stream is EmptyInputStream) return@withPluginGate // direct play
 
-        processResult.onFailure { e ->
-            event(ErrorEvent.ResultProcessor(request, e), request)
-            return retry()
+            // 流处理（解码/读取）不在 requestInternal 的 withTimeout 范围内，
+            // 网络流的 read() 可能无限阻塞导致既不成功也不失败、卡住无法重试。
+            // 这里用超时保护，超时后关闭流打断阻塞 IO 并触发重试。
+            val streamTimeout = maxOf(context.cfg.requestTimeout() * 3, 30_000L)
+            val processResult = try {
+                withTimeout(streamTimeout) {
+                    streamProcessor.processStream(
+                        ins = stream,
+                        request = request,
+                        targetSampleRate = maxSampleRate,
+                        callback = { pcm -> sink.trySendBlocking(ChannelPayload.Bytes(pcm.toByteArray())) },
+                        requestCostMs = requestCostMs,
+                    )
+                }
+            } catch (e: TimeoutCancellationException) {
+                runCatching { stream.close() }
+                event(ErrorEvent.RequestTimeout(request), request)
+                needRetry = true
+                return@withPluginGate
+            } catch (e: CancellationException) {
+                throw e
+            }
+
+            processResult.onFailure { e ->
+                event(ErrorEvent.ResultProcessor(request, e), request)
+                needRetry = true
+            }
         }
+        // 锁已释放，此处重试不会自锁
+        if (needRetry) return retry()
     }
 
     /**
@@ -829,6 +883,41 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
     }
 
     private val mutex = Mutex()
+
+    /**
+     * 11-16 用户报障（13:01:37 真机实证）：**跨批次**同插件撞车。
+     *
+     * ## 症状
+     *  预热批提交「施南：」→ 豆包；1.2 秒后播放批提交「三米外那位女人…」→ 豆包
+     *  → 豆包插件回「请等待当前请求完成」→ 播放请求失败、引擎被判超时销毁、整段无声音。
+     *
+     * ## 根因：串行门只管「批内」
+     * `produceSegments` 里的 `samePluginPrev` 用**批局部**的 `lastByPlugin` 建门，
+     * 只保证「本批内同插件按段序排队」。预热是**另一个批次**，两边各建各的门、
+     * 谁也看不见谁，于是同一插件被两批同时占用。
+     *
+     * 这是预热上线后才出现的新场景：此前只有「用户播放」一个批次，
+     * 批内门足以覆盖。阶段一（不同插件并行）、阶段二（引擎实例池 + allowParallel）
+     * 都没错，漏的是**批次之间的协调**——本次补上。
+     *
+     * ## 做法：按 pluginId 的全局互斥
+     * 键 = pluginId。同一插件全局只有一把锁：批内第一笔拿锁、读完流才放；
+     * 第二批的同插件请求就**排队等待**而不是「撞门失败」。
+     *
+     * ⚠️ 必须跳过 `allowParallel=true` 的插件：它们（每请求自建连接、无共享状态）
+     * 本来就允许同插件实例并行，给它们加锁会把引擎实例池的收益作废。
+     */
+    private val pluginGates = java.util.concurrent.ConcurrentHashMap<String, Mutex>()
+
+    /** 取本插件对应的全局锁；非插件源（本机 TTS 等）返回 null = 不加锁。 */
+    private fun gateFor(request: RequestPayload): Mutex? {
+        val src = request.config.source as? PluginTtsSource ?: return null
+        if (src.pluginId.isBlank()) return null
+        // allowParallel（已判定可并行的插件）不加跨批锁，否则白废实例池
+        if (src.plugin?.allowParallel == true) return null
+        return pluginGates.getOrPut(src.pluginId) { Mutex() }
+    }
+
 
     override val isSynthesizing: Boolean
         get() = mutex.isLocked

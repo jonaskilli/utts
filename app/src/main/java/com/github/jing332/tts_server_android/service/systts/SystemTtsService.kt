@@ -456,7 +456,11 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
         if (json.isNullOrBlank()) return null
         val root = runCatching { org.json.JSONObject(json) }.getOrNull() ?: return null
         val arr = root.optJSONArray("segments") ?: return null
-        if (arr.length() <= 1) return null
+        // 11-16 用户令：预热改为「一次只备 1 段、成功再下一段」（串行链）。
+        // 原来这里 `<= 1` 直接返回 null ⇒ 单段批次被当成普通播放请求，
+        // 走 produceSegments 现场出音频、**不写合成缓存**——预热等于白做。
+        // 现在允许 1 段进预热路径（只有 0 段才算无效）。
+        if (arr.length() < 1) return null
         val list = ArrayList<com.github.jing332.tts.synthesizer.BatchSegment>(arr.length())
         for (i in 0 until arr.length()) {
             val item = arr.optJSONObject(i) ?: return null
@@ -467,7 +471,7 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                 com.github.jing332.tts.synthesizer.BatchSegment(text = text, paraIndex = paraIndex)
             )
         }
-        return list.takeIf { it.size > 1 }
+        return list.takeIf { it.isNotEmpty() }
     }
 
     private fun getConfigIdFromVoiceName(voiceName: String): Result<Long?, Unit> {
@@ -1236,8 +1240,17 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
         // 预热的进度信息没有丢：合成器仍在 DEBUG 日志里打
         // 「preloadSegments: concurrency=N, segments=M」与「preload done: ok=x/M」，
         // 那是给排查用的工程日志，不属于「用户这一耳朵听到了什么」。
+        //
+        // ⚠️ 11-16 用户令（「预热的文字也得有日志，比如连续几段、有请求、有状态显示」）：
+        // 上面「一律不落页」的口径只保留给**成功的**预热请求——它们确实不该冒充播放卡。
+        // 但预热**失败**必须可见：真机 06:40:18–06:46:07 预热撞串行门后进 6 分钟重试链，
+        // 全程日志页一片空白，用户完全不知道后台正在干什么，体感就是「假死」。
+        // 现在成功后由 preloadBatchSummary 出一条汇总；失败走 errorEvent 出红色失败行。
         if (e is NormalEvent.Request && e.request.isPreload) return
-        if (e is NormalEvent.ReadAllFromStream && e.request.isPreload) return
+        if (e is NormalEvent.ReadAllFromStream && e.request.isPreload) {
+            preloadBatchSummary(e.request)
+            return
+        }
         if (e is NormalEvent.StandbyTts && e.request.isPreload) return
         if (e is NormalEvent.HandleStream && e.request.isPreload) return
 
@@ -1352,8 +1365,25 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                     //   同长度 mp3 才 ~48KB），只会让人误读成「缓存段特别大」。
                     // 缓存行保留的就是有信息量的部分：「缓存」丸（来路）+ 段号（位置）。
                     // 现场合成行照旧「大小 · 耗时」，两者口径从此天然分开，无需标注。
+                    // 11-16 六改（用户终令「pcm 那种都要显示：获取时间、大小、pcm 标识；
+                    // 获取时间是 0 才不显示获取时间」）：恢复缓存行的大小显示。
+                    //
+                    // 最终口径：
+                    //   现场合成 → `44.5 KB · 2.1s`
+                    //   预合成   → `278.7 KB（预）`        （耗时 0.0s ⇒ 不显示耗时）
+                    // 标的是「（预）」不是「（PCM）」：用户 11-16 明确 PCM 术语看不懂，
+                    // 而「预」与前缀「（预合成）」同义——一眼看出这段是提前做好的，
+                    // 大小同为解码后音频、与现场合成的压缩流不可比，故仍需一个标识区分口径。
+                    //
+                    // 为什么耗时 0 就不显示：`0.0s` 恒等于「没花时间」，写出来只占宽度、
+                    // 还会把首行挤到折行（用户 11-16 实报「一行放不下放两行」）。
+                    // 判据用 e.costTime == 0 而不是 fromCache——真实秒回也可能真有耗时。
                     val sizeText = e.size.sizeToReadable()
-                    val detail = if (e.request.fromCache) "" else sizeText + " · " + costText
+                    val detail = buildString {
+                        append(sizeText)
+                        if (e.request.fromCache) append("（预）")
+                        if (e.costTime > 0L) append(" · ").append(costText)
+                    }
                     // 11-16 终稿（用户定「预合成」）：前缀定为「（预合成）」。
                     // 沿革：「（缓存）」歧义（U阅 也有缓存）→「（本地缓存）」仍歧义
                     //（「阅读端也有本地缓存呀」）→「（UTTS缓存）」没说来历 →
@@ -1418,11 +1448,37 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
         }
     }
 
+    /**
+     * 11-16 用户令：预热批次要能在日志页看见——「连续几段、有请求、有状态显示」。
+     *
+     * 设计取舍：**一段一行会把页面刷爆**（一批 4 段 × 每段一次请求 = 4 行，
+     * 而用户正听的段才 1 行）。所以成功的预热**每批汇总一行**，
+     * 带段区间与耗时；失败的逐条出一行（见 errorEvent），因为失败才需要细看。
+     *
+     * 去重：同一批（同一段区间）只打一次——预热会因播放推进反复触发同一批，
+     * 重复打会把页面刷成流水账（旧版 02:12 就吃过这个亏）。
+     */
+    // 用 LinkedHashSet 而不是 ArrayDeque：后者需要额外 import（本机无 JDK 无法编译验证，
+    // 而 LinkedHashSet 只在 kotlin/Java 标准库里、无需 import）。语义同样是「保序去重集合」。
+    private val preloadSummarySig = LinkedHashSet<String>()
+    private fun preloadBatchSummary(req: com.github.jing332.tts.synthesizer.RequestPayload) {
+        val seg = if (req.paraIndex >= 0) "第 ${req.paraIndex + 1} 段" else "预热段"
+        val sig = "$seg|${req.config.tag}"
+        if (!preloadSummarySig.add(sig)) return   // 已打过，跳过
+        if (preloadSummarySig.size > 24) {
+            val it = preloadSummarySig.iterator()
+            if (it.hasNext()) { it.next(); it.remove() }
+        }
+        logI("预合成完成：$seg（后台备货，播放到这里可直接取用）")
+    }
+
     private fun errorEvent(e: ErrorEvent) {
-        // 11-16：预热批次的失败**同样不落日志页**——与 normalEvent 开头同一口径。
-        // 预热是后台备货，它失败时用户耳朵里什么都没发生，却在页面中间冒一条红字，
-        // 只会让人以为「正在听的那段失败了」。真因仍可在 debug.log 里按
-        // 「preload failed / preload done: ok=x/M」查到。
+        // 11-16 用户令（「预热是辅助提速、不能拖后腿，失败了得看得见」）：
+        // 预热失败**必须落一行**，但要与「正在听的这段失败」明确区分——
+        // 用「预合成失败」前缀 + 段号，用户一眼知道是后台备货没成功、
+        // 而不是自己正听的那段挂了（那段之后会由播放请求现场合成）。
+        // 历史口径（一律不落页）已撤：真机 06:40 预热卡死 6 分钟、日志全空，
+        // 用户完全无从判断「是不是死了」。
         val preloadReq = when (e) {
             is ErrorEvent.Request -> e.request
             is ErrorEvent.RequestTimeout -> e.request
@@ -1430,7 +1486,13 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
             is ErrorEvent.ResultProcessor -> e.request
             else -> null
         }
-        if (preloadReq?.isPreload == true) return
+        if (preloadReq?.isPreload == true) {
+            val seg = if (preloadReq.paraIndex >= 0) "第 ${preloadReq.paraIndex + 1} 段" else "某段"
+            val why = (e as? ErrorEvent.Request)?.cause?.let { friendlyCause(it) }
+                ?: if (e is ErrorEvent.RequestTimeout) "超时" else "无响应"
+            logW("预合成失败（$seg）：$why<br>该段播放时会现场合成，不影响朗读")
+            return
+        }
 
         when (e) {
             is ErrorEvent.TextProcessor -> handleTextProcessorError(e.error)
