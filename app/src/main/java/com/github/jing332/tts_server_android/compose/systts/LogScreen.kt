@@ -47,6 +47,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckBox
 import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
@@ -113,6 +114,7 @@ import com.github.jing332.tts_server_android.R
 import com.github.jing332.tts_server_android.compose.systts.role.softContainerColor
 // 11-13 晚：章首日志底色与书籍框/角色标签同款绿（用户令「还是那个书籍框那个填充率」）
 import com.github.jing332.tts_server_android.compose.systts.role.softFillBarColor
+import com.github.jing332.tts_server_android.compose.theme.softFillColor
 import com.github.jing332.tts_server_android.compose.theme.softStructureColor
 import com.github.jing332.tts_server_android.compose.theme.logLevelColor
 import com.github.jing332.tts_server_android.compose.LocalBottomBarBehavior
