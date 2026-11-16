@@ -20,6 +20,13 @@ import kotlinx.coroutines.launch
 import java.io.File
 import java.io.FileWriter
 
+// ===== 11-16 晚：日志来源视图（用户定稿：搜索框内置选项切「整页只看某类」）=====
+// ALL=主日志流（正文日志/合成流水；插件/规则行按调试开关追加混入）；
+// RULES_ONLY / PLUGINS_ONLY=整页只看对应缓冲**全量**（含 WARN/DEBUG，
+// 不受「规则仅 ERROR 放行」限制——来源视图本就是整页全量查看）。
+// 入口：日志页搜索态的选项条（弹窗放不下来源胶囊，用户 11-16 晚定稿改搜索框内置）。
+enum class LogSource { ALL, RULES_ONLY, PLUGINS_ONLY }
+
 class TtsLogViewModel : ViewModel() {
     companion object {
         const val TAG = "TtsLogViewModel"
@@ -71,6 +78,10 @@ class TtsLogViewModel : ViewModel() {
 
     // 日志级别筛选（存储选中的日志级别 Int 值）
     val selectedLevels = mutableStateListOf<Int>()
+
+    // 11-16 晚：来源视图三态（见 LogSource 注释）。默认主日志流；
+    // 由日志页搜索态选项条切换，clearFilter()（回原位）时一并回 ALL。
+    val sourceFilter = mutableStateOf(LogSource.ALL)
     // @Deprecated 11-11：筛选弹窗整体删除，弹窗状态已无消费者。保留字段是为了避免
     // 其它分支/并行改动引用它时编译报错，下批确认无引用后连同 LogFilterDialog.kt 一起清。
     @Deprecated("筛选已挪进日志页吸顶区（11-11），此状态不再使用")
@@ -168,6 +179,15 @@ class TtsLogViewModel : ViewModel() {
             val rulePart =
                 if (showRule) speechRuleLogs
                 else speechRuleLogs.filter { it.level == LogLevel.ERROR }
+
+            // 11-16 晚：来源视图短路——整页只看对应缓冲全量。
+            // 级别勾选（keep）与 DEBUG 开关仍叠加生效；「规则仅 ERROR 放行」的
+            // 限制不适用于来源视图（它本来就是整页全量查看）。
+            when (sourceFilter.value) {
+                LogSource.RULES_ONLY -> return speechRuleLogs.filter { keep(it) }
+                LogSource.PLUGINS_ONLY -> return pluginLogs.filter { keep(it) }
+                LogSource.ALL -> {}
+            }
 
             // 都不勾（或勾了但缓冲为空）：纯主列表直通，不建列表不排序
             if (pluginPart.isEmpty() && rulePart.isEmpty())
@@ -348,6 +368,8 @@ class TtsLogViewModel : ViewModel() {
     
     fun clearFilter() {
         selectedLevels.clear()
+        // 11-16 晚：回原位跳完整流时，来源视图一并退出（否则全量索引对不上来源列表）
+        sourceFilter.value = LogSource.ALL
     }
 
     /** 显示范围=全部（用户 09-08 简化：级别键退役，只留三态） */

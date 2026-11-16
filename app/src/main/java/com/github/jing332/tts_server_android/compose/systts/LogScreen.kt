@@ -2288,7 +2288,8 @@ internal fun LogScreen(
 
 // 搜索命中判定（条目级）：正文或时间含搜索词
 private fun isMatchEntry(e: LogEntry, q: String): Boolean =
-    q.isNotEmpty() && (e.message.contains(q, ignoreCase = true) || e.time.contains(q, ignoreCase = true))
+    q.isNotEmpty() && (e.message.contains(q, ignoreCase = true) || e.time.contains(q, ignoreCase = true) ||
+        e.bookName.contains(q, ignoreCase = true) || e.chapterTitle.contains(q, ignoreCase = true))
 
 // 行级药丸推导（10-10 终案「失败链按以前单条处理+丸保留」）：每条日志按自己的
 // 级别/文案出一颗丸——重试 W 主行=重试N、兜底/备用 I 主行=切备用、成功请求行=成功、

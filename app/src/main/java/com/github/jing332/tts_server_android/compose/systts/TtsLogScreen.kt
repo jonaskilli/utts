@@ -56,6 +56,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LocalTextStyle
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -192,7 +193,8 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
     val scope = rememberCoroutineScope()
 
     fun LogEntry.matchesQuery(q: String): Boolean =
-        message.contains(q, ignoreCase = true) || time.contains(q, ignoreCase = true)
+        message.contains(q, ignoreCase = true) || time.contains(q, ignoreCase = true) ||
+            bookName.contains(q, ignoreCase = true) || chapterTitle.contains(q, ignoreCase = true)
 
     // 基础列表 = 等级/插件筛选结果 → 书/章收窄（11-10）→ 搜索词实时过滤。
     // 书/章收窄放在搜索之前：搜索是在「选定范围内」找词，符合直觉
@@ -568,7 +570,14 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                                                 unfocusedIndicatorColor = Color.Transparent
                                             ),
                                             placeholder = {
-                                                Text(stringResource(R.string.search_logs), maxLines = 1)
+                                                Text(
+                                                when (vm.sourceFilter.value) {
+                                                    LogSource.RULES_ONLY -> "在朗读规则日志中搜索…"
+                                                    LogSource.PLUGINS_ONLY -> "在插件日志中搜索…"
+                                                    else -> stringResource(R.string.search_logs)
+                                                },
+                                                maxLines = 1
+                                            )
                                             },
                                             trailingIcon = {
                                                 if (searchQuery.isNotEmpty()) {
@@ -660,6 +669,41 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                 // 11-13 用户令「上面下面的分隔线都有必要留吗」：删掉标题/搜索行与筛选区之间这条。
                 // 筛选区属于同一头部区块，兄弟之间不该有分割线；真正需要的「头部↔滚动列表」
                 // 分隔线在筛选区之后（见下方 if (vm.logs.isNotEmpty()) 的那条）。
+
+                // ===== 11-16 晚：来源视图选项条（用户定稿：弹窗放不下来源胶囊，改搜索框内置）=====
+                // 搜索态常显两枚胶囊：整页只看对应缓冲全量（含 WARN/DEBUG，不受「规则仅
+                // ERROR 放行」限制）；选中态高亮，再点取消回主日志流。视图激活时搜索框
+                // 占位符同步反映当前来源。LogScreen 主体零改动——displayLogs 的
+                // derivedStateOf 读 vm.filteredLogs，sourceFilter 变化自动触发重算。
+                AnimatedVisibility(visible = isSearchActive) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp, vertical = 2.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        FilterChip(
+                            selected = vm.sourceFilter.value == LogSource.RULES_ONLY,
+                            onClick = {
+                                vm.sourceFilter.value =
+                                    if (vm.sourceFilter.value == LogSource.RULES_ONLY) LogSource.ALL
+                                    else LogSource.RULES_ONLY
+                            },
+                            label = { Text("朗读规则日志") },
+                            modifier = Modifier.weight(1f)
+                        )
+                        FilterChip(
+                            selected = vm.sourceFilter.value == LogSource.PLUGINS_ONLY,
+                            onClick = {
+                                vm.sourceFilter.value =
+                                    if (vm.sourceFilter.value == LogSource.PLUGINS_ONLY) LogSource.ALL
+                                    else LogSource.PLUGINS_ONLY
+                            },
+                            label = { Text("插件日志") },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
 
                 // 搜索控制行：匹配数 + 上一处/下一处跳转。
                 // ⚠️ 漏斗键本行撤（10-10）：恢复「四键常驻」后顶栏已有级别筛选键，
@@ -2118,20 +2162,24 @@ private fun PinnedLogHeader(
             // 剩余宽度（360dp 屏约 85dp/颗，四字标签 11sp 实测 12.28dp/字 = 49.1dp
             // + 内衬 12dp = 61.1dp，宽松）。窄屏（320dp）等比压缩，靠 Ellipsis 兜底不溢出。
             // ⚠️ 别再套回 horizontalScroll——它会解除 weight，胶囊立刻又变参差。
+            // 11-16 晚用户令：吸顶两排语义区分——「错误」=筛出（收窄），「+前缀」=混入
+            // （往正文日志里加）；行内不再叫筛选。来源整页视图走搜索框选项条（仅朗读规则/仅插件）。
             PinnedChip(
-                label = "朗读规则",
+                label = "+朗读规则",
                 selected = showRule,
                 onClick = onToggleRule,
                 modifier = Modifier.weight(1f),
                 horizontalPadding = 6.dp,
             )
             PinnedChip(
-                label = "插件",
+                label = "+插件",
                 selected = showPlugin,
                 onClick = onTogglePlugin,
                 modifier = Modifier.weight(1f),
                 horizontalPadding = 6.dp,
             )
+            // 混入组（+前缀）与筛选组（错误）之间的组间距（11-16 晚语义分组）
+            Spacer(Modifier.width(10.dp))
             PinnedChip(
                 label = "错误",
                 selected = errorOnly,
