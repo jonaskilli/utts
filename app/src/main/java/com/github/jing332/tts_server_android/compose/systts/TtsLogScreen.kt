@@ -348,14 +348,34 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
         vm.clearFilter()
         // 2) 在完整流里找到该条目的卡头，滚动过去并高亮闪现
         val fullList = vm.filteredLogs
-        val idx = fullList.indexOfFirst { it == entry }.let { found ->
-            if (found >= 0) found else return
+        val idx = fullList.indexOfFirst { it == entry }
+        if (idx < 0) {
+            // 11-16：静默 return 改为有提示——用户点「回原位」没反应会当成 bug 报障
+            //（真机复现：筛选错误日志态点回原位，页面纹丝不动）
+            context.toast("该条目已不在当前日志流中")
+            return
         }
         locateHighlight = entry
         scope.launch {
+            // ===== 11-16：不用闭包捕获的 fullGroups，就地重建全量组 =====
+            //
+            // 根因（真机实锤「筛选错误日志后点回原位，定不到位置」）：
+            // fullGroups = remember(vm.filteredLogs) —— 在**筛选/搜索态**下它基于
+            // 收窄列表建组；而上面 fullList 是清筛选后的**全量**索引。两套索引
+            // 空间错位：listItemFor(idx) 把全量第 N 行映射到收窄组的第 N 个渲染项
+            // ⇒ animateScrollToItem 滚到错误位置。等一帧也救不了——lambda 捕获的
+            // 是旧引用，重组后的新组它读不到。
+            //
+            // 修法：这里用 fullList（全量）就地建组，索引空间与 idx 天然一致，
+            // 不依赖重组时序、不依赖 remember 的 key 比较。
+            val freshGroups = LogGroups.build(
+                fullList,
+                fallbackBook = pinnedFallback?.bookName.orEmpty(),
+                fallbackChapter = pinnedFallback?.chapterTitle.orEmpty(),
+            )
             // 状态更新后重组出完整列表再滚：等一帧让 displayLogs 生效
             withFrameNanos { }
-            listState.animateScrollToItem(fullGroups.listItemFor(idx))
+            listState.animateScrollToItem(freshGroups.listItemFor(idx))
             // 高亮停留约 2s 后撤掉（LogEntryBody 按引用比对）
             kotlinx.coroutines.delay(2000)
             if (locateHighlight == entry) locateHighlight = null
