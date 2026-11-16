@@ -741,6 +741,9 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                     readingChapter = readingChapter,
                     // 11-14 后台合成进度行 + 快照（内部自算书章行后缀）
                     playingSnap = progressSnap,
+                    // 绿点 15s 活跃门：外层 playingSnap=ReadProgressReader.read()
+                    // （playing=true 且 15s 内有心跳）；不认 30min 宽限的 readRaw
+                    dotActive = playingSnap != null,
                 )
                 // 11-16 用户令：「如果没有后台合成那一行文字，吸顶区下方那条分隔线也不要，
                 // 书名框和章节框的描边就能代替」。
@@ -1570,6 +1573,13 @@ private fun PinnedLogHeader(
     // 11-14「正在朗读」播放快照（ReadProgressReader.read()）：非空时
     // ①书章行下渲染进度行 ②传给 LogScreen 做卡片描边与复位浮钮。null=没在朗读。
     playingSnap: com.github.jing332.tts_server_android.service.systts.help.ReadProgressReader.Snapshot? = null,
+    // 11-16 晚：绿点的 **15s 活跃门**（用户拍板「做绿点15秒吧」）——呼吸只认「15s 内有心跳」
+    // 的播放侧快照（= ReadProgressReader.read() 判据，调用方传 playingSnap != null）。
+    // 为什么不直接用 snap.playing：snap 走 readRaw 的 30min 宽限（11-15「停止后进度行
+    // 照显示」口径），U阅 进程被杀来不及写停止标记时 playing 会冻结为 true，
+    // 绿点就假呼吸最长 30 分钟。呼吸/灰点以本参数为准；进度行**文字**仍按 snap.playing
+    // 走（停止后照样显示合成进度的口径不动）。
+    dotActive: Boolean = false,
 
 ) {
     Column(
@@ -2284,7 +2294,10 @@ private fun PinnedLogHeader(
                 //     要换 C 案删 else 分支即可。
                 //   · ⚠️ 呼吸用 alpha 而不是改尺寸/颜色：改尺寸会牵动行内基线，改颜色
                 //     要插值两个 Color；alpha 只动透明度，GPU 合成最便宜。
-                if (playingNow) {
+                //   · 呼吸条件=dotActive（15s 活跃门，11-16 晚用户拍板），不是 playingNow：
+                //     后者来自 readRaw 的 30min 宽限，U阅 被杀后会假呼吸；前者 15s 内没
+                //     心跳就变灰。进度行文字仍按 playingNow（停止后照显示口径不动）。
+                if (dotActive) {
                     val dotTransition = rememberInfiniteTransition(label = "progDot")
                     val dotAlpha by dotTransition.animateFloat(
                         initialValue = 1f,
