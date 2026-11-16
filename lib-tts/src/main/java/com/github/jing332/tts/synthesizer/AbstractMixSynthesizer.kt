@@ -28,6 +28,7 @@ import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -318,7 +319,27 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
         block: suspend () -> T,
     ): T {
         val gate = gateFor(request) ?: return block()
-        return gate.withLock { block() }
+        return gate.withLock {
+            try {
+                block()
+            } finally {
+                // ===== 11-16 晚：锁内收尾窗口（真机 18:57 跳段实锤）=====
+                //
+                // 豆包这类 ByteArray 型插件的「当前请求」标志复位是**异步的**：
+                // UTTS 侧流读完就释放锁，但插件内部的 WebSocket 要等一会儿才真正
+                // 关闭（真机 18:57:30.457 报「请等待当前请求完成」、30.469 才
+                // 「Socket closed」）。锁一释放下一笔立刻进插件，插件门看到旧任务
+                // 未清 → 误拒 → 播放笔重试再撞 → 重试耗尽 → **该笔内容被跳过**。
+                //
+                // 在锁**内** delay：下一笔等锁的时间固定多 300ms，换来的是拿到锁时
+                // 上一笔的连接已完成收尾。放锁外没用（锁已放行）；放锁内等效于
+                // 「锁释放延迟」，语义正确。
+                //
+                // 代价：同插件每笔 +300ms——播放段间隔 4~5 秒、预热链串行 3 段
+                // 合计 +0.9 秒，均低于感知阈值；不同插件不受影响（各自独立锁）。
+                delay(300)
+            }
+        }
     }
 
     private suspend fun requestInternal(

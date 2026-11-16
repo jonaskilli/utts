@@ -1245,12 +1245,13 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
         // 上面「一律不落页」的口径只保留给**成功的**预热请求——它们确实不该冒充播放卡。
         // 但预热**失败**必须可见：真机 06:40:18–06:46:07 预热撞串行门后进 6 分钟重试链，
         // 全程日志页一片空白，用户完全不知道后台正在干什么，体感就是「假死」。
-        // 现在成功后由 preloadBatchSummary 出一条汇总；失败走 errorEvent 出红色失败行。
+        // 失败走 errorEvent 出红色失败行。
+        // ⚠️ 11-16 晚用户令（撤回成功汇总行）：preloadBatchSummary 的「预合成完成」行
+        // 在多音色段（一段拆对话+旁白两笔）会按「段号+tag」各报一次，用户看到
+        // 「同一片段预合成两遍」的观感；且预热进度已有 DEBUG 工程日志兜底。
+        // 成功的预热一律不落页，只有失败可见。
         if (e is NormalEvent.Request && e.request.isPreload) return
-        if (e is NormalEvent.ReadAllFromStream && e.request.isPreload) {
-            preloadBatchSummary(e.request)
-            return
-        }
+        if (e is NormalEvent.ReadAllFromStream && e.request.isPreload) return
         if (e is NormalEvent.StandbyTts && e.request.isPreload) return
         if (e is NormalEvent.HandleStream && e.request.isPreload) return
 
@@ -1457,29 +1458,8 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
         }
     }
 
-    /**
-     * 11-16 用户令：预热批次要能在日志页看见——「连续几段、有请求、有状态显示」。
-     *
-     * 设计取舍：**一段一行会把页面刷爆**（一批 4 段 × 每段一次请求 = 4 行，
-     * 而用户正听的段才 1 行）。所以成功的预热**每批汇总一行**，
-     * 带段区间与耗时；失败的逐条出一行（见 errorEvent），因为失败才需要细看。
-     *
-     * 去重：同一批（同一段区间）只打一次——预热会因播放推进反复触发同一批，
-     * 重复打会把页面刷成流水账（旧版 02:12 就吃过这个亏）。
-     */
-    // 用 LinkedHashSet 而不是 ArrayDeque：后者需要额外 import（本机无 JDK 无法编译验证，
-    // 而 LinkedHashSet 只在 kotlin/Java 标准库里、无需 import）。语义同样是「保序去重集合」。
-    private val preloadSummarySig = LinkedHashSet<String>()
-    private fun preloadBatchSummary(req: com.github.jing332.tts.synthesizer.RequestPayload) {
-        val seg = if (req.paraIndex >= 0) "第 ${req.paraIndex + 1} 段" else "预热段"
-        val sig = "$seg|${req.config.tag}"
-        if (!preloadSummarySig.add(sig)) return   // 已打过，跳过
-        if (preloadSummarySig.size > 24) {
-            val it = preloadSummarySig.iterator()
-            if (it.hasNext()) { it.next(); it.remove() }
-        }
-        logI("预合成完成：$seg（后台备货，播放到这里可直接取用）")
-    }
+    // 11-16 晚用户令：preloadBatchSummary 及其去重集合整体移除——成功的预热不再落页
+    // （进度由 DEBUG 工程日志兜底，失败仍走 errorEvent 落红色行）。
 
     private fun errorEvent(e: ErrorEvent) {
         // 11-16 用户令（「预热是辅助提速、不能拖后腿，失败了得看得见」）：
