@@ -16,6 +16,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -112,6 +113,7 @@ import com.github.jing332.tts_server_android.R
 import com.github.jing332.tts_server_android.compose.systts.role.softContainerColor
 // 11-13 晚：章首日志底色与书籍框/角色标签同款绿（用户令「还是那个书籍框那个填充率」）
 import com.github.jing332.tts_server_android.compose.systts.role.softFillBarColor
+import com.github.jing332.tts_server_android.compose.theme.softStructureColor
 import com.github.jing332.tts_server_android.compose.theme.logLevelColor
 import com.github.jing332.tts_server_android.compose.LocalBottomBarBehavior
 import kotlinx.coroutines.launch
@@ -956,24 +958,6 @@ internal fun LogScreen(
     // 两个 key 时，"本来就开着实时最新"的情况不会滚动。
     jumpToLiveTick: Int = 0,
 ) {
-    // ===== 11-16 晚三态辅助 =====
-    // 拖拽检测：collectIsDraggedAsState 只对**用户拖拽**触发（程序 animateScrollBy
-    // 不产生 drag interaction），不会把自动滚底误判成用户滑动。
-    val userDragging by listState.interactionSource.collectIsDraggedAsState()
-    // 跟随朗读态下用户拖拽 → 切自然态（用户定稿：上滑=被动进入自然，复位浮钮接管归位）。
-    // 跟随最新态拖拽**不切**——强制语义（用户原话「上下滑动，它不切换到自然状态」）。
-    LaunchedEffect(userDragging, scrollMode) {
-        if (userDragging && scrollMode == ScrollMode.FOLLOW_PLAYING) {
-            onScrollModeChange(ScrollMode.NATURAL)
-        }
-    }
-    // 朗读行是否可见（自然态复位浮钮的显示判据：不可见才出现）
-    val playingRowVisible by remember(scrollMode) {
-        derivedStateOf {
-            val m = playingMatch ?: return@derivedStateOf true
-            listState.layoutInfo.visibleItemsInfo.any { it.index == m.listItem }
-        }
-    }
     ControlBottomBarVisibility(listState, LocalBottomBarBehavior.current)
     val scope = rememberCoroutineScope()
     val view = LocalView.current
@@ -1111,6 +1095,24 @@ internal fun LogScreen(
     // 由于 derivedStateOf 的 lambda 会被重用，这里用 remember(currentGroups) 保证
     // 换书/筛选后查的是新表。
     // 「跳到这本」的一次性滚底请求（11-11）：true=待执行，滚完即清。
+    // ===== 11-16 晚三态辅助 =====
+    // 拖拽检测：collectIsDraggedAsState 只对**用户拖拽**触发（程序 animateScrollBy
+    // 不产生 drag interaction），不会把自动滚底误判成用户滑动。
+    val userDragging by listState.interactionSource.collectIsDraggedAsState()
+    // 跟随朗读态下用户拖拽 → 切自然态（用户定稿：上滑=被动进入自然，复位浮钮接管归位）。
+    // 跟随最新态拖拽**不切**——强制语义（用户原话「上下滑动，它不切换到自然状态」）。
+    LaunchedEffect(userDragging, scrollMode) {
+        if (userDragging && scrollMode == ScrollMode.FOLLOW_PLAYING) {
+            onScrollModeChange(ScrollMode.NATURAL)
+        }
+    }
+    // 朗读行是否可见（自然态复位浮钮的显示判据：不可见才出现）
+    val playingRowVisible by remember(playingMatch, scrollMode) {
+        derivedStateOf {
+            val m = playingMatch ?: return@derivedStateOf true
+            listState.layoutInfo.visibleItemsInfo.any { it.index == m.listItem }
+        }
+    }
     // 与 autoScrollToBottom（用户勾选的持续跟随）是两回事，别合并。
     var pendingJumpToBottom by remember { mutableStateOf(false) }
     val visibleBookChapter by remember(currentGroups) {
