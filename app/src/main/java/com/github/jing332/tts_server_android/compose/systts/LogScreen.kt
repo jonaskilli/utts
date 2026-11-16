@@ -2429,6 +2429,7 @@ internal fun LogScreen(
                         }
                     }
                 }
+                } // FloatingActionButton 内容 lambda
             } // 72dp 触摸 Box（11-17 补回，与 ⟲ 同构）
         }
     }
