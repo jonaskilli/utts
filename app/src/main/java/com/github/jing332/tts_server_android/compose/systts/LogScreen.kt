@@ -1308,9 +1308,6 @@ internal fun LogScreen(
             if (vpH <= 0) return@LaunchedEffect
             // 目标锚点：行顶落在视口 42% 处（略偏上，下面是后续日志、上面是刚过去的）
             val anchorPx = (vpH * FOLLOW_ANCHOR_RATIO).toInt()
-            // 舒适带：已经在这一段里就不动，避免每段都微调（用户允许「稍微有一点偏差」）
-            val bandTop = (vpH * FOLLOW_BAND_TOP).toInt()
-            val bandBottom = (vpH * FOLLOW_BAND_BOTTOM).toInt()
 
             val item = info.visibleItemsInfo.firstOrNull { it.index == target }
             if (item == null) {
@@ -1319,8 +1316,6 @@ internal fun LogScreen(
                 return@LaunchedEffect
             }
             val itemTop = item.offset - vStart
-            // 已经在舒适带内 → 一根手指都不动
-            if (itemTop in bandTop..bandBottom) return@LaunchedEffect
             // 行比视口还高：怎么滚都放不下，只对齐顶边
             if (item.size > vpH) {
                 runCatching { listState.scrollToItem(target) }
@@ -2096,7 +2091,8 @@ internal fun LogScreen(
                     // 11-15 用户令「朗读行要落在中部」：朗读行通常挨着列表末端，
                     // 下方没内容它就滚不上去——尾部留白给足「把朗读行顶到 42%」的余量。
                     // 只在朗读中加（不朗读时列表尾部就该贴底，多留白反而怪）。
-                    // 比例 0.45 是按「视口 600dp 量级 + 每次预取还会多 1~3 行在下方」估的，
+                    // 11-16 晚 0.45→**0.55**（无带固定 42% 后，每段都要精确到锚线；最坏情况
+                    // 是朗读行就是最后一行且较矮：行高 8% + 尾白需 ≥58% 才够 42%，0.45 差半口）。
                     // 装机若觉得空太多/太少，只调这一个常量。
                     val tailHeight = if (playingMatch != null && viewportHeightPx > 0) {
                         with(LocalDensity.current) {
@@ -2381,21 +2377,19 @@ internal fun boldBodyOf(e: LogEntry): String {
 /** 朗读行跟随锚点：行顶落在视口高度的 42% 处（略偏上＝上面留刚读过的、下面留要读的）。 */
 private const val FOLLOW_ANCHOR_RATIO = 0.42f
 
-// 舒适带上下界（比例）：行顶已落在 [34%, 50%] 内就不滚动。
-// ⚠️ 11-16 晚收紧（用户实拍复盘，原 [22%, 62%] 被实锤为「朗读行停在下三分之一」的根因）：
-//   相邻请求卡高度 ≈20% 视口，上一段锚到 42% 后，下一段卡顶自然落在 62%——
-//   恰好压在旧带下缘**内侧**，跟随判定「已在带内」不滚；段段相加，永远停在带缘，
-//   实测截图行顶 = 视口 63%（图2 实量：视口 630→2410px，卡顶 1750px）。
-//   新带 = 锚点 ±0.08：卡片级的高度差（≈20%）必出带，段段都拉回 42% 中部；
-//   ±0.08 仍保留一点容差防抖（用户 11-15 令「允许稍微有一点偏差」）。
-private const val FOLLOW_BAND_TOP = 0.34f
-private const val FOLLOW_BAND_BOTTOM = 0.50f
+// ⚠️ 舒适带已整体撤除（11-16 用户终令「正在朗读的那块日志就按你方案做」＝**无带固定 42%**）：
+//   带的本意是「位置没变多少就不滚、省得打扰」；但相邻请求卡高 ≈20% 视口，比任何
+//   合理带宽都宽，段段必出带——「省滚动」收益恒为零，只剩「带缘卡住」这类边界 bug
+//   的土壤（实测：行停视口 63%，图2；先收紧到 [34,50] 也没解决「每段其实都滚」）。
+//   无带后每段切换都精确滚到锚线：行为完全可预期，红字永远在屏幕同一高度。
+//   若日后想要「位置没动就不滚」，判据应是 delta==0 短路（本来 animateScrollBy(0)
+//   就是无感空滚），而不是位置区间。
 
 /**
  * 朗读中列表尾部的额外留白比例（× 视口高度）。
  * 没有它，「把朗读行顶到 42%」根本做不到——它贴着列表末端，下方无内容可滚。
  */
-private const val FOLLOW_TAIL_RATIO = 0.45f
+private const val FOLLOW_TAIL_RATIO = 0.55f
 
 /**
  * 某条日志是不是「成功的获取结果子行」。
