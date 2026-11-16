@@ -39,6 +39,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -893,7 +894,18 @@ internal fun LogScreen(
     modifier: Modifier,
     list: List<LogEntry>,
     listState: LazyListState = rememberLazyListState(),
+    // ===== 11-16 晚：滚动三态（用户定稿状态机）=====
+    // FOLLOW_PLAYING（默认）=温和跟随：朗读行始终拉回视口 42% 锚点；
+    //   此态下用户手动拖拽 → onScrollModeChange(NATURAL)（被动自然，复位浮钮接管）；
+    // NATURAL=自由浏览：温和跟随与自动滚底都门控关闭，什么都不自动滚；
+    //   朗读行滚出视野且在朗读中 → 出现复位浮钮（点它=切回 FOLLOW_PLAYING）；
+    // FOLLOW_LATEST=强制底部：新日志到达自动滚底，**用户拖拽不切自然**（强制语义）；
+    //   取消（吸顶「最新」胶囊再点）→ 回 FOLLOW_PLAYING。
+    // 入口：吸顶行最右「最新」胶囊（PinnedLogHeader）；复位浮钮见下方 NATURAL 分支。
     autoScrollToBottom: Boolean = false,
+    scrollMode: com.github.jing332.tts_server_android.compose.systts.ScrollMode =
+        com.github.jing332.tts_server_android.compose.systts.ScrollMode.FOLLOW_PLAYING,
+    onScrollModeChange: (com.github.jing332.tts_server_android.compose.systts.ScrollMode) -> Unit = {},
     // 非空时命中项加背景高亮(定位用，不过滤列表)
     searchQuery: String = "",
     // 多选模式：长按条目进入（1003；顶栏 ☑ 已删，退多选=返回键/复制后自动退）。跨条复制
@@ -944,6 +956,24 @@ internal fun LogScreen(
     // 两个 key 时，"本来就开着实时最新"的情况不会滚动。
     jumpToLiveTick: Int = 0,
 ) {
+    // ===== 11-16 晚三态辅助 =====
+    // 拖拽检测：collectIsDraggedAsState 只对**用户拖拽**触发（程序 animateScrollBy
+    // 不产生 drag interaction），不会把自动滚底误判成用户滑动。
+    val userDragging by listState.interactionSource.collectIsDraggedAsState()
+    // 跟随朗读态下用户拖拽 → 切自然态（用户定稿：上滑=被动进入自然，复位浮钮接管归位）。
+    // 跟随最新态拖拽**不切**——强制语义（用户原话「上下滑动，它不切换到自然状态」）。
+    LaunchedEffect(userDragging, scrollMode) {
+        if (userDragging && scrollMode == ScrollMode.FOLLOW_PLAYING) {
+            onScrollModeChange(ScrollMode.NATURAL)
+        }
+    }
+    // 朗读行是否可见（自然态复位浮钮的显示判据：不可见才出现）
+    val playingRowVisible by remember(scrollMode) {
+        derivedStateOf {
+            val m = playingMatch ?: return@derivedStateOf true
+            listState.layoutInfo.visibleItemsInfo.any { it.index == m.listItem }
+        }
+    }
     ControlBottomBarVisibility(listState, LocalBottomBarBehavior.current)
     val scope = rememberCoroutineScope()
     val view = LocalView.current
@@ -1295,7 +1325,9 @@ internal fun LogScreen(
                 .distinctUntilChanged()
                 .collect { if (it > 0) viewportHeightPx = it }
         }
-        LaunchedEffect(playingMatch?.listItem, playingMatch?.entryIndex) {
+        LaunchedEffect(playingMatch?.listItem, playingMatch?.entryIndex, scrollMode) {
+            // 11-16 晚三态门控：温和跟随只在「跟随朗读」态触发
+            if (scrollMode != ScrollMode.FOLLOW_PLAYING) return@LaunchedEffect
             val m = playingMatch ?: return@LaunchedEffect
             val target = m.listItem
             if (target <= 0 || target >= currentGroups.items.size) return@LaunchedEffect
@@ -1326,8 +1358,12 @@ internal fun LogScreen(
             runCatching { listState.animateScrollBy(delta) }
         }
 
-        LaunchedEffect(list.size, autoScrollToBottom, pendingJumpToBottom, currentGroups) {
-            val wantScroll = autoScrollToBottom || pendingJumpToBottom
+        LaunchedEffect(list.size, scrollMode, pendingJumpToBottom, currentGroups) {
+            // 11-16 晚三态：「跟随最新」接管原 autoScrollToBottom 恒 false 的死链——
+            // 新日志到达自动滚底（强制语义：用户拖拽不切自然，见拖拽挂起分支）。
+            // pendingJumpToBottom（⇊ 浮钮）与 autoScrollToBottom 参数保持正交不变。
+            val wantScroll = scrollMode == ScrollMode.FOLLOW_LATEST ||
+                autoScrollToBottom || pendingJumpToBottom
             if (wantScroll && currentGroups.items.isNotEmpty()) {
                 runCatching { listState.animateScrollToItem(currentGroups.items.lastIndex) }
                 if (pendingJumpToBottom) pendingJumpToBottom = false
@@ -2155,6 +2191,48 @@ internal fun LogScreen(
         // 右下角单手拇指够不着（手机宽 + 底距 20dp），遮挡问题让位于可达性——
         // 它压住的是当时那一眼的正文，且浮钮有投影从正文里浮起，用户可感知。
         // 底距 20dp 不变（不压底栏）。
+        // ===== 11-16 晚三态：自然态复位浮钮（用户定稿）=====
+        // 出现条件：NATURAL 态 + 在朗读中 + **朗读行滚出视野**（可见时不需要）。
+        // 用户原话：「上下滑动到这个正在朗读这条日志，你在界面看不到的时候，
+        // 它就会出现复位键，复位键就是切换到这个跟随朗读状态」。
+        // 点击 = 切回 FOLLOW_PLAYING（温和跟随立刻把朗读行拉回 42% 锚点）。
+        // 与 ↓ 跳最新浮钮（下方 BottomCenter）竖排错开：本键在其上方 76dp 处。
+        AnimatedVisibility(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 96.dp),
+            visible = scrollMode == ScrollMode.NATURAL &&
+                playingSnapshot != null && !playingRowVisible,
+            enter = fadeIn() + expandIn(expandFrom = Alignment.BottomCenter),
+            exit = shrinkOut(shrinkTowards = Alignment.BottomCenter) + fadeOut(),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(72.dp)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                    ) { onScrollModeChange(ScrollMode.FOLLOW_PLAYING) },
+                contentAlignment = Alignment.Center,
+            ) {
+                // 视觉键 56dp，与 ↓ 浮钮同档；⟲ 表「回到正在朗读」
+                Surface(
+                    modifier = Modifier.size(56.dp),
+                    shape = CircleShape,
+                    color = softStructureColor(),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(
+                            "⟲",
+                            style = MaterialTheme.typography.titleLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
+            }
+        }
+
         AnimatedVisibility(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -2377,6 +2455,9 @@ internal fun boldBodyOf(e: LogEntry): String {
 
 /** 朗读行跟随锚点：行顶落在视口高度的 42% 处（略偏上＝上面留刚读过的、下面留要读的）。 */
 private const val FOLLOW_ANCHOR_RATIO = 0.42f
+
+// ===== 11-16 晚：滚动三态（用户定稿状态机，详见 LogScreen 参数 scrollMode 注释）=====
+enum class ScrollMode { FOLLOW_PLAYING, NATURAL, FOLLOW_LATEST }
 
 // ⚠️ 舒适带已整体撤除（11-16 用户终令「正在朗读的那块日志就按你方案做」＝**无带固定 42%**）：
 //   带的本意是「位置没变多少就不滚、省得打扰」；但相邻请求卡高 ≈20% 视口，比任何

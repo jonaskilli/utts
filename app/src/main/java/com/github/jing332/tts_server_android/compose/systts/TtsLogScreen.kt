@@ -131,6 +131,8 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
     // 剪贴板：多选「复制(N)」用（1002）
     val clipboard = LocalClipboardManager.current
     var isSearchActive by rememberSaveable { mutableStateOf(false) }
+    // ===== 11-16 晚：滚动三态（用户定稿状态机，见 LogScreen scrollMode 注释）=====
+    var scrollMode by rememberSaveable { mutableStateOf(ScrollMode.FOLLOW_PLAYING) }
     // 日志文件列表弹窗（用户 09-08：文件夹点开自由选择文件，不再直接扔给外部查看器）
     var showLogFilesDialog by remember { mutableStateOf(false) }
     // 11-15 晚：书/章框小红叉的待确认目标（null=无弹窗）。确认后才真删——红叉紧挨着
@@ -194,6 +196,7 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
 
     fun LogEntry.matchesQuery(q: String): Boolean =
         message.contains(q, ignoreCase = true) || time.contains(q, ignoreCase = true) ||
+            bookName.contains(q, ignoreCase = true) || chapterTitle.contains(q, ignoreCase = true) ||
             bookName.contains(q, ignoreCase = true) || chapterTitle.contains(q, ignoreCase = true)
 
     // 基础列表 = 等级/插件筛选结果 → 书/章收窄（11-10）→ 搜索词实时过滤。
@@ -763,6 +766,12 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                     onToggleRule = { vm.showSpeechRuleLogs.value = !vm.showSpeechRuleLogs.value },
                     showPlugin = vm.showPluginLogs.value,
                     onTogglePlugin = { vm.showPluginLogs.value = !vm.showPluginLogs.value },
+                    latestMode = scrollMode == ScrollMode.FOLLOW_LATEST,
+                    onToggleLatest = {
+                        scrollMode =
+                            if (scrollMode == ScrollMode.FOLLOW_LATEST) ScrollMode.FOLLOW_PLAYING
+                            else ScrollMode.FOLLOW_LATEST
+                    },
                     book = logGroups.pinnedBook,
                     bookCount = logGroups.pinnedBookCount,
                     bookTotal = logGroups.bookTotal,
@@ -847,6 +856,8 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
             // 「原文」定位（用户 10-08 午后 甲方案）：筛选/搜索态显示，点击回调清筛选+跳原位
             showLocateKey = isFiltered,
             onLocateOriginal = { entry -> locateOriginal(entry) },
+            scrollMode = scrollMode,
+            onScrollModeChange = { scrollMode = it },
             locateHighlight = locateHighlight,
             // 书籍条右侧「切换书」：开书单弹窗（只切日志查看范围，用户 11-10 明确）
             onSwitchBook = { bookPickerFor = it },
@@ -1599,6 +1610,11 @@ private fun PinnedLogHeader(
     onToggleRule: () -> Unit,
     showPlugin: Boolean,
     onTogglePlugin: () -> Unit,
+    // 11-16 晚：滚动三态「跟随最新」入口胶囊（放本排最右，用户定稿位置）。
+    // 选中=强制固定日志底部（新日志到达自动滚底，拖拽不退出）；取消=回跟随朗读。
+    // 与「实时」（跳最新一次）、复位浮钮（回朗读位置）分工见 LogScreen scrollMode 注释。
+    latestMode: Boolean = false,
+    onToggleLatest: () -> Unit = {},
     book: String,
     bookCount: Int,
     /** 不同书数：<2 时「筛选书」没有可筛对象，不显示（用户 11-13 口径）。 */
@@ -2185,6 +2201,16 @@ private fun PinnedLogHeader(
                 selected = errorOnly,
                 onClick = onToggleErrorOnly,
                 error = true,
+                modifier = Modifier.weight(1f),
+                horizontalPadding = 6.dp,
+            )
+            // 11-16 晚：滚动三态「跟随最新」模式胶囊（用户定稿：放本排**最右侧**）。
+            // 选中=强制固定日志底部（新日志到达自动滚底，拖拽不退出）；取消=回跟随朗读。
+            // 与「实时」（跳最新一次的正交浮钮链）区分。
+            PinnedChip(
+                label = "最新",
+                selected = latestMode,
+                onClick = onToggleLatest,
                 modifier = Modifier.weight(1f),
                 horizontalPadding = 6.dp,
             )
