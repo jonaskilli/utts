@@ -3,7 +3,6 @@ package com.github.jing332.tts.synthesizer
 import androidx.annotation.MainThread
 import android.os.SystemClock
 import com.drake.net.utils.withMain
-import com.github.jing332.common.utils.StringUtils
 import com.github.jing332.common.utils.toByteArray
 import com.github.jing332.database.entities.systts.source.PluginTtsSource
 import com.github.jing332.tts.CachedEngineManager
@@ -166,8 +165,10 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
                 textProcessor
                     .process(segment.text, presetConfig, segmentIndex, paraTotal)
                     .onSuccess { list ->
-                        // 与单段路径同口径：过滤纯静音段后再并入
-                        merged.addAll(list.filterNot { StringUtils.isSilent(it.text) })
+                        // 11-17 用户令：不再过滤纯符号段——正文里是什么就发什么，
+                        // 「“……”」这类段原样进请求、原样进日志（引擎念出来是静音/停顿，
+                        // 但日志与正文对得上）。仅保留空白段过滤（纯空白没有文本可念）。
+                        merged.addAll(list.filterNot { it.text.isBlank() })
                     }
                     .onFailure { err: TextProcessorError ->
                         event(ErrorEvent.TextProcessor(err))
@@ -185,7 +186,8 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
 
         textProcessor
             .process(params.text, presetConfig, paraIndex, paraTotal)
-            .onSuccess { list -> return Ok(list.filterNot { StringUtils.isSilent(it.text) }) }
+            // 11-17 用户令：同批量路径，只滤纯空白，纯符号段原样保留（正文=TTS 文本）。
+            .onSuccess { list -> return Ok(list.filterNot { it.text.isBlank() }) }
             .onFailure { err: TextProcessorError ->
                 event(ErrorEvent.TextProcessor(err))
                 return Err(SynthesisError.TextHandle(err))
