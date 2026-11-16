@@ -56,7 +56,6 @@ import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LocalTextStyle
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -573,14 +572,7 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                                                 unfocusedIndicatorColor = Color.Transparent
                                             ),
                                             placeholder = {
-                                                Text(
-                                                when (vm.sourceFilter.value) {
-                                                    LogSource.RULES_ONLY -> "在朗读规则日志中搜索…"
-                                                    LogSource.PLUGINS_ONLY -> "在插件日志中搜索…"
-                                                    else -> stringResource(R.string.search_logs)
-                                                },
-                                                maxLines = 1
-                                            )
+                                                Text(stringResource(R.string.search_logs), maxLines = 1)
                                             },
                                             trailingIcon = {
                                                 if (searchQuery.isNotEmpty()) {
@@ -672,44 +664,6 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                 // 11-13 用户令「上面下面的分隔线都有必要留吗」：删掉标题/搜索行与筛选区之间这条。
                 // 筛选区属于同一头部区块，兄弟之间不该有分割线；真正需要的「头部↔滚动列表」
                 // 分隔线在筛选区之后（见下方 if (vm.logs.isNotEmpty()) 的那条）。
-
-                // ===== 11-16 晚：来源视图选项条（用户定稿：弹窗放不下来源胶囊，改搜索框内置）=====
-                // 搜索态常显两枚胶囊：整页只看对应缓冲全量（含 WARN/DEBUG，不受「规则仅
-                // ERROR 放行」限制）；选中态高亮，再点取消回主日志流。视图激活时搜索框
-                // 占位符同步反映当前来源。LogScreen 主体零改动——displayLogs 的
-                // derivedStateOf 读 vm.filteredLogs，sourceFilter 变化自动触发重算。
-                // 11-16 晚用户定稿：选项条只在混入开关开着时出现（+规则日志/+插件日志
-                // 任一开启 ⇒ 用户正关心规则/插件日志，此时搜索才给出来源选项）；
-                // 开关全关时搜索框就是纯搜索，无噪音。通读整页需先开对应混入开关。
-                AnimatedVisibility(visible = isSearchActive && (vm.showSpeechRuleLogs.value || vm.showPluginLogs.value)) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 8.dp, vertical = 2.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        FilterChip(
-                            selected = vm.sourceFilter.value == LogSource.RULES_ONLY,
-                            onClick = {
-                                vm.sourceFilter.value =
-                                    if (vm.sourceFilter.value == LogSource.RULES_ONLY) LogSource.ALL
-                                    else LogSource.RULES_ONLY
-                            },
-                            label = { Text("朗读规则日志") },
-                            modifier = Modifier.weight(1f)
-                        )
-                        FilterChip(
-                            selected = vm.sourceFilter.value == LogSource.PLUGINS_ONLY,
-                            onClick = {
-                                vm.sourceFilter.value =
-                                    if (vm.sourceFilter.value == LogSource.PLUGINS_ONLY) LogSource.ALL
-                                    else LogSource.PLUGINS_ONLY
-                            },
-                            label = { Text("插件日志") },
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                }
 
                 // 搜索控制行：匹配数 + 上一处/下一处跳转。
                 // ⚠️ 漏斗键本行撤（10-10）：恢复「四键常驻」后顶栏已有级别筛选键，
