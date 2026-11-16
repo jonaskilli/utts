@@ -759,18 +759,43 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                 if (vm.logs.isNotEmpty())
                 PinnedLogHeader(
                     errorOnly = vm.isErrorsOnly(),
+                    // ===== 11-16 晚：吸顶四颗互斥规则（用户定稿）=====
+                    // 「筛错误」独占：点亮时自动熄灭混入两颗（+规则日志/+插件日志）与
+                    // 「最新」（跟随最新滚错误列表的底语义拧）；再点熄灭回干净流。
+                    // 「最新」与混入两颗可并存（跟随最新滚的是含混入行的完整流）；
+                    // 混入两颗之间可并选（两个缓冲都混进主日志流）。
+                    // 点混入/最新时若「筛错误」亮着 → 自动退出筛错误（用户没有明确要求
+                    // 这个方向，但独占语义要求对称：筛错误亮着时点其他键必然要退它，
+                    // 否则「独占」名不副实）。
                     onToggleErrorOnly = {
-                        if (vm.isErrorsOnly()) vm.showAllLevels() else vm.showErrorsOnly()
+                        if (vm.isErrorsOnly()) {
+                            vm.showAllLevels()
+                        } else {
+                            vm.showErrorsOnly()
+                            vm.showSpeechRuleLogs.value = false
+                            vm.showPluginLogs.value = false
+                            if (scrollMode == ScrollMode.FOLLOW_LATEST) {
+                                scrollMode = ScrollMode.FOLLOW_PLAYING
+                            }
+                        }
                     },
                     showRule = vm.showSpeechRuleLogs.value,
-                    onToggleRule = { vm.showSpeechRuleLogs.value = !vm.showSpeechRuleLogs.value },
+                    onToggleRule = {
+                        vm.showSpeechRuleLogs.value = !vm.showSpeechRuleLogs.value
+                        if (vm.showSpeechRuleLogs.value && vm.isErrorsOnly()) vm.showAllLevels()
+                    },
                     showPlugin = vm.showPluginLogs.value,
-                    onTogglePlugin = { vm.showPluginLogs.value = !vm.showPluginLogs.value },
+                    onTogglePlugin = {
+                        vm.showPluginLogs.value = !vm.showPluginLogs.value
+                        if (vm.showPluginLogs.value && vm.isErrorsOnly()) vm.showAllLevels()
+                    },
                     latestMode = scrollMode == ScrollMode.FOLLOW_LATEST,
                     onToggleLatest = {
                         scrollMode =
                             if (scrollMode == ScrollMode.FOLLOW_LATEST) ScrollMode.FOLLOW_PLAYING
                             else ScrollMode.FOLLOW_LATEST
+                        // 11-16 晚互斥：进入跟随最新时退出「筛错误」独占态（混入两颗保留）
+                        if (scrollMode == ScrollMode.FOLLOW_LATEST && vm.isErrorsOnly()) vm.showAllLevels()
                     },
                     book = logGroups.pinnedBook,
                     bookCount = logGroups.pinnedBookCount,
