@@ -450,6 +450,22 @@ internal class LogGroups(
             var errMemberIdx = -1
             // 本组内重试次数（10-12）：重试行不单独占行，挂到组头做小丸
             var retryCount = 0
+            // 11-16 用户实报（截图「日志末尾出现两个单独的获取成功卡片」）：
+            // 被取消的请求按「不显示」档整组丢弃后，**它尾巴上补上来的结果子行还会漏出来**。
+            //
+            // 真机 system_tts.log 实锤（同段 8，三次提交）：
+            //   15:48:03.489 INFO  请求音频（r4ey264xrsu96）
+            //   15:48:04.568 SUCCESS 〖已取消〗        ← 卡在这一行被 closeCard 收掉并整组丢弃
+            //   15:48:05.946 SUCCESS 获取成功：124.9 KB · 2.5s  ← head 已 -1，落成孤立裸行
+            // 第三次（rvw7idq0igqi）一模一样：14.720 已取消 → 16.496 获取成功。
+            //
+            // 为什么取消后还会有「获取成功」：取消子行未必是终点——UTTS 侧破窗时先把
+            // 在途那笔标取消，但它已经下载好的音频仍会写进缓存并回调 done，于是同一
+            // reqId 又补一条真正的成功行。取消组既然不显示，尾巴也不该单独残留。
+            //
+            // 判据用 reqId（不是文本）：regroupByReqId 已保证同 reqId 的行聚在一起，
+            // 且裸行的 reqId 为空不会误伤；只吞「刚被丢弃的那个请求」的后续子行。
+            val droppedReqIds = HashSet<String>()
 
             fun closeCard() {
                 // 11-13 用户令（不显示档）：被用户掐断的请求**整组丢弃**——
@@ -465,6 +481,9 @@ internal class LogGroups(
                     } else {
                         raw.add(Item.Group(head, members.toList(), retryCount = retryCount))
                     }
+                } else if (head >= 0 && canceledGroup) {
+                    // 记下被丢弃的请求 id：它之后补上来的结果子行一并吞掉（见上方注释）
+                    list[head].reqId.takeIf { it.isNotEmpty() }?.let { droppedReqIds.add(it) }
                 }
                 head = -1
                 members = ArrayList()
@@ -549,6 +568,9 @@ internal class LogGroups(
                         if (head >= 0) {
                             members.add(i)
                             if (e.level == LogLevel.SUCCESS) closeCard()
+                        } else if (e.reqId.isNotEmpty() && droppedReqIds.contains(e.reqId)) {
+                            // 11-16：所属请求已被「取消不显示」整组丢弃，尾巴上的结果子行
+                            // 不再落成孤立裸行（见 droppedReqIds 上方真机实锤）
                         } else if (!isCancelRow) raw.add(Item.Bare(i))
                     }
                     // 规则日志一律落裸行（10-10 用户令：不进卡）。原「卡外悬置→下一张卡
