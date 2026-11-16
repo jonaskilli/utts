@@ -904,7 +904,9 @@ internal fun LogScreen(
     //   此态下用户手动拖拽 → onScrollModeChange(NATURAL)（被动自然，复位浮钮接管）；
     // NATURAL=自由浏览：温和跟随与自动滚底都门控关闭，什么都不自动滚；
     //   朗读行滚出视野且在朗读中 → 出现复位浮钮（点它=切回 FOLLOW_PLAYING）；
-    // FOLLOW_LATEST=强制底部：新日志到达自动滚底，**用户拖拽不切自然**（强制语义）；
+    // FOLLOW_LATEST=新日志到达自动滚底：拖拽期间不强拉、**松手不弹回**
+    //   （11-17 放宽，参照最早「实时最新」勾选版——旧版「松手立马回底」被用户
+    //   实报「一松手就到最新的位置了…应该再留一个宽松的效果」）；
     //   取消（吸顶「最新」胶囊再点）→ 回 FOLLOW_PLAYING。
     // 入口：吸顶行最右「最新」胶囊（PinnedLogHeader）；复位浮钮见下方 NATURAL 分支。
     autoScrollToBottom: Boolean = false,
@@ -1121,6 +1123,10 @@ internal fun LogScreen(
     }
     // 与 autoScrollToBottom（用户勾选的持续跟随）是两回事，别合并。
     var pendingJumpToBottom by remember { mutableStateOf(false) }
+    // 11-17 放宽：FOLLOW_LATEST 只在新日志到达时滚底——用「上次 effect 跑时的大小」
+    // 区分「新日志」与「拖拽结束/模式重入/分组重建」引发的 key 重跑。初值 -1 无副作用：
+    // 进跟随态的滚底由「最新」胶囊的 pendingJumpToBottom 一次性完成，不靠这条分支。
+    var lastSeenSize by remember { mutableStateOf(-1) }
     val visibleBookChapter by remember(currentGroups) {
         derivedStateOf {
             val vis = listState.layoutInfo.visibleItemsInfo
@@ -1368,12 +1374,18 @@ internal fun LogScreen(
 
         LaunchedEffect(list.size, scrollMode, userDragging, pendingJumpToBottom, currentGroups) {
             // 11-16 晚三态：「跟随最新」接管原 autoScrollToBottom 恒 false 的死链——
-            // 新日志到达自动滚底。【11-16 晚澄清修正】跟随最新态下用户拖拽期间**表现成
-            // 自然态**（不强拉，随便翻看历史），模式标记不变（FOLLOW_LATEST）；
-            // **松手（拖拽结束）立马回到最新**——wantScroll 加 !userDragging：
-            // 拖拽中暂停、key 含 userDragging 使松手即重触发回底。
-            // pendingJumpToBottom（⇊ 浮钮）与 autoScrollToBottom 参数保持正交不变。
-            val wantScroll = (scrollMode == ScrollMode.FOLLOW_LATEST && !userDragging) ||
+            // 新日志到达自动滚底。【11-17 放宽】跟随最新态下拖拽期间不强拉，且**松手
+            // 停在原地不弹回**——只有新日志到达才滚底。参照最早「实时最新」勾选版：
+            // 开跟随只决定「新日志要不要自动滚」，不强制拽回用户视线（旧版「松手立马
+            // 回底」被用户实报「一松手就到最新的位置了…应该再留一个宽松的效果」）。
+            // 实现：FOLLOW_LATEST 分支用 lastSeenSize 判「这次 key 触发是不是新日志」，
+            // 拖拽结束/模式重入（userDragging、scrollMode 变化）不等于新日志，不滚。
+            // pendingJumpToBottom（⇊ 浮钮 / 跳到这本）与 autoScrollToBottom 参数正交不变。
+            val isNewLogArrival = list.size != lastSeenSize
+            lastSeenSize = list.size
+            // 拖拽中到达的新日志：本次先不滚（别硬拽手指下的列表）。松手后也不补滚
+            // ——lastSeenSize 已推进，松手不构成新日志，人停在原地（11-17 宽松语义）。
+            val wantScroll = (scrollMode == ScrollMode.FOLLOW_LATEST && isNewLogArrival && !userDragging) ||
                 autoScrollToBottom || pendingJumpToBottom
             if (wantScroll && currentGroups.items.isNotEmpty()) {
                 runCatching { listState.animateScrollToItem(currentGroups.items.lastIndex) }

@@ -752,7 +752,13 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                             if (scrollMode == ScrollMode.FOLLOW_LATEST) ScrollMode.FOLLOW_PLAYING
                             else ScrollMode.FOLLOW_LATEST
                         // 11-16 晚互斥：进入跟随最新时退出「筛错误」独占态（混入两颗保留）
-                        if (scrollMode == ScrollMode.FOLLOW_LATEST && vm.isErrorsOnly()) vm.showAllLevels()
+                        if (scrollMode == ScrollMode.FOLLOW_LATEST) {
+                            if (vm.isErrorsOnly()) vm.showAllLevels()
+                            // 11-17 放宽后点「最新」的一次性跳底改走 pendingJumpToBottom：
+                            // 旧版靠「松手立马回底」分支顺手滚到底，松手弹回已按用户要求
+                            // 撤掉（参照最早「实时最新」宽松语义），入口跳底不能跟着丢。
+                            jumpToLiveTick++
+                        }
                     },
                     book = logGroups.pinnedBook,
                     bookCount = logGroups.pinnedBookCount,
