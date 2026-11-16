@@ -678,7 +678,10 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                 // ERROR 放行」限制）；选中态高亮，再点取消回主日志流。视图激活时搜索框
                 // 占位符同步反映当前来源。LogScreen 主体零改动——displayLogs 的
                 // derivedStateOf 读 vm.filteredLogs，sourceFilter 变化自动触发重算。
-                AnimatedVisibility(visible = isSearchActive) {
+                // 11-16 晚用户定稿：选项条只在混入开关开着时出现（+规则日志/+插件日志
+                // 任一开启 ⇒ 用户正关心规则/插件日志，此时搜索才给出来源选项）；
+                // 开关全关时搜索框就是纯搜索，无噪音。通读整页需先开对应混入开关。
+                AnimatedVisibility(visible = isSearchActive && (vm.showSpeechRuleLogs.value || vm.showPluginLogs.value)) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
