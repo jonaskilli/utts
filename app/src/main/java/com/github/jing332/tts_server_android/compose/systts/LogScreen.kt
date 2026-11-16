@@ -2233,7 +2233,6 @@ internal fun LogScreen(
             ) {
                 FloatingActionButton(
                     modifier = Modifier.size(56.dp),
-                    shape = FloatingActionButtonDefaults.shape(),
                     containerColor = softFillColor(),
                     contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
                     elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 3.dp),
@@ -2330,8 +2329,7 @@ internal fun LogScreen(
                 // 状态层与可点面积，亮暗主题自动派生，容器色与书籍填充框统一。
                 FloatingActionButton(
                     modifier = Modifier.size(56.dp),
-                    shape = FloatingActionButtonDefaults.shape(),
-                    containerColor = softFillColor(),
+                        containerColor = softFillColor(),
                     contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
                     elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 3.dp),
                     // 动作在外层 72dp 触摸区 Box 上（与 ⟲ 同款口径），FAB 只负责视觉，
