@@ -64,6 +64,10 @@ fun ControlBottomBarVisibility(
 fun ControlBottomBarVisibility(
     listState: LazyListState,
     bottomBarBehavior: BottomAppBarScrollBehavior,
+    // 11-17：列表**滚到底**是否强制回显底栏。默认 true（配置/角色页沿用）；
+    // 日志页传 false——它自绘「已经到底了」边界线当终点，且底部回显会造成
+    // 「到底→底栏弹回压住最后一条→再滑又藏」的震荡（用户实报「日志被底部挡着」）。
+    showAtBottom: Boolean = true,
 ) {
     val bottomAppBarState = bottomBarBehavior.state
 
@@ -71,7 +75,7 @@ fun ControlBottomBarVisibility(
     // ①exitAlways 的回弹阈值=一整条底栏高度（80dp）——长列表中间只滑一小段不回弹，
     //   「往上滑一段时间再往下滑要滑过一页多一点才出现」即此（用户实测复述）；
     // ②atTop（canScrollBackward=false）/ atBottom（末条贴视口底）两位置强制回显——
-    //   「本来在日志底部、底栏在，再往下滑一直在」即此。
+    //   「本来在日志底部、底栏在，再往下滑一直在」即此。（showAtBottom=false 时豁免）
     // ③新增**下滑即回显**：监听列表滚动，捕获「向下滚动」（内容上移、往回看方向）的
     //   位移即瞬间复位底栏，不等 80dp 阈值——与 Android 原生设置页行为一致。
     //   firstVisibleItemIndex 减小或同条目 offset 减小都算向下滚；用 derivedStateOf
@@ -100,8 +104,8 @@ fun ControlBottomBarVisibility(
             down
         }
     }
-    LaunchedEffect(atTop, atBottom, scrollingDown) {
-        if (atTop || atBottom || scrollingDown) {
+    LaunchedEffect(atTop, atBottom && showAtBottom, scrollingDown) {
+        if (atTop || (atBottom && showAtBottom) || scrollingDown) {
             animateBottomBarToShow(bottomAppBarState)
         }
     }

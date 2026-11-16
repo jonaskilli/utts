@@ -16,6 +16,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -960,7 +961,10 @@ internal fun LogScreen(
     // 两个 key 时，"本来就开着实时最新"的情况不会滚动。
     jumpToLiveTick: Int = 0,
 ) {
-    ControlBottomBarVisibility(listState, LocalBottomBarBehavior.current)
+    // showAtBottom=false（11-17）：日志页自绘「已经到底了」边界线当终点；
+    // 底部回显底栏会压住最后一条日志（用户实报「日志被底部挡着」），且造成
+    // 「到底→弹回→遮挡→再滑又藏」震荡。顶部/下滑回看仍照常回显。
+    ControlBottomBarVisibility(listState, LocalBottomBarBehavior.current, showAtBottom = false)
     val scope = rememberCoroutineScope()
     val view = LocalView.current
     val context = LocalContext.current
@@ -2121,6 +2125,47 @@ internal fun LogScreen(
                             // 条目间分隔线（10-10 用户令）：与裸行分支同款，组与组之间画线
                             HorizontalDivider(
                                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                            )
+                        }
+                    }
+                }
+                // ===== 11-17 用户令「有边界线，知道哪里是终点」=====
+                // 列表末项之后、尾白之前插一条「到底」边界：1dp 分隔线（与条目间线同色）
+                // + 「已经到底了 · 共 N 条」小字。作用：底栏隐藏态（上滑翻历史）列表贴着
+                // 手势条区，没有终点提示会一直往上滑找新日志；底栏显示态（atBottom 回显）
+                // 它在底栏上方，同样标出内容终点。可点=回顶部（与双击标题栏同动作，
+                // 原先"回顶部"只有双击一个入口，10-10 用户令）。
+                item(key = "log_end_marker") {
+                    Column(
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        HorizontalDivider(
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                ) {
+                                    scope.launch {
+                                        runCatching { listState.animateScrollToItem(0) }
+                                    }
+                                }
+                                .padding(horizontal = 16.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = "已经到底了",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                            )
+                            Spacer(Modifier.weight(1f))
+                            Text(
+                                text = "共 ${list.size} 条 · 点此回顶部",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
                             )
                         }
                     }
