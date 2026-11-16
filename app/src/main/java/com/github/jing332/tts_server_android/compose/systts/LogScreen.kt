@@ -2203,11 +2203,15 @@ internal fun LogScreen(
         // 用户原话：「上下滑动到这个正在朗读这条日志，你在界面看不到的时候，
         // 它就会出现复位键，复位键就是切换到这个跟随朗读状态」。
         // 点击 = 切回 FOLLOW_PLAYING（温和跟随立刻把朗读行拉回 42% 锚点并持续跟随）。
-        // 与 ↓ 跳最新浮钮（下方 BottomCenter）竖排错开：本键在其上方 96dp 处。
+        //
+        // 【11-16 晚定稿】位置=右下角（BottomEnd），↓ 跳最新保持底部居中：
+        // 两颗条件互斥（⟲ 出现时 ↓ 通常不在），各占一角不重叠；⟲ 低频+辅助性质，
+        // 不抢 ↓ 的黄金居中位（用户 11-15 为可达性把 ↓ 定在居中，⟲ 无此需求）。
+        // 触摸区 72dp 与 ↓ 同款（11-15 防误触口径：视觉 56dp + 外层透明 72dp）。
         AnimatedVisibility(
             modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 96.dp),
+                .align(Alignment.BottomEnd)
+                .padding(end = 16.dp, bottom = 20.dp),
             // 【11-16 晚澄清】跟随最新态拖拽期间也隐藏（用户滑动时体感=自然态，⟲ 冒出来干扰）；
             // 松手立刻回底，⟲ 没有出现窗口。仅自然态长期驻留。
             visible = (scrollMode == ScrollMode.NATURAL || (scrollMode == ScrollMode.FOLLOW_LATEST && !userDragging)) &&
@@ -2215,29 +2219,24 @@ internal fun LogScreen(
             enter = fadeIn() + expandIn(expandFrom = Alignment.BottomCenter),
             exit = shrinkOut(shrinkTowards = Alignment.BottomCenter) + fadeOut(),
         ) {
+            // 11-16 晚 MD3 收编 + 容器色统一（用户令「圈内填充色跟书籍填充框统一」）：
+            // 原生 FloatingActionButton 组件（56dp 默认、按压状态层、可点面积内置）；
+            // containerColor = softFillColor()——与章名底色/选中胶囊/密钥组头同一档绿
+            //（theme 包全站唯一实现，亮暗主题自动派生），页面色彩语言归一。
+            // 图标 = MD3 标准 Refresh（替代 ⟲ 字符：各机型渲染不一）。
             Box(
-                modifier = Modifier
-                    .size(72.dp)
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                    ) { onScrollModeChange(ScrollMode.FOLLOW_PLAYING) },
+                modifier = Modifier.size(72.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                // 视觉键 56dp，与 ↓ 浮钮同档；⟲ 表「回到正在朗读」
-                Surface(
+                FloatingActionButton(
                     modifier = Modifier.size(56.dp),
-                    shape = CircleShape,
-                    color = softStructureColor(),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                    shape = FloatingActionButtonDefaults.shape(),
+                    containerColor = softFillColor(),
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 3.dp),
+                    onClick = { onScrollModeChange(ScrollMode.FOLLOW_PLAYING) },
                 ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Text(
-                            "⟲",
-                            style = MaterialTheme.typography.titleLarge,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                    }
+                    Icon(Icons.Default.Refresh, contentDescription = "回朗读")
                 }
             }
         }
@@ -2323,13 +2322,18 @@ internal fun LogScreen(
                 //   · 灰白底压在暖白正文上，与页底 #FBFDF8 差一档、边界由色差+投影
                 //     共同定（不再靠描边，也不会像纯白那样"只剩投影一条边界"）。
                 // 底色比页底深一档：#F1F3ED → 在正文里能看出"这是个浮起来的圆"。
-                Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.92f),
-                    shadowElevation = 3.dp,
-                    // 11-16 01:57 用户令「40 和 56 中间取一个值」→ **48dp**。
-                    // 触摸区仍是外层 72dp（误触防护不受影响），底距 20dp 不变。
-                    modifier = Modifier.size(48.dp),
+                // 11-16 晚 MD3 收编：与 ⟲ 复位钮同构（原生组件 + softFillColor 容器）。
+                // 九版手工迭代（半透明/描边/投影补丁）全部退役——MD3 组件自带
+                // 状态层与可点面积，亮暗主题自动派生，容器色与书籍填充框统一。
+                FloatingActionButton(
+                    modifier = Modifier.size(56.dp),
+                    shape = FloatingActionButtonDefaults.shape(),
+                    containerColor = softFillColor(),
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 3.dp),
+                    // 动作在外层 72dp 触摸区 Box 上（与 ⟲ 同款口径），FAB 只负责视觉，
+                    // 避免 Box.clickable + FAB.onClick 双触发。
+                    onClick = {},
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         val cd = stringResource(id = R.string.move_to_bottom)
@@ -2349,11 +2353,11 @@ internal fun LogScreen(
                         // 十一版（11-16 01:57 用户定稿）：
                         // 「箭头用单箭头，竖直向下那个」——回到 11-15 那支 Canvas 描边单箭头
                         //（竖直杆 + 圆头 + 34% 头宽），不用 ⇊ 了。
-                        // 尺寸按 48dp 圆配 **18dp**（占圆径 37%，与之前 56/20=36% 同一比例）。
+                        // 尺寸按 56dp 圆配 **20dp**（占圆径 36%，维持原比例；11-16 晚定稿 56dp）。
                         val arrowColor = MaterialTheme.colorScheme.primary
                         Canvas(
                             modifier = Modifier
-                                .size(18.dp)
+                                .size(20.dp)
                                 .semantics { contentDescription = cd }
                         ) {
                             val w = size.width
