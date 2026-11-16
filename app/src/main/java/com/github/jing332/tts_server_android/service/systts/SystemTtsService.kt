@@ -1378,10 +1378,19 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                     // 为什么耗时 0 就不显示：`0.0s` 恒等于「没花时间」，写出来只占宽度、
                     // 还会把首行挤到折行（用户 11-16 实报「一行放不下放两行」）。
                     // 判据用 e.costTime == 0 而不是 fromCache——真实秒回也可能真有耗时。
+                    //
+                    // 11-16 七改（用户选 A）：**去掉大小后的「（预）」**。
+                    // 病根不是宽度不够，是同一个信息说了三遍——行首「（预合成）」、
+                    // 丸「预合成」、大小后「（预）」；实拍折行是 FlowRow 元素多导致的，
+                    // 不是这一行字太多。去掉后缀即可：
+                    //   预合成行 → `278.7 KB`（耗时 0 已隐藏）
+                    //   现场合成 → `44.5 KB · 2.1s`（不变）
+                    // 来历仍由行首「（预合成）：」+「预合成」丸两处表达，不丢信息。
+                    // 为什么不缩字号：LOG_AUX_SIZE=12sp 是时间/状态丸/段号/耗时四处共用，
+                    // 单独缩它违背 10-13「胶囊后边的文字大小跟时间要一致」的定案。
                     val sizeText = e.size.sizeToReadable()
                     val detail = buildString {
                         append(sizeText)
-                        if (e.request.fromCache) append("（预）")
                         if (e.costTime > 0L) append(" · ").append(costText)
                     }
                     // 11-16 终稿（用户定「预合成」）：前缀定为「（预合成）」。
