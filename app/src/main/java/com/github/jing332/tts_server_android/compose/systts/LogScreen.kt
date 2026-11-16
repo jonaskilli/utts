@@ -2161,7 +2161,43 @@ internal fun LogScreen(
                         val capped = gap.coerceIn(0.dp, vp * FOLLOW_TAIL_RATIO)
                         capped + TAIL_BREATH_DP.dp
                     } else TAIL_BREATH_DP.dp
-                    Spacer(Modifier.height(tailHeight))
+                    // 11-17 用户令「空白能改个好看的样式吗，让他不要那么空」：
+                    // 缺口大时（>48dp）空白不再裸奔——中央放一枚「朗读中」落款：
+                    // PlayingIndicator 同款波形（复用组件，主题绿、已有动效参数）
+                    // + 「正在朗读」字样，底色主色 8% 混页底（与「成功」丸同源），
+                    // 读作页面注脚而非空洞。小尾白（8dp 呼吸档）不画，保持贴底干净。
+                    if (tailHeight > 48.dp && playingMatch != null) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(tailHeight),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(50))
+                                    .background(
+                                        lerp(
+                                            MaterialTheme.colorScheme.background,
+                                            MaterialTheme.colorScheme.primary,
+                                            0.08f
+                                        )
+                                    )
+                                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                            ) {
+                                PlayingIndicator()
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    "正在朗读",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                        }
+                    } else {
+                        Spacer(Modifier.height(tailHeight))
+                    }
                 }
             }
 
