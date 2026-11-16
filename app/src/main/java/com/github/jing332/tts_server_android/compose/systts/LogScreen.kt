@@ -1372,7 +1372,7 @@ internal fun LogScreen(
             runCatching { listState.animateScrollBy(delta) }
         }
 
-        LaunchedEffect(list.size, scrollMode, userDragging, pendingJumpToBottom, currentGroups) {
+        LaunchedEffect(list.size, scrollMode, userDragging, pendingJumpToBottom, currentGroups, searchQuery) {
             // 11-16 晚三态：「跟随最新」接管原 autoScrollToBottom 恒 false 的死链——
             // 新日志到达自动滚底。【11-17 放宽】跟随最新态下拖拽期间不强拉，且**松手
             // 停在原地不弹回**——只有新日志到达才滚底。参照最早「实时最新」勾选版：
@@ -1385,7 +1385,11 @@ internal fun LogScreen(
             lastSeenSize = list.size
             // 拖拽中到达的新日志：本次先不滚（别硬拽手指下的列表）。松手后也不补滚
             // ——lastSeenSize 已推进，松手不构成新日志，人停在原地（11-17 宽松语义）。
-            val wantScroll = (scrollMode == ScrollMode.FOLLOW_LATEST && isNewLogArrival && !userDragging) ||
+            // 搜索态豁免（11-17 用户实报）：开着「最新」搜历史时，新到的匹配日志不该把
+            // 人从搜索结果里拽走——搜索=查历史，跟随最新暂停；跳匹配由上层 searchQuery
+            // 的 LaunchedEffect 负责，清空搜索回到跟随语义。
+            val wantScroll = (scrollMode == ScrollMode.FOLLOW_LATEST && isNewLogArrival &&
+                !userDragging && searchQuery.isBlank()) ||
                 autoScrollToBottom || pendingJumpToBottom
             if (wantScroll && currentGroups.items.isNotEmpty()) {
                 runCatching { listState.animateScrollToItem(currentGroups.items.lastIndex) }
