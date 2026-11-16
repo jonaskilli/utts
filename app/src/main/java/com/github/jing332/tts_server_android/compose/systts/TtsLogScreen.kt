@@ -2,6 +2,12 @@ package com.github.jing332.tts_server_android.compose.systts
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -1506,7 +1512,8 @@ private fun hasSynthLine(
 // 书章行只在有数据时显示（老规则/单语音模式下整块隐藏，不出现空条）。
 // 字号按主次（11-16 换位后）：书章 13sp 主角 > 筛选 12sp = 胶囊 12sp = 合成 12sp。
 // 字色：书章 100% onSurface（黑色，你令提黑但不加粗）；筛选/胶囊/合成 78% 灰。
-// 合成进度行另有一枚前置绿点做「这行是活的」的提示（11-16 用户令），颜色仍按筛选行走。
+// 合成进度行另有一枚前置绿点做「这行是活的」的提示（11-16 用户令），颜色仍按筛选行走：
+// 播放中呼吸（绿），停止变灰点静止——见下方进度行 if/else 注释。
 @Composable
 private fun PinnedLogHeader(
     errorOnly: Boolean,
@@ -2252,15 +2259,44 @@ private fun PinnedLogHeader(
                 //     字色归队筛选行（78% 灰），身份靠一枚点单独表达，两件事分开。
                 //
                 // 点的规格（与全站圆点同口径：见本页 1462 的时间轴圆点、LogScreen 的
-                // 成功丸前置点，都是 5dp + CircleShape），取 primary 主色。
+                // 成功丸前置点，都是 5dp + CircleShape）。动态口径见下方 if/else 注释
+                // （播放=呼吸绿，停止=灰点静止）。
                 // 位置：Row 内居中对齐（verticalAlignment=CenterVertically），
                 // 与文字同一视觉中线；右侧留 5dp（点 5 + 间隙 5 ≈ 一个字的半宽，
                 // 不会跟「当前：」贴死，也不至于看起来像两个独立元素）。
-                Box(
-                    Modifier
-                        .size(5.dp)
-                        .background(MaterialTheme.colorScheme.primary, CircleShape)
-                )
+                // 11-16 晚用户令（推翻我按静态 A 案的落定）：「正在合成和缓存那一行
+                // 绿点不是动态点吗？你预览都出了，怎么现在是静态点？」——落回预览 B 案：
+                //   · 播放中：绿点呼吸（rememberInfiniteTransition，700ms 去回 ≈1.4s 一个
+                //     来回，透明度 1→0.3→1）。动画只挂在播放态的 Composable 上，切到停止
+                //     分支即离开组合，动画随之销毁，不耗帧。
+                //   · 停止：灰点静止（onSurface@38%）。不选「停止无点」的 C 案：留一颗
+                //     灰点行高不变、左右不跳位，且保留「流水线还在、只是没在播」的暗示；
+                //     要换 C 案删 else 分支即可。
+                //   · ⚠️ 呼吸用 alpha 而不是改尺寸/颜色：改尺寸会牵动行内基线，改颜色
+                //     要插值两个 Color；alpha 只动透明度，GPU 合成最便宜。
+                if (playingNow) {
+                    val dotTransition = rememberInfiniteTransition(label = "progDot")
+                    val dotAlpha by dotTransition.animateFloat(
+                        initialValue = 1f,
+                        targetValue = 0.3f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(durationMillis = 700, easing = LinearEasing),
+                            repeatMode = RepeatMode.Reverse,
+                        ),
+                        label = "progDotAlpha",
+                    )
+                    Box(
+                        Modifier
+                            .size(5.dp)
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = dotAlpha), CircleShape)
+                    )
+                } else {
+                    Box(
+                        Modifier
+                            .size(5.dp)
+                            .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f), CircleShape)
+                    )
+                }
                 Spacer(Modifier.width(5.dp))
                 Text(
                     text = text,
