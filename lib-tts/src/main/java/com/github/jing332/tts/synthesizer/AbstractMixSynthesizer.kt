@@ -217,9 +217,22 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
     private fun cacheKeyOf(segment: TextSegment, params: SystemParams): String =
         cacheKeyOf(segment.text, segment.tts)
 
+    // 11-17（预热复用率 33~45% 排障插桩，装机一轮后可删）：预热写 key 与播放读 key
+    // 分别打出来——同一文本两行 key 不同时，从维度明细里直接看差在哪个字段。
+    // 只打 DEBUG 且截断 key，不影响行为与性能。
+    private fun logCacheKey(stage: String, key: String, text: String, cfg: TtsConfiguration) {
+        logger.debug {
+            "cacheKey[$stage] key=${key.take(8)} src=${cfg.source.getKey()}|${cfg.source.javaClass.simpleName}" +
+                " voice=${cfg.source.voice} locale=${cfg.source.locale}" +
+                " sp=${cfg.audioParams.speed} vol=${cfg.audioParams.volume} pitch=${cfg.audioParams.pitch}" +
+                " sr=$maxSampleRate text=${text.take(16)}"
+        }
+    }
+
     /** 单段预热：已有缓存直接算成功；否则合成并写缓存。 */
     private suspend fun preloadOne(segment: TextSegment, params: SystemParams): Boolean {
         val key = cacheKeyOf(segment, params)
+        logCacheKey("preWrite", key, segment.text, segment.tts)
         if (SynthesizedAudioCache.get(key) != null) return true
 
         val sink = CollectSink()
@@ -479,7 +492,9 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
         // 会盖住真实的失败，让重试链永远「成功」。
         // 播放与预热共用同一条管线，所以这里一处接入，两条路径都生效。
         if (retries == 0) {
-            val cachedPcm = SynthesizedAudioCache.get(cacheKeyOf(params.text, config))
+            val playKey = cacheKeyOf(params.text, config)
+            logCacheKey("playRead", playKey, params.text, config)
+            val cachedPcm = SynthesizedAudioCache.get(playKey)
             if (cachedPcm != null) {
                 logger.info { "cache hit: ${params.text.take(20)}" }
                 if (emitHitLog) {
