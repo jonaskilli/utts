@@ -2133,15 +2133,34 @@ internal fun LogScreen(
                     //
                     // 11-15 用户令「朗读行要落在中部」：朗读行通常挨着列表末端，
                     // 下方没内容它就滚不上去——尾部留白给足「把朗读行顶到锚线」的余量。
-                    // 只在朗读中加（不朗读时列表尾部就该贴底，多留白反而怪）。
-                    // 11-16 晚 0.45→0.55（无带固定锚线后，每段都要精确到锚线）；
-                    // 11-17 0.55→**0.65**（锚点 0.42→0.30 上移，行顶要更高、滚量更大）。
-                    // 装机若觉得空太多/太少，只调这一个常量。
-                    val tailHeight = if (playingMatch != null && viewportHeightPx > 0) {
-                        with(LocalDensity.current) {
-                            (viewportHeightPx * FOLLOW_TAIL_RATIO).toDp().coerceAtLeast(8.dp)
-                        }
-                    } else 8.dp
+                    // ===== 11-17 缺口式（用户实报「点击最新下方全是空白…看着也不好看」）=====
+                    // 旧版常驻 0.65 视口尾白有两个毛病：①跟随最新/↓ 跳底把末项顶到视口顶，
+                    // 下方全是空白；②朗读行后面明明还有日志（预合成在刷，常态），白填那么多。
+                    // 新口径：
+                    //   · 只在**跟随朗读态**补缺口——自然/跟随最新态尾白=8dp，贴底无空白；
+                    //   · 缺口 = 视口×0.30（锚线下方所需）− 朗读行之后剩余项的估算高度
+                    //    （剩余项数 × 朗读行自身行高，主题字号自动校准）；≤0 时 8dp。
+                    //   · 上限 FOLLOW_TAIL_RATIO 兜底（剩余项少且矮时保锚线可落位）。
+                    // 装机若觉得空太多/太少，只调 FOLLOW_TAIL_RATIO / FOLLOW_ANCHOR_RATIO。
+                    val tailHeight = if (playingMatch != null && viewportHeightPx > 0 &&
+                        scrollMode == ScrollMode.FOLLOW_PLAYING
+                    ) {
+                        val vp = with(LocalDensity.current) { viewportHeightPx.toDp() }
+                        // 朗读行之后还有多少列表项（末项本身也要算：末项下面才是空白区）
+                        val itemsAfterPlaying = currentGroups.items.size - playingMatch.listItem
+                        // 平均行高：用朗读行当前布局 size（不可见时退视口 10% 估算）
+                        val playingItemInfo = listState.layoutInfo.visibleItemsInfo
+                            .firstOrNull { it.index == playingMatch.listItem }
+                        val avgItemPx = playingItemInfo?.size
+                            ?: (viewportHeightPx * 0.10f).toInt()
+                        val avgItemDp = with(LocalDensity.current) { avgItemPx.toDp() }
+                        // 剩余内容 ≈ itemsAfterPlaying × 平均行高；打 8 折保守（首末项高矮不一）
+                        val contentBelow = avgItemDp * itemsAfterPlaying * 0.8f
+                        // 缺口 = 锚线下方所需 − 已有内容；≤0 说明后面日志足够多，不用补
+                        val gap = vp * FOLLOW_ANCHOR_RATIO - contentBelow
+                        val capped = gap.coerceIn(0.dp, vp * FOLLOW_TAIL_RATIO)
+                        capped + TAIL_BREATH_DP.dp
+                    } else TAIL_BREATH_DP.dp
                     Spacer(Modifier.height(tailHeight))
                 }
             }
@@ -2476,12 +2495,23 @@ enum class ScrollMode { FOLLOW_PLAYING, NATURAL, FOLLOW_LATEST }
 //   就是无感空滚），而不是位置区间。
 
 /**
- * 朗读中列表尾部的额外留白比例（× 视口高度）。
- * 没有它，「把朗读行顶到锚线」根本做不到——它贴着列表末端，下方无内容可滚。
- * 11-17 随锚点 0.42→0.30 上调：行顶要推到更高的位置，下方需要更多滚量，
- * 最坏情况（朗读行是最后一行且较矮）：行高 ~8% + 尾白 ≥0.30+0.08=38% → 取 0.65 富余。
+ * 朗读中列表尾部的**最大**留白比例（× 视口高度）——11-17 改「缺口式」后的上限。
+ *
+ * 没有尾白，「把朗读行顶到锚线」根本做不到——它贴着列表末端，下方无内容可滚。
+ * 但**常驻大尾白有代价**：跟随最新/跳底会把末项顶贴到视口顶，下方全是空白
+ * （用户 11-17 实报「点击最新，下方就变成空白了…看着也不好看」）。
+ *
+ * 缺口式两原则：
+ *   ① 只在**跟随朗读态**生效——跟随最新/自然态尾白回落 8dp（贴底无空白）；
+ *   ② 即使跟随朗读，也只补**锚线减去朗读行下方实际内容**的缺口，上限 FOLLOW_TAIL_RATIO。
+ *      朗读行后面还有日志时（预合成在刷，常态），缺口≈0，尾白=8dp，无空白；
+ *      只有朗读行就是列表末条（刚开播第一条）时才补出真实需要的空白。
+ * 跟随朗读态的锚线滚动对齐的是**组合结果**（内容+缺口尾白），视觉不变。
  */
 private const val FOLLOW_TAIL_RATIO = 0.65f
+
+/** 非跟随朗读态（自然/跟随最新）与缺口≈0 时的兜底尾白：只做行尾呼吸。 */
+private const val TAIL_BREATH_DP = 8
 
 /**
  * 某条日志是不是「成功的获取结果子行」。
