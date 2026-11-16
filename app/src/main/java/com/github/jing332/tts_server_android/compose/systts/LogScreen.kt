@@ -2261,7 +2261,11 @@ internal fun LogScreen(
         AnimatedVisibility(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(end = 16.dp, bottom = 104.dp),
+                // 11-17 对齐修正（用户实拍「右边距不一致」）：外层 72dp 触摸 Box 居中套
+                // 56dp 可见键，视觉右缘 = padding + (72-56)/2，故 padding 用 8dp 才能与
+                // ↓ 键（同为 8dp + 56dp 直出）对齐在 16dp。旧值 16dp 使 ⟲ 视觉右缘 24dp、
+                // 比 ↓ 左凸 8dp。底距 104dp 不变（12dp 纵间距：104-20-56-12-8 检算见 ↓）。
+                .padding(end = 8.dp, bottom = 104.dp),
             // 【11-16 晚澄清】跟随最新态拖拽期间也隐藏（用户滑动时体感=自然态，⟲ 冒出来干扰）；
             // 松手立刻回底，⟲ 没有出现窗口。仅自然态长期驻留。
             visible = (scrollMode == ScrollMode.NATURAL || (scrollMode == ScrollMode.FOLLOW_LATEST && !userDragging)) &&
@@ -2285,7 +2289,15 @@ internal fun LogScreen(
                     elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 3.dp),
                     onClick = { onScrollModeChange(ScrollMode.FOLLOW_PLAYING) },
                 ) {
-                    Icon(Icons.Default.Refresh, contentDescription = "回朗读")
+                    // 11-17 用户令「复原键中间那个也不是跟箭头一个颜色」：Refresh 图标
+                    // tint 跟 ↓ 箭头同为主题绿（primary）——两键同列同职能（都是滚动
+                    // 工具键），图标同色才是同一套视觉语言；contentColor 留默认近黑会
+                    // 被 读成两代键。
+                    Icon(
+                        Icons.Default.Refresh,
+                        contentDescription = "回朗读",
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
                 }
             }
         }
@@ -2293,15 +2305,19 @@ internal fun LogScreen(
         AnimatedVisibility(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
+                // 11-17 对齐修正：↓ 的 padding 也收 8dp——它也套 72dp 触摸 Box（见下），
+                // 视觉右缘 = 8 + (72-56)/2 = 16dp，与 ⟲ 一致。旧值 16dp 使视觉右缘 24dp。
                 // 11-17 用户定稿：↓ 挪到右下角（BottomEnd，与 ⟲ 纵列对齐），
                 // 底距 20dp 不变（不压底栏）。原 BottomCenter 口径退役。
-                .padding(end = 16.dp, bottom = 20.dp),
+                .padding(end = 8.dp, bottom = 20.dp),
             visible = !isAtBottom || showJumpToBottom,
             enter = fadeIn() + expandIn(expandFrom = Alignment.BottomCenter),
             exit = shrinkOut(shrinkTowards = Alignment.BottomCenter) + fadeOut(),
         ) {
             // 外层承担 72dp 触摸区（透明），内层 56dp 才是可见键——
             // Compose 里触摸区由最外层有尺寸的节点决定，所以不能只给 FAB 加 padding。
+            // 11-17 补回：⟲ 一直有这层 72dp Box，↓ 漏了（直出 56dp）——两键触摸区不一
+            // 致的暗差随本轮对齐修正一并消除。
             // 11-15 用户令「这个箭头这个键得大一点不然很容易点击到日志，然后点开幻兽
             // （换声）面板」：原 56dp 触摸区/40dp 视觉键低于 Material 48dp 最小可点，
             // 指尖偏 1~2 像素就落到下面的请求行（整行可点弹换声面板）。放大后误触判定分化：
@@ -2312,10 +2328,11 @@ internal fun LogScreen(
             // 空 onClick，只有圆外透明环才落到 Box。「一点就到底」的旧结构=Surface
             // 无 onClick、点击穿透到 Box。修法：动作搬回 FAB.onClick，删外层
             // Box.clickable（防双触发的顾虑随 Box 失去可点击性自动消失）。
-            FloatingActionButton(
-                modifier = Modifier.size(56.dp),
+            Box(modifier = Modifier.size(72.dp), contentAlignment = Alignment.Center) {
+                FloatingActionButton(
+                    modifier = Modifier.size(56.dp),
                     containerColor = softFillColor(),
-                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
                 elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 3.dp),
                 onClick = {
                     scope.launch {
@@ -2412,7 +2429,7 @@ internal fun LogScreen(
                         }
                     }
                 }
-            }
+            } // 72dp 触摸 Box（11-17 补回，与 ⟲ 同构）
         }
     }
 
