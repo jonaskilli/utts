@@ -518,8 +518,16 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
             CachedEngineManager.removeEngine(config.source)
             delay(context.cfg.retryDelay())
             val toggleTryValue = context.cfg.toggleTry()
-            logger.debug {
-                "retry: retries=$retries, toggleTry=$toggleTryValue, maxRetries=$maxRetries, hasStandby=${config.standbyConfig != null}"
+            // 11-17 用户令（「日志上要有重试记录，不然搞不清楚为啥停顿」）：
+            // 原来是 debug 级、日志页看不见。改成 info 并写全关键信息——
+            // 谁在重试（插件）、第几轮、上限、有没有备用、等多久。
+            logger.info {
+                "TTS重试：第 ${retries + 1}/$maxRetries 次，插件=${config.source.getKey()}" +
+                    (if (paraIndex >= 0) "，第 ${paraIndex + 1}/${paraTotal} 段" else "") +
+                    (if (roleName.isNotEmpty()) "，角色=$roleName" else "") +
+                    "，" +
+                    "等待 ${context.cfg.retryDelay()}ms 后重来" +
+                    (if (config.standbyConfig != null) "（有备用插件，toggleTry=$toggleTryValue）" else "")
             }
             return if (config.standbyConfig != null && toggleTryValue <= retries + 1) {
                 val fromTag = config.speechInfo.tag
