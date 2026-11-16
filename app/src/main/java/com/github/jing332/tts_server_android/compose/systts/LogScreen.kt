@@ -17,7 +17,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -2260,25 +2259,26 @@ internal fun LogScreen(
             // （换声）面板」：原 56dp 触摸区/40dp 视觉键低于 Material 48dp 最小可点，
             // 指尖偏 1~2 像素就落到下面的请求行（整行可点弹换声面板）。放大后误触判定分化：
             // 触摸 72dp ≈ 拇指肚面积，视觉 56dp 与标准 FAB 同档不显笨重。
-            Box(
-                modifier = Modifier
-                    .size(72.dp)
-                    .clickable(
-                        // 去涟漪但保留可达性语义（浮钮不挂 ripple：压在日志正文上，波纹扎眼）
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                    ) {
-                        scope.launch {
-                            kotlin.runCatching {
-                                // 唯一动作 = 跳到最新（回朗读位置由温和跟随自动承担）
-                                listState.scrollToItem(currentGroups.items.lastIndex)
-                            }
+            // 11-17 用户实报「点击箭头都没反应」根因：MD3 收编时把跳底动作留在外层
+            // 72dp Box.clickable、FAB onClick 摘空——但 FloatingActionButton 与旧版
+            // Surface 不同，它**自己消费点击**：点在 56dp 可见圆内事件被 FAB 吃掉走
+            // 空 onClick，只有圆外透明环才落到 Box。「一点就到底」的旧结构=Surface
+            // 无 onClick、点击穿透到 Box。修法：动作搬回 FAB.onClick，删外层
+            // Box.clickable（防双触发的顾虑随 Box 失去可点击性自动消失）。
+            FloatingActionButton(
+                modifier = Modifier.size(56.dp),
+                    containerColor = softFillColor(),
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 3.dp),
+                onClick = {
+                    scope.launch {
+                        kotlin.runCatching {
+                            // 唯一动作 = 跳到最新（回朗读位置由温和跟随自动承担）
+                            listState.scrollToItem(currentGroups.items.lastIndex)
                         }
-                    },
-                contentAlignment = Alignment.Center,
+                    }
+                },
             ) {
-                // 视觉键（56dp）：用户 11-15 三连令「键大一点防误触」+「隐形一点不遮挡」+
-                //「会不会看不清是箭头还是复原？」。
                 //
                 // 11-15 晚三改定稿（用户令：「我还是想要那种透明的，只是它的边缘给改一下，
                 // 之前的边缘有问题」）。
@@ -2328,16 +2328,7 @@ internal fun LogScreen(
                 // 11-16 晚 MD3 收编：与 ⟲ 复位钮同构（原生组件 + softFillColor 容器）。
                 // 九版手工迭代（半透明/描边/投影补丁）全部退役——MD3 组件自带
                 // 状态层与可点面积，亮暗主题自动派生，容器色与书籍填充框统一。
-                FloatingActionButton(
-                    modifier = Modifier.size(56.dp),
-                        containerColor = softFillColor(),
-                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                    elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 3.dp),
-                    // 动作在外层 72dp 触摸区 Box 上（与 ⟲ 同款口径），FAB 只负责视觉，
-                    // 避免 Box.clickable + FAB.onClick 双触发。
-                    onClick = {},
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
+                Box(contentAlignment = Alignment.Center) {
                         val cd = stringResource(id = R.string.move_to_bottom)
                         // 八版（11-15 晚）：
                         // ① **箭头放大**：用户「参考图那个箭头比较大、比较明显」——参考图里
@@ -2377,7 +2368,6 @@ internal fun LogScreen(
             }
         }
     }
-}
 
 // 搜索命中判定（条目级）：正文或时间含搜索词
 private fun isMatchEntry(e: LogEntry, q: String): Boolean =
