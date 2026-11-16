@@ -2145,47 +2145,11 @@ internal fun LogScreen(
                         }
                     }
                 }
-                // ===== 11-17 用户令「有边界线，知道哪里是终点」=====
-                // 列表末项之后、尾白之前插一条「到底」边界：1dp 分隔线（与条目间线同色）
-                // + 「已经到底了 · 共 N 条」小字。作用：底栏隐藏态（上滑翻历史）列表贴着
-                // 手势条区，没有终点提示会一直往上滑找新日志；底栏显示态（atBottom 回显）
-                // 它在底栏上方，同样标出内容终点。可点=回顶部（与双击标题栏同动作，
-                // 原先"回顶部"只有双击一个入口，10-10 用户令）。
-                item(key = "log_end_marker") {
-                    Column(
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        HorizontalDivider(
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                        )
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable(
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = null,
-                                ) {
-                                    scope.launch {
-                                        runCatching { listState.animateScrollToItem(0) }
-                                    }
-                                }
-                                .padding(horizontal = 16.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                text = "已经到底了",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                            )
-                            Spacer(Modifier.weight(1f))
-                            Text(
-                                text = "共 ${list.size} 条 · 点此回顶部",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
-                            )
-                        }
-                    }
-                }
+                // ===== 11-17 用户令「整行删掉」=====
+                // 「已经到底了 · 共 N 条 · 点此回顶部」边界行整行撤（用户本轮拍板：
+                // 「我感觉都不合适，现在也不美观」）。终点提示与点此回顶部入口一并消失，
+                // 回顶部仍剩双击标题栏入口（10-10 用户令的入口不缺）。
+                // 尾白（下方 item）：跟随朗读态按缺口式补，其余态 8dp 呼吸，见下注。
                 item {
                     // 尾部 Spacer 曾用 navigationBarsPadding（手势条避让）——与本页上游
                     // MainPager bottomPad（含手势条）+ TtsLogScreen calculateBottomPadding
@@ -2222,43 +2186,10 @@ internal fun LogScreen(
                         val capped = gap.coerceIn(0.dp, vp * FOLLOW_TAIL_RATIO)
                         capped + TAIL_BREATH_DP.dp
                     } else TAIL_BREATH_DP.dp
-                    // 11-17 用户令「空白能改个好看的样式吗，让他不要那么空」：
-                    // 缺口大时（>48dp）空白不再裸奔——中央放一枚「朗读中」落款：
-                    // PlayingIndicator 同款波形（复用组件，主题绿、已有动效参数）
-                    // + 「正在朗读」字样，底色主色 8% 混页底（与「成功」丸同源），
-                    // 读作页面注脚而非空洞。小尾白（8dp 呼吸档）不画，保持贴底干净。
-                    if (tailHeight > 48.dp && playingMatch != null) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(tailHeight),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(50))
-                                    .background(
-                                        lerp(
-                                            MaterialTheme.colorScheme.background,
-                                            MaterialTheme.colorScheme.primary,
-                                            0.08f
-                                        )
-                                    )
-                                    .padding(horizontal = 12.dp, vertical = 6.dp),
-                            ) {
-                                PlayingIndicator()
-                                Spacer(Modifier.width(6.dp))
-                                Text(
-                                    "正在朗读",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.primary,
-                                )
-                            }
-                        }
-                    } else {
-                        Spacer(Modifier.height(tailHeight))
-                    }
+                    // 11-17 用户令「正在朗读加的好丑」：缺口里的「朗读中」波形落款胶囊整撤
+                    // （朗读行自身已有波形丸+绿底高亮，落款属重复装饰），空白回归纯空白。
+                    // 用户口径：选了「正在播放键」，底部有空白能接受——纯空白即可。
+                    Spacer(Modifier.height(tailHeight))
                 }
             }
 
