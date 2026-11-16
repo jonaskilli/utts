@@ -1393,10 +1393,18 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                     // 来历仍由行首「（预合成）：」+「预合成」丸两处表达，不丢信息。
                     // 为什么不缩字号：LOG_AUX_SIZE=12sp 是时间/状态丸/段号/耗时四处共用，
                     // 单独缩它违背 10-13「胶囊后边的文字大小跟时间要一致」的定案。
-                    val sizeText = e.size.sizeToReadable()
-                    val detail = buildString {
-                        append(sizeText)
-                        if (e.costTime > 0L) append(" · ").append(costText)
+                    // 11-17 八改（用户令「预合成卡片的音频大小不要写」）：
+                    // 预合成行只剩 prefix「获取成功（预合成）：」+ 丸，**大小与耗时都不显示**。
+                    // 理由：预合成的大小是解码后 PCM，与现场合成的压缩流不可比，写了反而误读；
+                    // 且「这段是提前做好的」已由行首「（预合成）」+「预合成」丸两处表达，
+                    // 大小对判断「这段能不能直接播」没有信息量。现场合成行照旧「大小 · 耗时」。
+                    val detail = if (e.request.fromCache) {
+                        ""
+                    } else {
+                        buildString {
+                            append(e.size.sizeToReadable())
+                            if (e.costTime > 0L) append(" · ").append(costText)
+                        }
                     }
                     // 11-16 终稿（用户定「预合成」）：前缀定为「（预合成）」。
                     // 沿革：「（缓存）」歧义（U阅 也有缓存）→「（本地缓存）」仍歧义
