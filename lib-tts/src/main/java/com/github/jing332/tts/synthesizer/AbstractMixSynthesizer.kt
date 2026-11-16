@@ -491,9 +491,10 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
         // 只在本笔的**首次**尝试查（retries==0）：重试时不查，否则缓存里的旧音频
         // 会盖住真实的失败，让重试链永远「成功」。
         // 播放与预热共用同一条管线，所以这里一处接入，两条路径都生效。
+        // 11-17：playKey 提到函数级——下方流处理成功后写缓存也要用它（重试 retries>0 为 null）。
+        val playKey = if (retries == 0) cacheKeyOf(params.text, config) else null
         if (retries == 0) {
-            val playKey = cacheKeyOf(params.text, config)
-            logCacheKey("playRead", playKey, params.text, config)
+            logCacheKey("playRead", playKey!!, params.text, config)
             val cachedPcm = SynthesizedAudioCache.get(playKey)
             if (cachedPcm != null) {
                 logger.info { "cache hit: ${params.text.take(20)}" }
@@ -627,13 +628,24 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
             // 网络流的 read() 可能无限阻塞导致既不成功也不失败、卡住无法重试。
             // 这里用超时保护，超时后关闭流打断阻塞 IO 并触发重试。
             val streamTimeout = maxOf(context.cfg.requestTimeout() * 3, 30_000L)
+            // 11-17（播放路径写缓存，收「普通播放路径不写缓存」遗留项）：边推播放通道边攒全量，
+            // 成功后写 synth_cache。真机实锤的代价（00:27:22–40）：跳段/换章破窗把在途段
+            // 标「已取消」时 PCM 已完整到手却被丢弃（播放路径从不落缓存），U阅 重提交同一句
+            // 只能再花 1.5~2.0s 现场合成——跳段卡顿的主因之一。写缓存后重提交直接命中秒回。
+            // 攒一份的内存代价：每段几十~几百 KB，并发 2 路峰值约 1MB，可接受。
+            // 失败/超时/取消不 put（collectBuf 里没有完整数据或半截），与预热口径一致。
+            val collectBuf = if (playKey != null) java.io.ByteArrayOutputStream() else null
             val processResult = try {
                 withTimeout(streamTimeout) {
                     streamProcessor.processStream(
                         ins = stream,
                         request = request,
                         targetSampleRate = maxSampleRate,
-                        callback = { pcm -> sink.trySendBlocking(ChannelPayload.Bytes(pcm.toByteArray())) },
+                        callback = { pcm ->
+                            val bytes = pcm.toByteArray()
+                            collectBuf?.let { it.write(bytes) }
+                            sink.trySendBlocking(ChannelPayload.Bytes(bytes))
+                        },
                         requestCostMs = requestCostMs,
                     )
                 }
@@ -649,6 +661,10 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
             processResult.onFailure { e ->
                 event(ErrorEvent.ResultProcessor(request, e), request)
                 needRetry = true
+            }
+            // 流处理成功才落缓存（失败/超时已 needRetry，不 put 半截数据）
+            if (!needRetry && playKey != null && collectBuf != null && collectBuf.size() > 0) {
+                SynthesizedAudioCache.put(playKey, collectBuf.toByteArray())
             }
         }
         // 锁已释放，此处重试不会自锁
