@@ -2193,17 +2193,19 @@ internal fun LogScreen(
         // 右下角单手拇指够不着（手机宽 + 底距 20dp），遮挡问题让位于可达性——
         // 它压住的是当时那一眼的正文，且浮钮有投影从正文里浮起，用户可感知。
         // 底距 20dp 不变（不压底栏）。
-        // ===== 11-16 晚三态：自然态复位浮钮（用户定稿）=====
-        // 出现条件：NATURAL 态 + 在朗读中 + **朗读行滚出视野**（可见时不需要）。
+        // ===== 11-16 晚三态：复位浮钮（用户澄清后修正出现条件）=====
+        // 出现条件不按模式名限定，只看**事实**：在朗读中 + **朗读行不在当前界面**。
+        // ——自然态（被动进入）与跟随最新态（朗读行被新日志顶出视野）都可能出现；
+        // 唯一不出现的是跟随朗读态本身（朗读行本就在界面内跟随，无复位需求）。
         // 用户原话：「上下滑动到这个正在朗读这条日志，你在界面看不到的时候，
         // 它就会出现复位键，复位键就是切换到这个跟随朗读状态」。
-        // 点击 = 切回 FOLLOW_PLAYING（温和跟随立刻把朗读行拉回 42% 锚点）。
-        // 与 ↓ 跳最新浮钮（下方 BottomCenter）竖排错开：本键在其上方 76dp 处。
+        // 点击 = 切回 FOLLOW_PLAYING（温和跟随立刻把朗读行拉回 42% 锚点并持续跟随）。
+        // 与 ↓ 跳最新浮钮（下方 BottomCenter）竖排错开：本键在其上方 96dp 处。
         AnimatedVisibility(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(bottom = 96.dp),
-            visible = scrollMode == ScrollMode.NATURAL &&
+            visible = scrollMode != ScrollMode.FOLLOW_PLAYING &&
                 playingSnapshot != null && !playingRowVisible,
             enter = fadeIn() + expandIn(expandFrom = Alignment.BottomCenter),
             exit = shrinkOut(shrinkTowards = Alignment.BottomCenter) + fadeOut(),
