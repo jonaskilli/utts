@@ -899,7 +899,7 @@ internal fun LogScreen(
     list: List<LogEntry>,
     listState: LazyListState = rememberLazyListState(),
     // ===== 11-16 晚：滚动三态（用户定稿状态机）=====
-    // FOLLOW_PLAYING（默认）=温和跟随：朗读行始终拉回视口 42% 锚点；
+    // FOLLOW_PLAYING（默认）=温和跟随：朗读行始终拉回视口 30% 锚点（≈整屏 40%，中上部）；
     //   此态下用户手动拖拽 → onScrollModeChange(NATURAL)（被动自然，复位浮钮接管）；
     // NATURAL=自由浏览：温和跟随与自动滚底都门控关闭，什么都不自动滚；
     //   朗读行滚出视野且在朗读中 → 出现复位浮钮（点它=切回 FOLLOW_PLAYING）；
@@ -1319,7 +1319,7 @@ internal fun LogScreen(
         // 又能看到下面，但是你也可以稍微有一点偏差，重点是这一块要能显示出来」。
         //
         // 两条配套（缺一条就做不到）：
-        //   ① 跟随锚点从「最小滚动量拉回边缘」改为「拉回到视口 42% 处」；
+        //   ① 跟随锚点从「最小滚动量拉回边缘」改为「拉回到视口锚点处」（11-17 起 30%）；
         //   ② 列表末尾必须留出足够空白——朗读行通常靠近列表末端，下方没内容的话
         //      再怎么滚它也上不去（这正是它此前总停在下 1/4~1/3 的真因，
         //      不是判定逻辑的问题）。故尾部 Spacer 在朗读中改成视口高度的 ~45%。
@@ -1342,7 +1342,7 @@ internal fun LogScreen(
             val vEnd = info.viewportEndOffset
             val vpH = vEnd - vStart
             if (vpH <= 0) return@LaunchedEffect
-            // 目标锚点：行顶落在视口 42% 处（略偏上，下面是后续日志、上面是刚过去的）
+            // 目标锚点：行顶落在视口 30% 处（11-17 用户令「放中上部」，≈整屏 40%）
             val anchorPx = (vpH * FOLLOW_ANCHOR_RATIO).toInt()
 
             val item = info.visibleItemsInfo.firstOrNull { it.index == target }
@@ -2132,10 +2132,10 @@ internal fun LogScreen(
                     // 改固定 8dp 只做行尾呼吸，手势条高度由上游两层负责。
                     //
                     // 11-15 用户令「朗读行要落在中部」：朗读行通常挨着列表末端，
-                    // 下方没内容它就滚不上去——尾部留白给足「把朗读行顶到 42%」的余量。
+                    // 下方没内容它就滚不上去——尾部留白给足「把朗读行顶到锚线」的余量。
                     // 只在朗读中加（不朗读时列表尾部就该贴底，多留白反而怪）。
-                    // 11-16 晚 0.45→**0.55**（无带固定 42% 后，每段都要精确到锚线；最坏情况
-                    // 是朗读行就是最后一行且较矮：行高 8% + 尾白需 ≥58% 才够 42%，0.45 差半口）。
+                    // 11-16 晚 0.45→0.55（无带固定锚线后，每段都要精确到锚线）；
+                    // 11-17 0.55→**0.65**（锚点 0.42→0.30 上移，行顶要更高、滚量更大）。
                     // 装机若觉得空太多/太少，只调这一个常量。
                     val tailHeight = if (playingMatch != null && viewportHeightPx > 0) {
                         with(LocalDensity.current) {
@@ -2202,7 +2202,7 @@ internal fun LogScreen(
         // 唯一不出现的是跟随朗读态本身（朗读行本就在界面内跟随，无复位需求）。
         // 用户原话：「上下滑动到这个正在朗读这条日志，你在界面看不到的时候，
         // 它就会出现复位键，复位键就是切换到这个跟随朗读状态」。
-        // 点击 = 切回 FOLLOW_PLAYING（温和跟随立刻把朗读行拉回 42% 锚点并持续跟随）。
+        // 点击 = 切回 FOLLOW_PLAYING（温和跟随立刻把朗读行拉回 30% 锚点并持续跟随）。
         //
         // 【11-17 用户定稿】两颗都放**右下角**、⟲ 在 ↓ 正上方一格：
         // 「这个位置我决定都放右侧，然后复位键放箭头键的上方」。
@@ -2458,8 +2458,11 @@ internal fun boldBodyOf(e: LogEntry): String {
     return m.groupValues[1].replace(Regex("<[^>]*>"), "").trim()
 }
 
-/** 朗读行跟随锚点：行顶落在视口高度的 42% 处（略偏上＝上面留刚读过的、下面留要读的）。 */
-private const val FOLLOW_ANCHOR_RATIO = 0.42f
+/** 朗读行跟随锚点：行顶落在视口高度的 30% 处（11-17 用户令「放中上部」）。
+ *  历史：0.42（11-16 定稿）——但那是**视口**比例；视口上还压着吸顶区、下有底栏，
+ *  42% 视口 ≈ 整屏 49%，实机看着仍是「中下部」。0.42→0.30：≈整屏 40%，
+ *  屏幕中上部。 */
+private const val FOLLOW_ANCHOR_RATIO = 0.30f
 
 // ===== 11-16 晚：滚动三态（用户定稿状态机，详见 LogScreen 参数 scrollMode 注释）=====
 enum class ScrollMode { FOLLOW_PLAYING, NATURAL, FOLLOW_LATEST }
@@ -2474,9 +2477,11 @@ enum class ScrollMode { FOLLOW_PLAYING, NATURAL, FOLLOW_LATEST }
 
 /**
  * 朗读中列表尾部的额外留白比例（× 视口高度）。
- * 没有它，「把朗读行顶到 42%」根本做不到——它贴着列表末端，下方无内容可滚。
+ * 没有它，「把朗读行顶到锚线」根本做不到——它贴着列表末端，下方无内容可滚。
+ * 11-17 随锚点 0.42→0.30 上调：行顶要推到更高的位置，下方需要更多滚量，
+ * 最坏情况（朗读行是最后一行且较矮）：行高 ~8% + 尾白 ≥0.30+0.08=38% → 取 0.65 富余。
  */
-private const val FOLLOW_TAIL_RATIO = 0.55f
+private const val FOLLOW_TAIL_RATIO = 0.65f
 
 /**
  * 某条日志是不是「成功的获取结果子行」。
