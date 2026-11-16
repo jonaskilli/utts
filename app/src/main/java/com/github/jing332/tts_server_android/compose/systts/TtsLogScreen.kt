@@ -2237,7 +2237,7 @@ private fun PinnedLogHeader(
             // 选中=强制固定日志底部（新日志到达自动滚底，拖拽不退出）；取消=回跟随朗读。
             // 与「实时」（跳最新一次的正交浮钮链）区分。
             PinnedChip(
-                label = "定最新",
+                label = "最新",
                 selected = latestMode,
                 onClick = onToggleLatest,
                 modifier = Modifier.weight(1f),
