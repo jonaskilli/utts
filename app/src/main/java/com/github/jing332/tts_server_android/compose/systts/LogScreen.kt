@@ -1360,11 +1360,14 @@ internal fun LogScreen(
             runCatching { listState.animateScrollBy(delta) }
         }
 
-        LaunchedEffect(list.size, scrollMode, pendingJumpToBottom, currentGroups) {
+        LaunchedEffect(list.size, scrollMode, userDragging, pendingJumpToBottom, currentGroups) {
             // 11-16 晚三态：「跟随最新」接管原 autoScrollToBottom 恒 false 的死链——
-            // 新日志到达自动滚底（强制语义：用户拖拽不切自然，见拖拽挂起分支）。
+            // 新日志到达自动滚底。【11-16 晚澄清修正】跟随最新态下用户拖拽期间**表现成
+            // 自然态**（不强拉，随便翻看历史），模式标记不变（FOLLOW_LATEST）；
+            // **松手（拖拽结束）立马回到最新**——wantScroll 加 !userDragging：
+            // 拖拽中暂停、key 含 userDragging 使松手即重触发回底。
             // pendingJumpToBottom（⇊ 浮钮）与 autoScrollToBottom 参数保持正交不变。
-            val wantScroll = scrollMode == ScrollMode.FOLLOW_LATEST ||
+            val wantScroll = (scrollMode == ScrollMode.FOLLOW_LATEST && !userDragging) ||
                 autoScrollToBottom || pendingJumpToBottom
             if (wantScroll && currentGroups.items.isNotEmpty()) {
                 runCatching { listState.animateScrollToItem(currentGroups.items.lastIndex) }
@@ -2205,7 +2208,9 @@ internal fun LogScreen(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(bottom = 96.dp),
-            visible = scrollMode != ScrollMode.FOLLOW_PLAYING &&
+            // 【11-16 晚澄清】跟随最新态拖拽期间也隐藏（用户滑动时体感=自然态，⟲ 冒出来干扰）；
+            // 松手立刻回底，⟲ 没有出现窗口。仅自然态长期驻留。
+            visible = (scrollMode == ScrollMode.NATURAL || (scrollMode == ScrollMode.FOLLOW_LATEST && !userDragging)) &&
                 playingSnapshot != null && !playingRowVisible,
             enter = fadeIn() + expandIn(expandFrom = Alignment.BottomCenter),
             exit = shrinkOut(shrinkTowards = Alignment.BottomCenter) + fadeOut(),
