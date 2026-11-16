@@ -32,6 +32,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.TimeoutCancellationException
@@ -868,6 +869,19 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
             produce<ChannelPayload>(CoroutineName("Synthesis producer"), PROCUDE_CAPACITY) {
                 textProcess(params, presetConfigId, paraIndex, paraTotal, batchSegments)
                     .onSuccess { list ->
+                        // 11-17（修「发到死通道的假成功」，11-17 00:12:18–29 实锤）：
+                        // textProcess 内含规则脚本/AI 调用的 BlockingIO，协程 cancel 打不断它；
+                        // 真机路径：U阅 TTL 重建连接 → synthesize 协程被 cancel，但拆段 11s 里
+                        // 的阻塞调用继续跑完 → 请求照发 → 发到已关闭的通道 → 引擎零回调零报错，
+                        // 消费端早已不在 → 用户静默死等 3 分 41 秒（C1 看门狗盲区的那条路径）。
+                        // 拆段恢复后第一步先验活性：已取消 = 通道消费端已不在，直接短路，
+                        // 不发请求、不进假成功。纯守卫，正常路径零影响。
+                        if (!isActive) {
+                            logger.info {
+                                "synthesis cancelled during textProcess — skip ${list.size} segment(s), no dead-channel request"
+                            }
+                            return@onSuccess
+                        }
                         try {
                             // 11-15：批量请求 = 预热请求。合成结果写进文本缓存，
                             // **不回传真实音频**（调用方拿到的是一段极短静音，
