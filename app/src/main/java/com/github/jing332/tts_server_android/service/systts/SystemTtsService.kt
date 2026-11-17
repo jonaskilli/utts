@@ -1497,7 +1497,7 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                 is ErrorEvent.Request -> e.cause?.let { friendlyCause(it) } ?: "无响应"
                 is ErrorEvent.RequestTimeout -> "超时"
                 is ErrorEvent.DirectPlay -> friendlyCause(e.cause)
-                is ErrorEvent.ResultProcessor -> friendlyCause(e.error)
+                is ErrorEvent.ResultProcessor -> friendlyCause(e.error.error)
                 else -> "无响应"
             }
             logW("预合成失败（$seg）：$why<br>该段播放时会现场合成，不影响朗读")
