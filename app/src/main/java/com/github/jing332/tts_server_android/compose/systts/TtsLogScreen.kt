@@ -346,22 +346,10 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
 
     fun locateOriginal(entry: LogEntry) {
         // 1) 清**收窄类**筛选（搜索词/级别勾选）——与 isFiltered 的判据保持一致。
-        // 「插件」「朗读规则」两个调试开关**不动**：它们是用户主动开启的追加项，
-        // 不是筛选条件；点一次「原文」就把它们关掉属意外副作用（此前会误关）。
+        // 「插件」「朗读规则」两个混入开关**不动**：正交化后筛错误不再熄灭它们，
+        // 这里也无需恢复——混入是来源开关，独立于筛选状态。
         searchQuery = ""
         vm.clearFilter()
-        // 11-18：恢复「被筛错误临时熄灭」的混入开关——筛错误独占时会强制熄灭两颗混入，
-        // 只靠上面 clearFilter 回不到完整流（规则日志只剩 ERROR 例外一条，1、3 找不回，
-        // 真机实锤）。按熄灭前记忆恢复；记忆立即清零（一次回原位消费一次）。
-        // 用户主动点混入胶囊再熄灭的走 onToggle 路径不写记忆，不受此影响。
-        if (vm.suppressedRuleLogs.value) {
-            vm.showSpeechRuleLogs.value = true
-            vm.suppressedRuleLogs.value = false
-        }
-        if (vm.suppressedPluginLogs.value) {
-            vm.showPluginLogs.value = true
-            vm.suppressedPluginLogs.value = false
-        }
         // 2) 在完整流里找到该条目的卡头，滚动过去并高亮闪现
         val fullList = vm.filteredLogs
         val idx = fullList.indexOfFirst { it == entry }
@@ -728,25 +716,17 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                 if (vm.logs.isNotEmpty())
                 PinnedLogHeader(
                     errorOnly = vm.isErrorsOnly(),
-                    // ===== 11-16 晚：吸顶四颗互斥规则（用户定稿）=====
-                    // 「筛错误」独占：点亮时自动熄灭混入两颗（+规则日志/+插件日志）与
-                    // 「最新」（跟随最新滚错误列表的底语义拧）；再点熄灭回干净流。
-                    // 「最新」与混入两颗可并存（跟随最新滚的是含混入行的完整流）；
-                    // 混入两颗之间可并选（两个缓冲都混进主日志流）。
-                    // 点混入/最新时若「筛错误」亮着 → 自动退出筛错误（用户没有明确要求
-                    // 这个方向，但独占语义要求对称：筛错误亮着时点其他键必然要退它，
-                    // 否则「独占」名不副实）。
+                    // ===== 吸顶四颗（11-18 正交化，用户令）=====
+                    // 「筛错误」= 系统主日志的级别过滤；「+朗读规则/+插件日志」= 混入来源开关
+                    // （勾了即全量混入，混入行豁免级别过滤，见 filteredLogs.keep）。三者**并选**
+                    // ——11-16 的「筛错误熄灭混入」口径作废：那次熄灭 + 回原位不恢复，
+                    // 导致用户勾过的规则日志全量视图丢失、同组 1、3 条找不回（真机实锤）。
+                    // 「最新」保持与筛错误互斥（跟随最新滚错误列表的底语义确实拧）。
                     onToggleErrorOnly = {
                         if (vm.isErrorsOnly()) {
                             vm.showAllLevels()
                         } else {
                             vm.showErrorsOnly()
-                            // 11-18：熄灭前先记住混入开关是否亮着——「回原位」要按记忆恢复
-                            //（否则用户勾过的规则日志全量视图丢失，只剩 ERROR 例外一条）
-                            vm.suppressedRuleLogs.value = vm.showSpeechRuleLogs.value
-                            vm.suppressedPluginLogs.value = vm.showPluginLogs.value
-                            vm.showSpeechRuleLogs.value = false
-                            vm.showPluginLogs.value = false
                             if (scrollMode == ScrollMode.FOLLOW_LATEST) {
                                 scrollMode = ScrollMode.FOLLOW_PLAYING
                             }
@@ -755,15 +735,12 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                     showRule = vm.showSpeechRuleLogs.value,
                     onToggleRule = {
                         vm.showSpeechRuleLogs.value = !vm.showSpeechRuleLogs.value
-                        // 手动熄灭时清掉「被筛错误熄灭」的记忆：用户明确要关，回原位别再擅自开
-                        if (!vm.showSpeechRuleLogs.value) vm.suppressedRuleLogs.value = false
-                        if (vm.showSpeechRuleLogs.value && vm.isErrorsOnly()) vm.showAllLevels()
+                        // 正交化后不再退筛错误——三键独立
                     },
                     showPlugin = vm.showPluginLogs.value,
                     onTogglePlugin = {
                         vm.showPluginLogs.value = !vm.showPluginLogs.value
-                        if (!vm.showPluginLogs.value) vm.suppressedPluginLogs.value = false
-                        if (vm.showPluginLogs.value && vm.isErrorsOnly()) vm.showAllLevels()
+                        // 正交化后不再退筛错误——三键独立
                     },
                     latestMode = scrollMode == ScrollMode.FOLLOW_LATEST,
                     onToggleLatest = {
