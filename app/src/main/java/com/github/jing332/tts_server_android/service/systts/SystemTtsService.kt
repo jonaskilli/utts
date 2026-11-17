@@ -607,7 +607,9 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
             // 判据用「当前是否已有合成在进行」，不是严格同步的锁，但对预热这种
             // 纯优化请求来说，「偶尔白跳一次」远好于「阻塞用户点播」。
             if (reqSnapshot.batchSegments != null && mTtsManager?.isSynthesizing == true) {
-                logger.info { "preload skipped: synthesizer busy" }
+                // 11-18 用户令：人话化——让路原因与后果直说（这行走 logger.info 只进文件日志，
+                // 不落日志页，与「预合成失败」WARN 行分工：让路无失败后果，不上 UI）
+                logger.info { "预热让路：正在合成播放段，本轮预合成跳过（后续自动再排）" }
                 callback.start(16000, AudioFormat.ENCODING_PCM_16BIT, 1)
                 callback.done()
                 return@runBlocking
