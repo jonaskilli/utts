@@ -193,7 +193,7 @@ open class JsNet(private val engineId: String) {
                 val r = polled.get()
                 if (r.response != null) {
                     val ms = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - t0)
-                    lastRaceStats = """{"winner":"A","aMs":$ms,"bMs":0,"tie":false,"bSent":false,"timedOut":false}"""
+                    lastRaceStats = """{"winner":"A","aMs":$ms,"bMs":0,"tie":false,"bSent":false,"timedOut":false,"failBranch":""}"""
                     return r.response
                 }
                 aEarly = r // A 失败：留着，接下来发 B 比一次
@@ -202,7 +202,7 @@ open class JsNet(private val engineId: String) {
         if (!sameAsA) {
             if (System.nanoTime() >= deadline) {
                 Net.cancelGroup(aGroup)
-                lastRaceStats = """{"winner":"","aMs":0,"bMs":0,"tie":false,"bSent":false,"timedOut":true}"""
+                lastRaceStats = """{"winner":"","aMs":0,"bMs":0,"tie":false,"bSent":false,"timedOut":true,"failBranch":""}"""
                 return null
             }
             submit(false, bGroup, bUrl, bBody, bHeaders)
@@ -216,6 +216,9 @@ open class JsNet(private val engineId: String) {
         var aResult: RaceResult? = aEarly
         var bResult: RaceResult? = null
         var lastError: Throwable? = aEarly?.error
+        // 出错的分支：交给 JS 用来「只扣那把钥的失败计数」。
+        // 没有它，上层只知道「这轮失败了」，两把钥都会各扣一次 → 撞「连续 3 次删池」。
+        var failBranches: String = if (aEarly?.error != null) "A" else ""
         var aDone = aEarly != null
         var bDone = !bSubmitted
         loop@ while (!aDone || !bDone) {
@@ -224,7 +227,11 @@ open class JsNet(private val engineId: String) {
             val polled = completion.poll(left, TimeUnit.NANOSECONDS) ?: break
             val r = polled.get()
             if (r.isA) { aDone = true; aResult = r } else { bDone = true; bResult = r }
-            if (r.response == null) lastError = r.error
+            if (r.response == null) {
+                lastError = r.error
+                val br = if (r.isA) "A" else "B"
+                if (!failBranches.contains(br)) failBranches += br
+            }
             if (aDone && aResult?.response != null) break@loop // A 已成功：不必再等 B
             if (bDone && bResult?.response != null && !aDone) {
                 // B 先成功：只等 A 到平手窗口为止
@@ -259,8 +266,14 @@ open class JsNet(private val engineId: String) {
             Net.cancelGroup(aGroup)
             if (bSubmitted) Net.cancelGroup(bGroup)
             val ms = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - t0)
-            lastRaceStats = """{"winner":"","aMs":$ms,"bMs":$ms,"tie":false,"bSent":$bSubmitted,"timedOut":${lastError == null}}"""
-            lastError?.let { throw it }
+            val realError = lastError?.takeIf { !isCancelOrTimeout(it) }
+            if (realError != null) {
+                // 有真错误（401/连不上/解析前失败）：原样上抛，并标明是哪条分支的错。
+                // 「超时」不在此列——超时要走慢钥路径（暂停 10 分钟），不能算成钥坏了。
+                lastRaceStats = """{"winner":"","aMs":$ms,"bMs":$ms,"tie":false,"bSent":$bSubmitted,"timedOut":false,"failBranch":"$failBranches"}"""
+                throw realError
+            }
+            lastRaceStats = """{"winner":"","aMs":$ms,"bMs":$ms,"tie":false,"bSent":$bSubmitted,"timedOut":true,"failBranch":""}"""
             return null
         }
         // 输家整组掐掉：A 赢掐 B 组；B 赢掐 A 组
@@ -270,8 +283,23 @@ open class JsNet(private val engineId: String) {
         val bMs = if (bFinish.get() == 0L) 0L else TimeUnit.NANOSECONDS.toMillis(bFinish.get() - t0)
         val tie = aOk != null && bOk != null && aFinish.get() > 0L && bFinish.get() > 0L &&
                 kotlin.math.abs(aFinish.get() - bFinish.get()) / 1_000_000.0 < RACE_TIE_MS
-        lastRaceStats = """{"winner":"${if (winner.isA) "A" else "B"}","aMs":$aMs,"bMs":$bMs,"tie":$tie,"bSent":$bSubmitted,"timedOut":false}"""
+        lastRaceStats = """{"winner":"${if (winner.isA) "A" else "B"}","aMs":$aMs,"bMs":$bMs,"tie":$tie,"bSent":$bSubmitted,"timedOut":false,"failBranch":""}"""
         return winner.response
+    }
+
+    /**
+     * 这条异常是「超时/被取消」还是「真失败」（401、连不上、DNS 等）。
+     * 判据：SocketTimeoutException 属于 InterruptedIOException；cancelGroup 引起的
+     * 取消通常抛 CancellationException 或 IOException("Canceled")。这几类走慢钥路径
+     * （暂停 10 分钟、不扣失败计数）；其余一律当真失败，交给上层按钥记账。
+     */
+    private fun isCancelOrTimeout(e: Throwable): Boolean {
+        if (e is java.io.InterruptedIOException) return true
+        if (e is java.util.concurrent.CancellationException) return true
+        if (e is java.util.concurrent.TimeoutException) return true
+        val m = (e.message ?: "").lowercase()
+        return m.contains("canceled") || m.contains("cancelled") ||
+            m.contains("timeout") || m.contains("timed out")
     }
 
     /** 加赛里一条分支的结果：是不是 A、成功响应、或异常。 */
