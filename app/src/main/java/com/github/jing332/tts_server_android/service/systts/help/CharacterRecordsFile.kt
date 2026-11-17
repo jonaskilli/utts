@@ -124,7 +124,7 @@ object CharacterRecordsFile {
         tagRuleId: String,
         characterName: String,
         newVoiceTag: String,
-        voiceDisplayName: String?,
+        voiceDisplayName: String? = null,
     ): Boolean {
         val dir = File(BASE_DIR, tagRuleId)
         val f = recordsFile(tagRuleId)
