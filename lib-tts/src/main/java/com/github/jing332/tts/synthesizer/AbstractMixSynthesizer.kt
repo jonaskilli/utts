@@ -165,8 +165,10 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
                 textProcessor
                     .process(
                         segment.text, presetConfig, segmentIndex, paraTotal,
-                        // 11-17：预热批次不带加赛——后台备货不翻倍请求（见 ITextProcessor.process）
-                        isPreload = params.isPreload
+                        // 11-17：能走到批量路径 ⇒ 本笔就是预热批次（batchSegments 非空 =
+                        // preload，与 RequestSnapshot.isPreload 同口径）。预热不加赛：
+                        // 后台备货不该把请求翻倍。见 ITextProcessor.process 的 isPreload 注释。
+                        isPreload = true
                     )
                     .onSuccess { list ->
                         // 11-17 用户令：不再过滤纯符号段——正文里是什么就发什么，
@@ -189,7 +191,11 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
         }
 
         textProcessor
-            .process(params.text, presetConfig, paraIndex, paraTotal, isPreload = params.isPreload)
+            .process(
+                params.text, presetConfig, paraIndex, paraTotal,
+                // 11-17：单段路径 = 播放请求（预热必带 batchSegments），允许加赛
+                isPreload = false
+            )
             // 11-17 用户令：同批量路径，只滤纯空白，纯符号段原样保留（正文=TTS 文本）。
             .onSuccess { list -> return Ok(list.filterNot { it.text.isBlank() }) }
             .onFailure { err: TextProcessorError ->
