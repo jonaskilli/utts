@@ -48,12 +48,15 @@ class TextProcessor : ITextProcessor {
         isMultiVoice = SystemTtsConfig.isMultiVoiceEnabled.value
         logger.debug { "isMultiVoice=$isMultiVoice, configs.size=${configs.size}" }
         if (isMultiVoice) {
-            // 规则归属是常量（tagRuleId 字段已于 11-11 删除）：本机只有一套朗读规则，
-            // 不再需要从配置里推断，也不再存在「配置没绑定规则」这种失败态。
-            val ruleId = SpeechRuleIds.RULE_ID
-            val speechRule =
-                dbm.speechRuleDao.getByRuleId(ruleId)
-                    ?: return Err(TextProcessorError.MissingRule(ruleId))
+            // 11-17 支线规则（用户令）：不再写死 mingwuyan，改为「取当前启用的那条规则」。
+            // 规则表本身仍是全局只允许启用一条（SpeechRuleManagerScreen 里启用即停用其它），
+            // 所以这里 firstOrNull 的结果唯一，且与界面上的开关一致。
+            // 每次合成初始化都会走这里 → 用户切规则后下一笔合成立即生效，无需重启。
+            val speechRule = dbm.speechRuleDao.allEnabled.firstOrNull()
+                ?: return Err(TextProcessorError.MissingRule(SpeechRuleIds.RULE_ID))
+            // 同步给全局：角色记录/发音人池/密钥等目录（SpeechRuleIds.DATA_DIR）跟着这条规则走，
+            // 两条支线的数据互不覆盖。
+            SpeechRuleIds.refresh(speechRule.ruleId)
             logger.debug { "speechRule loaded: ruleId=${speechRule.ruleId}, name=${speechRule.name}" }
             engine = SpeechRuleEngine(context, speechRule)
             // 必须在 eval() 之前设置 console，否则 JavaScript 绑定的是默认 Console

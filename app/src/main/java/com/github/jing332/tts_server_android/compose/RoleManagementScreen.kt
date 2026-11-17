@@ -107,7 +107,9 @@ fun RoleManagementScreen(sharedVM: SharedViewModel, pagerState: PagerState) {
             // 首次进入（尚未就绪）仍需遮罩，维持原行为。
             withIO {
                 runCatching {
-                    val rule = dbm.speechRuleDao.getByRuleIdAll("mingwuyan")
+                    val rule = dbm.speechRuleDao.getByRuleIdAll(
+                        com.github.jing332.database.entities.systts.SpeechRuleIds.RULE_ID
+                    )
                     if (rule != null) {
                         val engine = SpeechRuleEngine(context, rule)
                         engine.eval()
@@ -140,7 +142,9 @@ fun RoleManagementScreen(sharedVM: SharedViewModel, pagerState: PagerState) {
             // 签名没变但朗读规则 tags 可能还没扩容到足够数量
             withIO {
                 runCatching {
-                    val rule = dbm.speechRuleDao.getByRuleIdAll("mingwuyan")
+                    val rule = dbm.speechRuleDao.getByRuleIdAll(
+                        com.github.jing332.database.entities.systts.SpeechRuleIds.RULE_ID
+                    )
                     if (rule != null) {
                         expandSpeechRuleTagsIfNeeded(rule, effectiveGroups.flatMap { it.list })
                     }

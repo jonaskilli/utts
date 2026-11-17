@@ -1,28 +1,41 @@
 package com.github.jing332.database.entities.systts
 
 /**
- * 朗读规则的固定身份（用户令 11-11：`tagRuleId` 字段整个删除，本机只认这一套规则）。
+ * 当前生效朗读规则的 id 与数据目录。
  *
- * ## 背景
- * 配置项原先自带 `tagRuleId` 字段，用来表示「这条配置归哪份朗读规则管」，并据此拼出
- * 角色卡 / 发音人池 / 密钥 / 标记的目录：`/sdcard/Download/chajian/<tagRuleId>/`。
+ * ## 沿革
  *
- * 但本机的朗读规则**只有一套**（`SpeechRuleJS.id = "mingwuyan"`），且 UTTS 全局只允许
- * 启用一条规则（启用新规则会自动停用其它）。也就是说这个字段在任一时刻都是常量，
- * 存在配置里纯属冗余——还导致导出的 JSON 与 z阅读 的配置列表对不上。
+ * 11-11 用户令：`SpeechRuleInfo.tagRuleId` 字段整个删掉，「本机只认一套规则」，
+ * 各处一律引用写死的 `mingwuyan`。
  *
- * 用户定稿（11-11）：「数据库里真的不存，字段整个删掉」「固定写死 mingwuyan」。
+ * 11-17 用户令（支线规则）：**新建一条独立朗读规则（Fish 按书配音），不去改现役规则**。
+ * 于是这里从「常量」改为「跟随启用规则」：
+ * - 规则表仍全局只允许启用一条（启用时自动停用其它，见 SpeechRuleManagerScreen）；
+ * - [refresh] 在「App 启动 / 规则启停 / 导入 / 每次合成初始化」时被调用，
+ *   写入启用规则的 `ruleId`；
+ * - 所有原来引用 `SpeechRuleIds.RULE_ID` / `DATA_DIR` 的地方**无需改动**，
+ *   自动跟着走：换规则 = 换角色记录目录（`/sdcard/Download/chajian/<ruleId>/`），
+ *   两条支线互不污染。
  *
- * ## 因此
- * - `SpeechRuleInfo` 不再有 `tagRuleId`，数据库 JSON 与所有导出文件里都不会出现该键；
- * - 所有需要规则 id 的地方一律引用这里的 [RULE_ID]；
- * - 各处文件读写方法仍保留 `tagRuleId: String` 形参（调用方传本常量），这样将来若要
- *   恢复多规则支持，只需改这个常量与调用点，不必再全仓改签名。
+ * 未刷新过 / 库里没有任何启用规则时回退 [DEFAULT_RULE_ID]（= 现役 mingwuyan），
+ * 行为与改造前逐字节一致。
  */
 object SpeechRuleIds {
-    /** 本机唯一朗读规则的 id，等同 `SpeechRuleJS.id`。 */
-    const val RULE_ID = "mingwuyan"
+    /** 回退规则 id，等同现役规则的 `SpeechRuleJS.id`。 */
+    const val DEFAULT_RULE_ID = "mingwuyan"
 
-    /** 角色数据目录：`/sdcard/Download/chajian/mingwuyan/`。 */
-    const val DATA_DIR = "/sdcard/Download/chajian/$RULE_ID"
+    @Volatile
+    private var activeRuleId: String = DEFAULT_RULE_ID
+
+    /** 当前生效规则的 id（= 启用规则的 `SpeechRuleJS.id`）。 */
+    val RULE_ID: String get() = activeRuleId
+
+    /** 当前规则的角色数据目录：`/sdcard/Download/chajian/<当前规则 id>/`。 */
+    val DATA_DIR: String get() = "/sdcard/Download/chajian/$RULE_ID"
+
+    /** 刷新生效规则；传 null/空串 = 回退默认规则（停用全部规则时）。 */
+    fun refresh(ruleId: String?) {
+        val id = ruleId?.trim().orEmpty()
+        activeRuleId = id.ifEmpty { DEFAULT_RULE_ID }
+    }
 }

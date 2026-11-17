@@ -78,6 +78,16 @@ class App : Application() {
         GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             runCatching { AppConst.pruneLogs() }
         }
+        // 11-17 支线规则（用户令「新建规则，别改现役的」）：启动时把「当前启用规则 id」
+        // 同步给 SpeechRuleIds —— 角色记录/发音人池/密钥目录都按它拼路径，
+        // 否则换规则后重启 App 会先用默认 mingwuyan 目录读错文件。
+        // 放 IO 线程（Room 不许主线程查库）；读不到就保持默认值，行为与改造前一致。
+        GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching {
+                com.github.jing332.database.dbm.speechRuleDao.allEnabled.firstOrNull()
+                    ?.let { com.github.jing332.database.entities.systts.SpeechRuleIds.refresh(it.ruleId) }
+            }
+        }
 
         // 启动超时看门狗：独立守护线程，监测"超时后卡死"并自动重启 APP
         TtsTimeoutWatchdog.start()

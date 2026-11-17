@@ -426,6 +426,13 @@ fun SpeechRuleManagerScreen(sharedVM: SharedViewModel, finish: () -> Unit) {
                                     }
                                 }
                                 dbm.speechRuleDao.update(item.copy(isEnabled = enabled))
+                                // 11-17 支线规则：启停即刷新生效规则 id，让角色记录/发音人池/
+                                // 密钥目录（SpeechRuleIds.DATA_DIR）立刻切到新规则的目录，
+                                // 不必等下一笔合成或重启 App。
+                                // 以库内实况为准重查一次（避免停用后仍指向已停规则）。
+                                com.github.jing332.database.entities.systts.SpeechRuleIds.refresh(
+                                    dbm.speechRuleDao.allEnabled.firstOrNull()?.ruleId
+                                )
                             }
                         },
                         isSelectionMode = selectionMode,
