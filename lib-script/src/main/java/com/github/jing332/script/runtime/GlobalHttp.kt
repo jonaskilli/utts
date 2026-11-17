@@ -2,7 +2,6 @@ package com.github.jing332.script.runtime
 
 import android.util.Log
 import com.drake.net.Net
-import com.drake.net.NetConfig
 import com.github.jing332.script.ensureArgumentsLength
 import com.github.jing332.script.exception.runScriptCatching
 import io.github.oshai.kotlinlogging.KotlinLogging
@@ -19,7 +18,6 @@ import org.mozilla.javascript.Context
 import org.mozilla.javascript.Scriptable
 import org.mozilla.javascript.ScriptableObject
 import java.io.File
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
 class GlobalHttp : ScriptableObject() {
@@ -38,17 +36,10 @@ class GlobalHttp : ScriptableObject() {
         // http.post(url, body, headers, timeoutMs) 对齐，元宝 ws 插件即用 4 参 post）。
         // U·TTS 全局超时由 NetConfig 定为 300s（见 App.kt），对插件过宽，
         // 故传超时时克隆一份 client 只作用于本次请求；按毫秒缓存避免重复克隆。
-        private val timeoutClients = ConcurrentHashMap<Long, OkHttpClient>()
-
+        // 11-17：克隆逻辑抽到 NetClients，与 ttsrv.httpPost 的 timeoutMs 共用一份缓存
+        //（两处分别缓存会同一毫秒值 clone 两次）。
         private fun clientWithTimeout(timeoutMs: Long): OkHttpClient =
-            timeoutClients.getOrPut(timeoutMs) {
-                NetConfig.okHttpClient.newBuilder()
-                    .connectTimeout(timeoutMs, TimeUnit.MILLISECONDS)
-                    .readTimeout(timeoutMs, TimeUnit.MILLISECONDS)
-                    .writeTimeout(timeoutMs, TimeUnit.MILLISECONDS)
-                    .callTimeout(timeoutMs, TimeUnit.MILLISECONDS)
-                    .build()
-            }
+            NetClients.withTimeout(timeoutMs)
 
         private fun timeoutArgOf(raw: Any?): Long? =
             (raw as? Number)?.toLong()?.takeIf { it > 0 }

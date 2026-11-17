@@ -26,6 +26,8 @@ internal class TextProcessor(val context: SynthesizerContext) : ITextProcessor {
         // 原样挂到每个分句上，保持链路一致。
         paraIndex: Int,
         paraTotal: Int,
+        // 11-17：默认实现不分级，预热标记只对「规则引擎」那条路径有意义（见接口注释）
+        isPreload: Boolean,
     ): Result<List<TextSegment>, TextProcessorError> {
         return StringUtils.splitSentences(text).map {
             TextSegment(

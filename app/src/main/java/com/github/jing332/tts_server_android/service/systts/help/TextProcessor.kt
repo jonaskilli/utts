@@ -123,6 +123,9 @@ class TextProcessor : ITextProcessor {
         // ⚠️ override 不能带默认值（Kotlin 规则，CI 实锤 120:26），默认值由接口声明。
         paraIndex: Int,
         paraTotal: Int,
+        // 11-17（竞速/慢钥改造）：本笔是否后台预热。只在进规则引擎那一刻有用——
+        // 规则据此给 AI 调用选「加赛（两把并发先成者胜）」还是「单发」。
+        isPreload: Boolean,
     ): Result<List<TextSegment>, TextProcessorError> {
         val resultList = mutableListOf<TextSegment>()
         val replacedText = replace(text, ReplaceExecution.BEFORE)
@@ -170,7 +173,8 @@ class TextProcessor : ITextProcessor {
             if (presetConfig != null) {
                 splitAndAdd(replacedText, presetConfig)
             } else if (isMultiVoice) {
-                val fragments = engine.handleText(replacedText, speechRules)
+                // 11-17：预热标记一路带到规则 JS（决定 AI 调用加赛还是单发）
+                val fragments = engine.handleText(replacedText, speechRules, isPreload)
 
                 fragments.forEach { txtWithTag ->
                     if (txtWithTag.text.isNotBlank()) {

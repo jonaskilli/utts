@@ -163,7 +163,11 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
                 val segmentIndex = if (segment.paraIndex >= 0) segment.paraIndex else paraIndex
                 var failure: SynthesisError? = null
                 textProcessor
-                    .process(segment.text, presetConfig, segmentIndex, paraTotal)
+                    .process(
+                        segment.text, presetConfig, segmentIndex, paraTotal,
+                        // 11-17：预热批次不带加赛——后台备货不翻倍请求（见 ITextProcessor.process）
+                        isPreload = params.isPreload
+                    )
                     .onSuccess { list ->
                         // 11-17 用户令：不再过滤纯符号段——正文里是什么就发什么，
                         // 「“……”」这类段原样进请求、原样进日志（引擎念出来是静音/停顿，
@@ -185,7 +189,7 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
         }
 
         textProcessor
-            .process(params.text, presetConfig, paraIndex, paraTotal)
+            .process(params.text, presetConfig, paraIndex, paraTotal, isPreload = params.isPreload)
             // 11-17 用户令：同批量路径，只滤纯空白，纯符号段原样保留（正文=TTS 文本）。
             .onSuccess { list -> return Ok(list.filterNot { it.text.isBlank() }) }
             .onFailure { err: TextProcessorError ->

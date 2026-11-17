@@ -106,7 +106,17 @@ class SpeechRuleEngine(
 
     data class TagData(val id: String, val value: String)
 
-    fun handleText(text: String, list: List<SpeechRuleInfo> = emptyList()): List<TextWithTag> {
+    /**
+     * @param isPreload 11-17（竞速/慢钥改造）：本笔是否后台预热批次。
+     *   作为 handleText 的**第三个参数**（Boolean）传给规则 JS——旧规则
+     *   （只声明两个形参）忽略它，行为逐字节不变；v1.7.21 起规则用它决定 AI 调用走
+     *   「加赛（两把并发先成者胜）」还是「单发」：预热是备货，不该把请求翻倍。
+     */
+    fun handleText(
+        text: String,
+        list: List<SpeechRuleInfo> = emptyList(),
+        isPreload: Boolean = false,
+    ): List<TextWithTag> {
         val tagsDataMap: MutableMap<String, MutableMap<String, MutableList<Map<String, String>>>> =
             mutableMapOf()
         list.forEach { info ->
@@ -150,7 +160,7 @@ class SpeechRuleEngine(
                 )
             }
         }
-        return handleText(text, tagsDataMap)
+        return handleText(text, tagsDataMap, isPreload)
     }
 
     /** ['dialogue']['role']= List<TagData>
@@ -158,10 +168,13 @@ class SpeechRuleEngine(
      */
     fun handleText(
         text: String,
-        tagsDataMap: Map<String, Map<String, List<Map<String, String>>>>
+        tagsDataMap: Map<String, Map<String, List<Map<String, String>>>>,
+        isPreload: Boolean = false,
     ): List<TextWithTag> {
         val resultList: MutableList<TextWithTag> = mutableListOf()
-        engine.invokeMethod(objJS, FUNC_HANDLE_TEXT, text, tagsDataMap)
+        // 第三参直接给 Boolean：Rhino 对 Java Map 的属性访问不可靠（现有的 tagsData
+        // 就得 entrySet 逐层转，见规则 handleText 头），布尔值转换则无歧义。
+        engine.invokeMethod(objJS, FUNC_HANDLE_TEXT, text, tagsDataMap, isPreload)
             ?.run { this as List<*> }
             ?.let { list ->
                 list.forEach {
