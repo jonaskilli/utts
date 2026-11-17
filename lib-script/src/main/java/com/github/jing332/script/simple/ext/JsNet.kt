@@ -20,17 +20,23 @@ open class JsNet(private val engineId: String) {
 
     /**
      * 最近一次 [httpPostRace] 的统计（JSON 文本），供规则在拿到结果后立刻读一次打日志。
-     * 形如 {"winner":"A","aMs":7200,"bMs":6400,"tie":false,"bSent":true,"timedOut":false}。
-     * 为什么不把这些挂在返回的 Response 上：WrapFactory 会把 Response 统一包成
-     * NativeResponse，加不了自定义字段；单独一个只读口最省事，也不影响返回类型。
-     * 竞速线程写、JS 线程读，故 @Volatile。
+     * 形如 {"winner":"A","aMs":7200,"bMs":6400,"tie":false,"bSent":true,"timedOut":false,"failBranch":""}。
+     *
+     * 为什么挂在返回的 Response 上不行：WrapFactory 会把 Response 统一包成 NativeResponse，
+     * 加不了自定义字段；单独一个只读口最省事，也不影响返回类型。
+     *
+     * **必须按线程隔离**（11-17 复盘实锤）：预热批次 concurrency=2 时两段并发跑，
+     * 每段各跑一次加赛。若共用一份字段，后完成的那次会覆盖前一次的统计 →
+     * 前一段读到别人的 winner，于是「响应来自 A 钥、却给 B 钥记成功」，
+     * 还把错的 config 当成「本次所用钥」交给别名校验复用。
+     * httpPostRace 在 JS 线程上阻塞执行、getRaceStats 紧接着在同一线程读，
+     * 用 ThreadLocal 天然隔离，无需改接口签名。
      */
-    @Volatile
-    private var lastRaceStats: String = ""
+    private val raceStatsLocal = ThreadLocal<String>()
 
-    /** 读最近一次加赛统计（没跑过加赛返回空串）。 */
+    /** 读**本线程**最近一次加赛统计（没跑过加赛返回空串）。 */
     @ScriptInterface
-    fun getRaceStats(): String = lastRaceStats
+    fun getRaceStats(): String = raceStatsLocal.get() ?: ""
 
     fun cancelNetwork() {
         Net.cancelGroup(groupId)
@@ -178,7 +184,13 @@ open class JsNet(private val engineId: String) {
         }
 
         submit(true, aGroup, aUrl, aBody, aHeaders)
-        val sameAsA = aUrl.toString() == bUrl.toString() && (aBody ?: "").toString() == (bBody ?: "").toString()
+        // 「两把其实同一笔」判定必须看**请求头**：同一个模型的两把钥，url 与 body
+        // 逐字节相同，差别只在 Authorization。只比 url+body 会把它误判成同一笔，
+        // 第二把永远不发 —— 加赛整个失效（11-17 复盘实锤，最致命的一处）。
+        // 用排序后的 k=v 签名比较，不依赖 Map 迭代顺序（两个 Map 独立转换，顺序不保证）。
+        val sameAsA = aUrl.toString() == bUrl.toString() &&
+            (aBody ?: "").toString() == (bBody ?: "").toString() &&
+            headerSignature(aHeaders) == headerSignature(bHeaders)
         var bSubmitted = false
         // 第①段里 A 可能先失败：这条结果必须留住，否则第②段会当成「A 还没回来」白等到超时
         var aEarly: RaceResult? = null
@@ -193,7 +205,7 @@ open class JsNet(private val engineId: String) {
                 val r = polled.get()
                 if (r.response != null) {
                     val ms = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - t0)
-                    lastRaceStats = """{"winner":"A","aMs":$ms,"bMs":0,"tie":false,"bSent":false,"timedOut":false,"failBranch":""}"""
+                    raceStatsLocal.set("""{"winner":"A","aMs":$ms,"bMs":0,"tie":false,"bSent":false,"timedOut":false,"failBranch":""}""")
                     return r.response
                 }
                 aEarly = r // A 失败：留着，接下来发 B 比一次
@@ -202,7 +214,7 @@ open class JsNet(private val engineId: String) {
         if (!sameAsA) {
             if (System.nanoTime() >= deadline) {
                 Net.cancelGroup(aGroup)
-                lastRaceStats = """{"winner":"","aMs":0,"bMs":0,"tie":false,"bSent":false,"timedOut":true,"failBranch":""}"""
+                raceStatsLocal.set("""{"winner":"","aMs":0,"bMs":0,"tie":false,"bSent":false,"timedOut":true,"failBranch":""}""")
                 return null
             }
             submit(false, bGroup, bUrl, bBody, bHeaders)
@@ -270,10 +282,10 @@ open class JsNet(private val engineId: String) {
             if (realError != null) {
                 // 有真错误（401/连不上/解析前失败）：原样上抛，并标明是哪条分支的错。
                 // 「超时」不在此列——超时要走慢钥路径（暂停 10 分钟），不能算成钥坏了。
-                lastRaceStats = """{"winner":"","aMs":$ms,"bMs":$ms,"tie":false,"bSent":$bSubmitted,"timedOut":false,"failBranch":"$failBranches"}"""
+                raceStatsLocal.set("""{"winner":"","aMs":$ms,"bMs":$ms,"tie":false,"bSent":$bSubmitted,"timedOut":false,"failBranch":"$failBranches"}""")
                 throw realError
             }
-            lastRaceStats = """{"winner":"","aMs":$ms,"bMs":$ms,"tie":false,"bSent":$bSubmitted,"timedOut":true,"failBranch":""}"""
+            raceStatsLocal.set("""{"winner":"","aMs":$ms,"bMs":$ms,"tie":false,"bSent":$bSubmitted,"timedOut":true,"failBranch":""}""")
             return null
         }
         // 输家整组掐掉：A 赢掐 B 组；B 赢掐 A 组
@@ -283,7 +295,7 @@ open class JsNet(private val engineId: String) {
         val bMs = if (bFinish.get() == 0L) 0L else TimeUnit.NANOSECONDS.toMillis(bFinish.get() - t0)
         val tie = aOk != null && bOk != null && aFinish.get() > 0L && bFinish.get() > 0L &&
                 kotlin.math.abs(aFinish.get() - bFinish.get()) / 1_000_000.0 < RACE_TIE_MS
-        lastRaceStats = """{"winner":"${if (winner.isA) "A" else "B"}","aMs":$aMs,"bMs":$bMs,"tie":$tie,"bSent":$bSubmitted,"timedOut":false,"failBranch":""}"""
+        raceStatsLocal.set("""{"winner":"${if (winner.isA) "A" else "B"}","aMs":$aMs,"bMs":$bMs,"tie":$tie,"bSent":$bSubmitted,"timedOut":false,"failBranch":""}""")
         return winner.response
     }
 
@@ -293,6 +305,18 @@ open class JsNet(private val engineId: String) {
      * 取消通常抛 CancellationException 或 IOException("Canceled")。这几类走慢钥路径
      * （暂停 10 分钟、不扣失败计数）；其余一律当真失败，交给上层按钥记账。
      */
+    /**
+     * 请求头的规范化签名：按 key 排序后拼 `k=v`。
+     * 用于判断「两把请求是否其实是同一笔」。**必须包含鉴权头**——同模型的两把钥
+     * 只在 Authorization 上不同，漏了它就会把两笔不同钥的请求误判成同一笔。
+     */
+    private fun headerSignature(headers: Map<CharSequence, CharSequence>?): String {
+        if (headers == null || headers.isEmpty()) return ""
+        return headers.entries
+            .sortedBy { it.key.toString().lowercase() }
+            .joinToString("\u0001") { "${it.key}\u0002${it.value}" }
+    }
+
     private fun isCancelOrTimeout(e: Throwable): Boolean {
         if (e is java.io.InterruptedIOException) return true
         if (e is java.util.concurrent.CancellationException) return true
