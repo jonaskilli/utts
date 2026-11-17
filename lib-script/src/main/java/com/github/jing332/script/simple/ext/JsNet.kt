@@ -178,7 +178,7 @@ open class JsNet(private val engineId: String) {
         }
 
         submit(true, aGroup, aUrl, aBody, aHeaders)
-        val sameAsA = String(aUrl) == String(bUrl) && String(aBody ?: "") == String(bBody ?: "")
+        val sameAsA = aUrl.toString() == bUrl.toString() && (aBody ?: "").toString() == (bBody ?: "").toString()
         var bSubmitted = false
         // 第①段里 A 可能先失败：这条结果必须留住，否则第②段会当成「A 还没回来」白等到超时
         var aEarly: RaceResult? = null
@@ -291,6 +291,40 @@ open class JsNet(private val engineId: String) {
         private val raceExecutor = Executors.newFixedThreadPool(4) { r ->
             Thread(r, "jsnet-race").apply { isDaemon = true }
         }
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    @ScriptInterface
+    private fun postMultipart(type: String, form: Map<String, Any>): MultipartBody.Builder {
+        val multipartBody = MultipartBody.Builder()
+        multipartBody.setType(type.toMediaType())
+
+        form.forEach { entry ->
+            when (entry.value) {
+                // 文件表单
+                is Map<*, *> -> {
+                    val filePartMap = entry.value as Map<String, Any>
+                    val fileName = filePartMap["fileName"] as? String
+                    val body = filePartMap["body"]
+                    val contentType = filePartMap["contentType"] as? String
+
+                    val mediaType = contentType?.toMediaType()
+                    val requestBody = when (body) {
+                        is File -> body.asRequestBody(mediaType)
+                        is ByteArray -> body.toRequestBody(mediaType)
+                        is String -> body.toRequestBody(mediaType)
+                        else -> body.toString().toRequestBody()
+                    }
+
+                    multipartBody.addFormDataPart(entry.key, fileName, requestBody)
+                }
+
+                // 常规表单
+                else -> multipartBody.addFormDataPart(entry.key, entry.value as String)
+            }
+        }
+
+        return multipartBody
     }
 
     @JvmOverloads
