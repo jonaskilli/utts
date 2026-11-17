@@ -124,7 +124,9 @@ open class JsNet(private val engineId: String) {
         val host = runCatching { java.net.URI(url).host ?: url.take(40) }.getOrDefault(url.take(40))
         logger.debug { "jsPost → $host (group=${group.substringAfterLast('#')}, timeout=${timeoutMs}ms)" }
         return try {
-            val resp = Net.post(url) {
+            // 显式标 Response：从 return 位置挪到 val 赋值后，少了 return 的类型上下文，
+            // Net.post{}.execute() 的泛型 R 推断不出来（CI 实锤 Cannot infer type argument for 'R'）
+            val resp: Response = Net.post(url) {
                 setGroup(group)
                 body?.let { this.body = it.toString().toRequestBody() }
                 headers?.let {
@@ -135,7 +137,9 @@ open class JsNet(private val engineId: String) {
                 if (timeoutMs > 0L) okHttpClient = NetClients.withTimeout(timeoutMs)
             }.execute()
             val ms = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - t0)
-            logger.debug { "jsPost ← $host ${resp.code} ${resp.headers["Content-Length"] ?: "?"}B ${ms}ms" }
+            // 用 header() 而不是 headers[...]：后者在类型推断失败时会连带报
+            // Unresolved reference 'headers'（CI 实锤），header() 语义也更强（缺头返回 null）
+            logger.debug { "jsPost ← $host ${resp.code} ${resp.header("Content-Length") ?: "?"}B ${ms}ms" }
             resp
         } catch (e: Throwable) {
             val ms = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - t0)
