@@ -350,6 +350,18 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
         // 不是筛选条件；点一次「原文」就把它们关掉属意外副作用（此前会误关）。
         searchQuery = ""
         vm.clearFilter()
+        // 11-18：恢复「被筛错误临时熄灭」的混入开关——筛错误独占时会强制熄灭两颗混入，
+        // 只靠上面 clearFilter 回不到完整流（规则日志只剩 ERROR 例外一条，1、3 找不回，
+        // 真机实锤）。按熄灭前记忆恢复；记忆立即清零（一次回原位消费一次）。
+        // 用户主动点混入胶囊再熄灭的走 onToggle 路径不写记忆，不受此影响。
+        if (vm.suppressedRuleLogs.value) {
+            vm.showSpeechRuleLogs.value = true
+            vm.suppressedRuleLogs.value = false
+        }
+        if (vm.suppressedPluginLogs.value) {
+            vm.showPluginLogs.value = true
+            vm.suppressedPluginLogs.value = false
+        }
         // 2) 在完整流里找到该条目的卡头，滚动过去并高亮闪现
         val fullList = vm.filteredLogs
         val idx = fullList.indexOfFirst { it == entry }
@@ -729,6 +741,10 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                             vm.showAllLevels()
                         } else {
                             vm.showErrorsOnly()
+                            // 11-18：熄灭前先记住混入开关是否亮着——「回原位」要按记忆恢复
+                            //（否则用户勾过的规则日志全量视图丢失，只剩 ERROR 例外一条）
+                            vm.suppressedRuleLogs.value = vm.showSpeechRuleLogs.value
+                            vm.suppressedPluginLogs.value = vm.showPluginLogs.value
                             vm.showSpeechRuleLogs.value = false
                             vm.showPluginLogs.value = false
                             if (scrollMode == ScrollMode.FOLLOW_LATEST) {
@@ -739,11 +755,14 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                     showRule = vm.showSpeechRuleLogs.value,
                     onToggleRule = {
                         vm.showSpeechRuleLogs.value = !vm.showSpeechRuleLogs.value
+                        // 手动熄灭时清掉「被筛错误熄灭」的记忆：用户明确要关，回原位别再擅自开
+                        if (!vm.showSpeechRuleLogs.value) vm.suppressedRuleLogs.value = false
                         if (vm.showSpeechRuleLogs.value && vm.isErrorsOnly()) vm.showAllLevels()
                     },
                     showPlugin = vm.showPluginLogs.value,
                     onTogglePlugin = {
                         vm.showPluginLogs.value = !vm.showPluginLogs.value
+                        if (!vm.showPluginLogs.value) vm.suppressedPluginLogs.value = false
                         if (vm.showPluginLogs.value && vm.isErrorsOnly()) vm.showAllLevels()
                     },
                     latestMode = scrollMode == ScrollMode.FOLLOW_LATEST,

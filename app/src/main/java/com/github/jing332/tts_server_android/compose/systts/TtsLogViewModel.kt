@@ -83,6 +83,13 @@ class TtsLogViewModel : ViewModel() {
     // 调试模式开关 - 在主时间流中追加/隐藏朗读规则日志（默认隐藏，用户手动开启）
     val showSpeechRuleLogs = mutableStateOf(false)
 
+    // 11-18：混入开关的「被筛错误临时熄灭」记忆——筛错误独占语义会强制熄灭两颗混入
+    //（onToggleErrorOnly），但用户点「回原位」时承诺回到完整流，被熄灭的混入应恢复，
+    // 否则规则日志只剩 ERROR 例外那一条，1、3 类 INFO 找不回（真机实锤用户报障）。
+    // 记录「熄灭前是否亮着」；回原位按记录恢复；用户手动再点熄灭（非筛错误路径）则清记忆。
+    val suppressedRuleLogs = mutableStateOf(false)
+    val suppressedPluginLogs = mutableStateOf(false)
+
     // ===== 书 / 章范围（11-10 用户令「日志分小说、分章节」）=====
     // 语义：空值=不限；scopeBook 非空=只看该书；scopeChapter 非空=只看该章。
     // ⚠️ 这里的「切书」只切**日志查看范围**，绝不写 cunfang.txt、不动角色管理的当前书
