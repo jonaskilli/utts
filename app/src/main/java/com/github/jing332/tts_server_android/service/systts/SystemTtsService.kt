@@ -1464,7 +1464,12 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                 }
             }
 
-            NormalEvent.RequestCountEnded -> logW(getString(R.string.reach_retry_limit))
+            // 11-18 用户令：重试上限文案按来路分叉——
+            // 预热=「由实时合成兜底」（前面已有「预合成失败…重试中」，这句说清结局，
+            // 不再是突兀的「跳过！」）；播放=照旧「跳过」（本行是实时合成的终点标记，不动）。
+            is NormalEvent.RequestCountEnded ->
+                if (e.isPreload) logW(getString(R.string.reach_retry_limit_preload))
+                else logW(getString(R.string.reach_retry_limit))
             is NormalEvent.BgmCurrentPlaying -> {
                 val name = e.source.path.split("/").lastOrNull() ?: e.source.path
                 logI(getString(R.string.current_playing_bgm, "${e.source.volume}, ${name}"))
@@ -1507,7 +1512,9 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                 }
                 else -> "无响应"
             }
-            logW("预合成失败（$seg）：$why<br>该段播放时会现场合成，不影响朗读")
+            // 11-18 用户令三行口径：①失败行不再断言「会现场合成」（那是上限行的事），
+            // 尾缀改「重试中」——预告后面还有插件层/上层重试动作，语气与后续行衔接。
+            logW("预合成失败（$seg）：$why<br>不影响朗读，重试中")
             return
         }
 

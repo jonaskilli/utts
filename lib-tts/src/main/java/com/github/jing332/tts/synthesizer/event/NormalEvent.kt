@@ -29,7 +29,9 @@ sealed interface NormalEvent : Event {
         /** 切换到的是性别/中性兜底（而非用户显式备用），日志用词不同 */
         val isFallback: Boolean = false,
     ) : NormalEvent
-    data object RequestCountEnded : NormalEvent
+    // 11-18：带 isPreload——预热与播放的重试上限文案分叉（用户令）：
+    // 预热=「由实时合成兜底」，播放=「跳过」照旧。
+    data class RequestCountEnded(val isPreload: Boolean = false) : NormalEvent
 
     data class BgmCurrentPlaying(val source: BgmSource) : NormalEvent
 }

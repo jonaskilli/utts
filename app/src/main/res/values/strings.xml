@@ -634,6 +634,7 @@
     <string name="systts_log_fallback_key_bad">⚠ 降级兜底：密钥疑似失效（%1$s）</string>
     <string name="functional_fallback_failed">功能标签(%1$s)兜底发音人重试失败，已跳过</string>
     <string name="reach_retry_limit">到达重试上限，跳过！</string>
+    <string name="reach_retry_limit_preload">到达重试上限，由实时合成兜底</string>
     <string name="migration_data">迁移数据</string>
     <string name="systts_list_migration_desc">列表数据需要迁移到新的表结构。\n数据无价，谨防丢失，请先手动导出旧数据。</string>
     <string name="missing_speech_rule">缺少朗读规则：%1$s</string>

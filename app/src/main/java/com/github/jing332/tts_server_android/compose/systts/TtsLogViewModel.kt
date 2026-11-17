@@ -163,11 +163,13 @@ class TtsLogViewModel : ViewModel() {
             // DEBUG 开关关闭时：主列表的 D 级一并隐藏（插件/规则缓冲只在勾选时参与）
             val showDebug = showDebugLogs.value
             fun keep(e: LogEntry) =
-                // 11-18 正交化（用户令）：混入行豁免级别过滤——「筛错误」只管系统主日志的级别，
-                // 勾了混入的辅助日志（规则/插件）全量保留。否则筛错误熄灭混入后用户搜到的
-                // 规则组 1、3 条 INFO 在回原位后找不回（真机实锤）。DEBUG 开关不豁免——
-                // 它对所有行独立生效（关掉就看不到 D 级，混入行也一样）。
-                ((levels.isEmpty() || e.level in levels) || e.isPluginLog || e.isSpeechRuleLog) &&
+                // 11-18 二改（用户令，推翻同日正交化）：「错误」=收窄**全部行**——
+                // 主日志、朗读规则、插件一视同仁，勾错误后只留 ERROR/WARN。
+                // 此前「混入行豁免级别过滤」会让规则 INFO 在错误视图里继续刷屏，与用户
+                // 「点击错误应该只显示错误的筛选」的预期相反。混入开关=来源开关（勾了
+                // 才把规则/插件缓冲**并进**列表），级别筛选=对合并后的列表整体收窄。
+                // DEBUG 开关独立生效（关掉就看不到 D 级，混入行也一样）。
+                (levels.isEmpty() || e.level in levels) &&
                     (showDebug || e.level != LogLevel.DEBUG)
 
             val pluginPart = if (showPlugin) pluginLogs else emptyList<LogEntry>()

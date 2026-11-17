@@ -577,7 +577,8 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
         }
 
         if (retries > maxRetries) {
-            event(NormalEvent.RequestCountEnded)
+            // 11-18：带上 isPreload——服务层据此分叉文案（预热=实时合成兜底，播放=跳过照旧）
+            event(NormalEvent.RequestCountEnded(isPreload = isPreload))
             // 兜底发音人(duihua/duihuaA/duihuaB)或音效(localSound)失败时记录错误日志
             // 括号1-4、narration 不在此列；记录日志后仍按用户配置的 restartOnMaxRetryMode 处理
             val curTag = config.speechInfo.tag

@@ -4,6 +4,7 @@ import com.drake.net.Net
 import com.drake.net.exception.ConvertException
 import com.github.jing332.script.annotation.ScriptInterface
 import com.github.jing332.script.runtime.NetClients
+import io.github.oshai.kotlinlogging.KotlinLogging
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.asRequestBody
@@ -14,6 +15,8 @@ import java.util.concurrent.Callable
 import java.util.concurrent.ExecutorCompletionService
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+
+private val logger = KotlinLogging.logger("JsNet")
 
 open class JsNet(private val engineId: String) {
     private val groupId by lazy { engineId + hashCode() }
@@ -114,16 +117,33 @@ open class JsNet(private val engineId: String) {
         timeoutMs: Long,
         group: String,
     ): Response {
-        return Net.post(url) {
-            setGroup(group)
-            body?.let { this.body = it.toString().toRequestBody() }
-            headers?.let {
-                it.forEach {
-                    setHeader(it.key.toString(), it.value.toString())
+        // 11-18 观测盲区修复（02:25 双 20s 加赛挂死排查实证）：JS 层请求在全部日志里零痕迹，
+        // 没法区分「连不上」还是「连上了不出活」。发起/完成/异常各打一行 DEBUG（body 不落日志，
+        // 只报 host+耗时+状态码），与 NativeWebSocket 的 TRACE 口径对齐。
+        val t0 = System.nanoTime()
+        val host = runCatching { java.net.URI(url).host ?: url.take(40) }.getOrDefault(url.take(40))
+        logger.debug { "jsPost → $host (group=${group.substringAfterLast('#')}, timeout=${timeoutMs}ms)" }
+        return try {
+            val resp = Net.post(url) {
+                setGroup(group)
+                body?.let { this.body = it.toString().toRequestBody() }
+                headers?.let {
+                    it.forEach {
+                        setHeader(it.key.toString(), it.value.toString())
+                    }
                 }
-            }
-            if (timeoutMs > 0L) okHttpClient = NetClients.withTimeout(timeoutMs)
-        }.execute()
+                if (timeoutMs > 0L) okHttpClient = NetClients.withTimeout(timeoutMs)
+            }.execute()
+            val ms = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - t0)
+            logger.debug { "jsPost ← $host ${resp.code} ${resp.headers["Content-Length"] ?: "?"}B ${ms}ms" }
+            resp
+        } catch (e: Throwable) {
+            val ms = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - t0)
+            // 超时/被取消是慢钥路径的正常一环（暂停 10 分钟），DEBUG 即可；真错误（401/连不上）值得 WARN
+            if (isCancelOrTimeout(e)) logger.debug { "jsPost ✕ $host ${e.javaClass.simpleName}: ${e.message} ${ms}ms" }
+            else logger.warn { "jsPost ✕ $host ${e.javaClass.simpleName}: ${e.message} ${ms}ms" }
+            throw e
+        }
     }
 
     // timeoutMs 参数为兼容 JRead 插件生态的调用习惯；11-17 起 > 0 时真实生效（见类头注释）

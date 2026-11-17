@@ -346,10 +346,15 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
 
     fun locateOriginal(entry: LogEntry) {
         // 1) 清**收窄类**筛选（搜索词/级别勾选）——与 isFiltered 的判据保持一致。
-        // 「插件」「朗读规则」两个混入开关**不动**：正交化后筛错误不再熄灭它们，
-        // 这里也无需恢复——混入是来源开关，独立于筛选状态。
+        // 11-18 二改（用户令）：按条目来源**自动勾上对应混入开关**——在错误视图里点
+        // 某条规则错误的「回原位」，上下文必须是全量规则日志（同组 INFO 找得回）；
+        // 只清级别筛选而混入没勾的话，规则缓冲根本不参与列表，那条 ERROR 都不在。
+        // 插件日志同理。两个开关只开不关（用户手动关掉的开关不替他重开之外的逻辑：
+        // 这里是「回原位要看上下文」，开了才看得到，符合语义）。
         searchQuery = ""
         vm.clearFilter()
+        if (entry.isSpeechRuleLog && !vm.showSpeechRuleLogs.value) vm.showSpeechRuleLogs.value = true
+        if (entry.isPluginLog && !vm.showPluginLogs.value) vm.showPluginLogs.value = true
         // 2) 在完整流里找到该条目的卡头，滚动过去并高亮闪现
         val fullList = vm.filteredLogs
         val idx = fullList.indexOfFirst { it == entry }
