@@ -1489,8 +1489,17 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
         }
         if (preloadReq?.isPreload == true) {
             val seg = if (preloadReq.paraIndex >= 0) "第 ${preloadReq.paraIndex + 1} 段" else "某段"
-            val why = (e as? ErrorEvent.Request)?.cause?.let { friendlyCause(it) }
-                ?: if (e is ErrorEvent.RequestTimeout) "超时" else "无响应"
+            // 11-18 用户令：失败原因要写真——「无响应」吞掉了底层异常
+            //（00:34 实锤：8ms 前刚报 TTSInvalidText，预热行却写「无响应」，排障时被迫翻 DEBUG）。
+            // Request 事件优先走 friendlyCause；拿不到友好归因时退异常类名+消息（120 字截断），
+            // 只有连异常都没有（RequestTimeout 不带 cause / 真无事件）才叫「无响应」。
+            val why = when (e) {
+                is ErrorEvent.Request -> e.cause?.let { friendlyCause(it) } ?: "无响应"
+                is ErrorEvent.RequestTimeout -> "超时"
+                is ErrorEvent.DirectPlay -> friendlyCause(e.cause)
+                is ErrorEvent.ResultProcessor -> friendlyCause(e.error)
+                else -> "无响应"
+            }
             logW("预合成失败（$seg）：$why<br>该段播放时会现场合成，不影响朗读")
             return
         }
