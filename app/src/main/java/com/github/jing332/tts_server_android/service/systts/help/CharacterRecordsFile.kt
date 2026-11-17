@@ -109,7 +109,23 @@ object CharacterRecordsFile {
      * 把角色 [characterName] 的绑定改到 [newVoiceTag]（同名记录全部改，含别名合并的重复项），
      * 与角色管理「更换发音人」写同一文件同一字段。成功返回 true。
      */
-    fun rebind(tagRuleId: String, characterName: String, newVoiceTag: String): Boolean {
+    /**
+     * 插件音色模式改绑（11-17）：`voice` 存插件音色 id（如 Fish 的 32 位 hex），
+     * `voiceName` 存显示名。换声面板在「插件音色」入口选中后走这里。
+     */
+    fun rebindPluginVoice(
+        tagRuleId: String,
+        characterName: String,
+        voiceId: String,
+        voiceName: String,
+    ): Boolean = rebind(tagRuleId, characterName, voiceId, voiceName)
+
+    fun rebind(
+        tagRuleId: String,
+        characterName: String,
+        newVoiceTag: String,
+        voiceDisplayName: String?,
+    ): Boolean {
         val dir = File(BASE_DIR, tagRuleId)
         val f = recordsFile(tagRuleId)
         if (!f.exists() || characterName.isBlank() || newVoiceTag.isBlank()) return false
@@ -120,6 +136,7 @@ object CharacterRecordsFile {
                 val o = arr.optJSONObject(i) ?: continue
                 if (o.optString("name") == characterName) {
                     o.put("voice", newVoiceTag)
+                    if (!voiceDisplayName.isNullOrBlank()) o.put("voiceName", voiceDisplayName)
                     arr.put(i, o)
                     changed++
                 }
@@ -257,6 +274,8 @@ object CharacterRecordsFile {
     class RoleRecord internal constructor(val obj: JSONObject) {
         val name: String get() = obj.optString("name").trim()
         val voice: String get() = obj.optString("voice").trim()
+        /** 插件音色模式下的音色显示名（voice 存插件音色 id 时用它回显） */
+        val voiceName: String get() = obj.optString("voiceName").trim()
         val age: String get() = obj.optString("age").trim()
         val gender: String get() = obj.optString("gender").trim()
         val aliases: String get() = obj.optString("aliases").trim()
@@ -294,7 +313,7 @@ object CharacterRecordsFile {
      * 记录里的其他字段不会进文件）。`genderAgeHistory` 是框架侧的历史缓存，插件也保留。
      */
     private val STORED_FIELDS = listOf(
-        "name", "aliases", "voice", "gender", "age", "usageCount", "genderAgeHistory"
+        "name", "aliases", "voice", "voiceName", "gender", "age", "usageCount", "genderAgeHistory"
     )
 
     /**

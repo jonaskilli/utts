@@ -278,6 +278,8 @@ fun RoleListScreen(
     var records by remember { mutableStateOf<List<CharacterRecordsFile.RoleRecord>>(emptyList()) }
     var marks by remember { mutableStateOf<Map<String, List<String>>>(emptyMap()) }
     var voiceNames by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    // 标签 → 插件 id（只收「启用 + 插件源」的配置，用于给角色换「插件音色」）
+    var tagPlugins by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var currentBook by remember { mutableStateOf("") }
     LaunchedEffect(version, reloadKey) {
         val loaded = withIO {
@@ -285,6 +287,7 @@ fun RoleListScreen(
             val recs = CharacterRecordsFile.readRecords(tagRuleId)
             val groups = dbm.systemTtsV2.getAllGroupWithTts()
             val nameMap = LinkedHashMap<String, String>()
+            val pluginMap = LinkedHashMap<String, String>()
             groups.forEach { g ->
                 g.list.forEach { item ->
                     // 只认**启用**配置（与角色管理 v10 getVoiceByTag 查 allEnabled 同口径）：
@@ -295,14 +298,18 @@ fun RoleListScreen(
                     val tag = cfg.speechRule?.tag?.trim().orEmpty()
                     if (tag.isEmpty()) return@forEach
                     if (tag !in nameMap) nameMap[tag] = item.displayName
+                    val src = cfg.source as? com.github.jing332.database.entities.systts.source.PluginTtsSource
+                    if (src != null && tag !in pluginMap) pluginMap[tag] = src.pluginId
                 }
             }
-            listOf(recs, nameMap)
+            listOf(recs, nameMap, pluginMap)
         }
         @Suppress("UNCHECKED_CAST")
         records = loaded[0] as List<CharacterRecordsFile.RoleRecord>
         @Suppress("UNCHECKED_CAST")
         voiceNames = loaded[1] as Map<String, String>
+        @Suppress("UNCHECKED_CAST")
+        tagPlugins = loaded[2] as Map<String, String>
         marks = VoiceMarksFile.readAll(tagRuleId)
         currentBook = CharacterRecordsFile.readCurrentBook(tagRuleId)
     }
@@ -368,6 +375,8 @@ fun RoleListScreen(
     var mergeFollowFor by remember { mutableStateOf<List<String>?>(null) } // 标记的角色名列表，选目标
     var mergeVoiceTarget by remember { mutableStateOf<String?>(null) } // 合并+选择发音人：目标角色
     var pickerFor by remember { mutableStateOf<CharacterRecordsFile.RoleRecord?>(null) } // 换声（标签框点击）
+    // 插件音色选择（11-17 支线）：角色绑定的标签来自插件配置时，可直接在插件音色表里选
+    var pluginVoiceFor by remember { mutableStateOf<CharacterRecordsFile.RoleRecord?>(null) }
     // ⋮ → 删除配置项（11-08 角色行加 ⋮ 菜单）：复用换声弹窗同款删除链，
     // 弹窗渲染照 VoicePickerDialog.deleteConfirmTarget 抄（确认文案+联动重分配在 onDeleteConfigConfirmed）
     var deleteConfigTarget by remember { mutableStateOf<SystemTtsV2?>(null) }
@@ -663,7 +672,7 @@ fun RoleListScreen(
                     }
                     RoleRow(
                         rec = rec,
-                        voiceName = voiceTagText(rec.voice, voiceNames),
+                        voiceName = rec.voiceName.ifBlank { voiceTagText(rec.voice, voiceNames) },
                         displayName = voiceNames[rec.voice],
                         pluginName = pluginNameShort,
                         hasAnchor = anchorEntity != null,
@@ -762,6 +771,28 @@ fun RoleListScreen(
             onChanged = { _, _ -> reload() },
             onDismissRequest = { pickerFor = null },
         )
+    }
+    // ===== 插件音色选择（11-17 支线）=====
+    pluginVoiceFor?.let { rec ->
+        val pid = tagPlugins[rec.voice]
+        if (pid != null) {
+            PluginVoicePickerDialog(
+                context = context,
+                pluginId = pid,
+                locale = "zh",
+                roleName = rec.name,
+                currentVoiceId = rec.voice,
+                onPick = { id, name ->
+                    pluginVoiceFor = null
+                    scope.launch {
+                        val ok = withIO { CharacterRecordsFile.rebindPluginVoice(tagRuleId, rec.name, id, name) }
+                        toast(if (ok) R.string.role_list_voice_picked else R.string.role_list_failed)
+                        if (ok) reload()
+                    }
+                },
+                onDismissRequest = { pluginVoiceFor = null },
+            )
+        }
     }
     // ===== ⋮ → 删除配置项（11-08 角色行菜单）：确认弹窗+删除链照换声弹窗
     // deleteConfirmTarget / deletePreviewedConfig 一字抄（VoicePickerDialog.kt:1679/425）——
@@ -891,6 +922,12 @@ fun RoleListScreen(
                         MenuActionRow(stringResource(R.string.role_list_menu_rename), "✏️") {
                             menuFor = null
                             editFor = idx to rec
+                        }
+                    }
+                    if (tagPlugins[rec.voice] != null) {
+                        MenuActionRow("选插件音色", "🎛️") {
+                            menuFor = null
+                            pluginVoiceFor = rec
                         }
                     }
                     MenuActionRow(stringResource(R.string.role_list_menu_delete), "🗑️") {

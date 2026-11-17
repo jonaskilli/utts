@@ -795,6 +795,7 @@
     <string name="role_list_delete_toast">已删除 %1$d 个角色</string>
     <string name="role_list_set_main_toast">已将「%1$s」设为主角</string>
     <string name="role_list_failed">操作失败</string>
+    <string name="role_list_voice_picked">已换为插件音色</string>
     <string name="role_list_select_all">全选</string>
     <string name="role_list_selected_count">已选 %1$d 项</string>
     <string name="role_list_merge">合并</string>
