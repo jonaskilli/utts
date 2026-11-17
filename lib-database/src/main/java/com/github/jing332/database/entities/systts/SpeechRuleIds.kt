@@ -21,6 +21,13 @@ package com.github.jing332.database.entities.systts
  * 行为与改造前逐字节一致。
  */
 object SpeechRuleIds {
+    /**
+     * Fish 按书配音支线的规则 id（11-17）：**只用于 UI 收窄**，
+     * 让「插件音色」这类支线专属入口不污染现役规则的界面。
+     * 运行逻辑不依赖它（任何启用规则都按 [RULE_ID] 走）。
+     */
+    const val FISH_BRANCH_RULE_ID = "fish_book_cast"
+
     /** 回退规则 id，等同现役规则的 `SpeechRuleJS.id`。 */
     const val DEFAULT_RULE_ID = "mingwuyan"
 

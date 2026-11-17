@@ -924,7 +924,9 @@ fun RoleListScreen(
                             editFor = idx to rec
                         }
                     }
-                    if (tagPlugins[rec.voice] != null) {
+                    // 仅 Fish 支线规则下出现（11-17 用户令「以前的尽量不要改」）：
+                    // 其他规则（mingwuyan 等）的角色菜单保持原样，一个字节都不变。
+                    if (tagPlugins[rec.voice] != null && SpeechRuleIds.RULE_ID == SpeechRuleIds.FISH_BRANCH_RULE_ID) {
                         MenuActionRow("选插件音色", "🎛️") {
                             menuFor = null
                             pluginVoiceFor = rec
