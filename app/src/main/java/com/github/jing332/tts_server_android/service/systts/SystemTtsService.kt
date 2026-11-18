@@ -1465,8 +1465,9 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
             }
 
             // 11-18 用户令：重试上限文案按来路分叉——
-            // 预热=「由实时合成兜底」（前面已有「预合成失败…重试中」，这句说清结局，
-            // 不再是突兀的「跳过！」）；播放=照旧「跳过」（本行是实时合成的终点标记，不动）。
+            // 预热=「由实时合成兜底」（前一行「预合成失败…该段播放时会现场合成，不影响朗读」
+            // 只说了失败与保底，这句把「结局」说全，不再是突兀的「跳过！」）；
+            // 播放=照旧「跳过」（本行是实时合成的终点标记，用户明确要求不动）。
             is NormalEvent.RequestCountEnded ->
                 if (e.isPreload) logW(getString(R.string.reach_retry_limit_preload))
                 else logW(getString(R.string.reach_retry_limit))
