@@ -281,6 +281,27 @@ fun RoleListScreen(
     // 标签 → 插件 id（只收「启用 + 插件源」的配置，用于给角色换「插件音色」）
     var tagPlugins by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var currentBook by remember { mutableStateOf("") }
+    // 11-19 冻结显示顺序（用户实报「朗读时长按标签换声，列表顺序会跑，想改 A 的声音结果改了 B」）：
+    // 规则朗读时每个开口角色都 moveRecordToTop + saveRecords（v1.7.43:3738 等），
+    // characterRecords.json 的顺序 = 「最近谁说话谁在前」；本页切页签回来（reloadKey++）/
+    // 换完声（reload()）都会重读文件，行就换了位置——长按是直接触发随机换声的，
+    // 位置一跳手指还停在原地就按到别人。操作下标(idx)绑的是重排后记录本身，
+    // 数据不会错，错的是显示顺序。
+    //
+    // 冻结口径（用户拍板「可以，就这么做」）：
+    //   · 已有角色按**首次加载时的顺序**钉死，重读文件时按角色名（trim 后，大小写敏感，
+    //     与 findCharacterRecord 的匹配无关、纯显示层排序键）把它们捞出来放回原位置，
+    //     其间文件里的移动（moveRecordToTop）不再影响显示；
+    //   · **新角色追加到列表底部**（不再享受规则的 unshift 置顶）；
+    //   · 别名合并=别名行消失、主卡原地不动（主卡按名字对位，天然满足）；
+    //   · 重进角色管理页（reloadKey 重读后 frozenOrder 重建）恢复文件顺序。
+    // 为什么按名字而不按引用对位：重读是 readRecords 新建一批 RoleRecord，
+    // 引用全变了；名字是记录的稳定身份（合并/改名场景见下）。
+    //   · 改名（✏️ 编辑后）：旧名字对不上 → 视为「旧名消失 + 新名出现」，
+    //     新名追加到底部——可接受，改名是显式操作，用户正看着那一行；
+    //   · 排序对显示层生效，idx 仍是**文件下标**，全部操作链（标记/删除/换声/设主角）
+    //     的正确性不受影响。
+    var frozenOrder by remember { mutableStateOf<List<String>>(emptyList()) }
     LaunchedEffect(version, reloadKey) {
         val loaded = withIO {
             KeyListFile.writeFolderGuide(tagRuleId) // 文件说明.txt（幂等；RoleManagementScreen 与本页共用此加载链）
@@ -305,11 +326,27 @@ fun RoleListScreen(
             listOf(recs, nameMap, pluginMap)
         }
         @Suppress("UNCHECKED_CAST")
-        records = loaded[0] as List<CharacterRecordsFile.RoleRecord>
-        @Suppress("UNCHECKED_CAST")
         voiceNames = loaded[1] as Map<String, String>
         @Suppress("UNCHECKED_CAST")
         tagPlugins = loaded[2] as Map<String, String>
+        // 冻结顺序落位（见 frozenOrder 声明处注释）：
+        //   · frozenOrder 为空 = 本页首次加载（或重进页签后重建）→ 直接采用文件顺序；
+        //   · 否则按 frozenOrder 里的名字把已有角色捞回原位置，
+        //     文件里多出来的（本轮新出场）按文件顺序追加到底部；
+        //     frozenOrder 里已消失的（合并掉/删除）自然跳过，再把顺序表同步裁剪。
+        val fresh = loaded[0] as List<CharacterRecordsFile.RoleRecord>
+        records = if (frozenOrder.isEmpty()) {
+            frozenOrder = fresh.map { it.name }
+            fresh
+        } else {
+            val byName = fresh.associateBy { it.name }
+            val kept = frozenOrder.mapNotNull { byName[it] }
+            val known = kept.map { it.name }.toSet()
+            val appended = fresh.filter { it.name !in known }
+            if (appended.isNotEmpty()) frozenOrder = kept.map { it.name } + appended.map { it.name }
+            else if (kept.size != frozenOrder.size) frozenOrder = kept.map { it.name }
+            kept + appended
+        }
         marks = VoiceMarksFile.readAll(tagRuleId)
         currentBook = CharacterRecordsFile.readCurrentBook(tagRuleId)
     }
