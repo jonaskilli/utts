@@ -267,6 +267,13 @@ internal fun softFillBarColor(): Color {
 fun RoleListScreen(
     tagRuleId: String,
     reloadKey: Int,
+    // 11-19：自愈+备份与「看列表」解绑——resumeKey 只在进 App（ON_RESUME）/备份恢复时自增，
+    // 切 Tab 重读数据文件（reloadKey）不再连带跑这两件重活。朗读中规则每段都在写
+    // characterRecords.json，切 Tab 时若同时跑整包备份，两边 IO 撞车，列表加载从毫秒级
+    // 拖成可感知的等待（用户实报「点进去之后列表要等一会才出来」）。自愈与备份本就与
+    // 「看列表」无关：cunfang 补默认、书档同步、liebiao 补录是进 App 的一次性维护；
+    // 整包备份是低频动作。两者只在真正需要的时机跑一次。
+    resumeKey: Int,
     bottomPadding: androidx.compose.ui.unit.Dp,
     modifier: Modifier = Modifier,
 ) {
@@ -356,7 +363,9 @@ fun RoleListScreen(
     // 照插件 onLoadUI：①先跑 initializeFileSystem 自愈（cunfang 空→「默认」、角色数据同步进
     // shuming.<当前书>、当前书补进 liebiao.json 末尾、保证「默认」在列表、去重后落盘）
     // ②再按自动备份开关执行一次备份
-    LaunchedEffect(reloadKey) {
+    // 11-19 解绑：只挂 resumeKey（进 App / 备份恢复），不再跟 reloadKey（切 Tab 重读）走。
+    // 旧版挂 reloadKey 时，朗读中每次切 Tab 都跑自愈+整包备份，与规则的写盘撞车（见上注）。
+    LaunchedEffect(resumeKey) {
         withIO {
             CharacterRecordsFile.initializeFileSystem(tagRuleId)
             if (CharacterRecordsFile.readAutoBackupEnabled(tagRuleId)) {

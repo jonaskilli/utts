@@ -158,6 +158,9 @@ fun RoleManagementScreen(sharedVM: SharedViewModel, pagerState: PagerState) {
     // 跳过首次 ON_RESUME（首次进入由 LaunchedEffect 初始加载，避免重复 load）
     // （reloadKey 声明已上移到自动重生成之前：重生成完成后也会自增它）
     var firstResume by remember { mutableStateOf(true) }
+    // 11-19：自愈+备份专用钥匙——只在进 App（ON_RESUME）时自增。切 Tab 重读
+    // （reloadKey）不再连带跑这两件重活，见 RoleListScreen resumeKey 注。
+    var resumeKey by remember { mutableIntStateOf(0) }
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -166,6 +169,7 @@ fun RoleManagementScreen(sharedVM: SharedViewModel, pagerState: PagerState) {
                     firstResume = false
                 } else {
                     reloadKey++
+                    resumeKey++
                 }
             }
         }
@@ -176,11 +180,15 @@ fun RoleManagementScreen(sharedVM: SharedViewModel, pagerState: PagerState) {
     // 11-18 用户实报「主办方负责人/季屿彻是空的，不是没有实时分配」：朗读中规则
     // 一直在实时建卡/分配音色并落盘，但同 Activity 内**切 Tab** 回本页不触发
     // ON_RESUME，旧快照一直挂着——磁盘 22:23 已 10 人全有音色，页面 21:56 仍空白。
-    // 修法：页签每次变为可见即 reloadKey++ 重读 characterRecords.json；跳过首轮
-    // （首次进入由 LaunchedEffect(enabledSig) 初始加载，重复 load 白跑一遍 IO）。
+    // 11-19 改「离开时预读」（用户令「点进去就是最新的」）：页签**变为不可见**即
+    // reloadKey++——切走的那一刻就提前重读数据文件，回来时首帧即最新，零等待。
+    // （首帧不清空旧数据，重读结果到达后原地刷新。）第一版曾在「变为可见」时
+    // reloadKey++，但那样读取与首帧渲染同刻竞争 IO，列表加载出现可感知等待
+    // （用户实报「点进去之后列表要等一会才出来」）——预读把它挪到用户看别的页时跑。
+    // 跳过首轮：首帧由 LaunchedEffect(enabledSig) 初始加载兜住，无可预读。
     var firstTabShow by remember { mutableStateOf(true) }
     LaunchedEffect(isPageVisible.value) {
-        if (isPageVisible.value) {
+        if (!isPageVisible.value) {
             if (firstTabShow) firstTabShow = false else reloadKey++
         }
     }
@@ -273,6 +281,8 @@ fun RoleManagementScreen(sharedVM: SharedViewModel, pagerState: PagerState) {
             RoleListScreen(
                 tagRuleId = ROLE_RULE_ID,
                 reloadKey = reloadKey,
+                // 11-19：自愈+备份改挂 resumeKey（进 App / 备份恢复），与切 Tab 重读解绑
+                resumeKey = resumeKey,
                 bottomPadding = paddingValues.calculateBottomPadding(),
                 modifier = Modifier
                     .fillMaxSize()
@@ -295,7 +305,7 @@ fun RoleManagementScreen(sharedVM: SharedViewModel, pagerState: PagerState) {
             tagRuleId = ROLE_RULE_ID,
             version = backupVersion,
             onDismiss = { showBackupCenter = false },
-            onRestored = { backupVersion++; reloadKey++ },
+            onRestored = { backupVersion++; reloadKey++; resumeKey++ },
         )
     }
 }
