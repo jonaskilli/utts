@@ -1174,14 +1174,15 @@ fun KeyManagerScreen(tagRuleId: String, onBack: () -> Unit) {
             toast(R.string.role_key_value_empty)
             return
         }
-        // 同组同模型联动（10-10 用户定稿「调用自动换账号」）：同渠道同模型的条目是
-        // 不同账号的同名密钥（名字带序号），勾一条=全部一起进/出启用池——
-        // 用户只点一下，多账号轮换自动生效；不想让某账号参与就去池页停用该账号。
-        // 判据与 keyBelongsTo 同源：同站（openAiBaseUrl 归一）+同模型段。
+        // 同组同模型联动（10-10 用户定稿「调用自动换账号」，11-18 随分组口径收紧）：
+        // 组 = 网址 + 密钥（用户 11-18：同一网址不同密钥是不同分组），所以联动范围也只能是
+        // 本组——旧判据「同站 + 同模型」会把同一网址另一把钥的条目一起拉进/踢出启用池，
+        // 表现就是「勾了幻城免费，幻城付费的模型也进了池」= 两组重叠。
+        // 同组同钥同模型理论上唯一（hasModel 去重），故实际效果≈只切本条，语义仍统一。
         val siblings = keys.filter { e ->
             val q = KeyListFile.parseKeyValue(e.value)
             q != null && !q.isDirect && p != null &&
-                KeyListFile.sameApiSite(q.url, p.url) && q.model == p.model
+                KeyListFile.sameApiSite(q.url, p.url) && q.key == p.key && q.model == p.model
         }.map { KeyListFile.normalizePoolValue(it.value) }.filter { it.isNotEmpty() }
         if (norm in pool) {
             savePoolList(pool - siblings.toSet())

@@ -145,7 +145,10 @@ object KeyListFile {
                 out[k] = TestOutcome(
                     verdict = v,
                     thinkingOff = if (o.has("thinkingOff") && !o.isNull("thinkingOff")) o.optBoolean("thinkingOff") else null,
-                    message = normalizeLegacyTestMessage(v, o.optString("message")),
+                    // 两次归一：①旧句式 → 现行三句式（11-18 修：旧版在这里把「ms」单位吃掉，
+                    // 写回显示层后「4216ms」变「4216」，用户看到的就是退出重进用时没了单位）；
+                    // ②句首裸数字补回单位（更早期缓存连单位都没写，如「4629 · 兼容写法…」）
+                    message = ensureTimingUnit(normalizeLegacyTestMessage(v, o.optString("message"))),
                     locked = o.optString("locked").takeIf { s -> s.isNotEmpty() },
                     reason = o.optString("reason"),
                 )
@@ -162,16 +165,26 @@ object KeyListFile {
     //  旧黄「各写法均无法关闭思考，已锁定「thinking_mode」保证可分配：1317ms」等 →「1317ms · 兼容写法已锁定，思考未关 · 需自定义」
     //  旧黄「…关不掉思考 · 需自定义」「…请自定义 JSON…」同上
     // 提不出用时/锁名的条目保持原文（宁可不改，不编造）。
+    // ⚠️ 11-18 修：原实现只取数字、拼回时漏掉单位 →「4216ms」读回变「4216」，
+    //    用户「测试完有时间，退出重进就没了」的根因。拼回必须带 ms。
     private fun normalizeLegacyTestMessage(verdict: TestVerdict, message: String): String {
         val legacy = listOf("思考适配完成", "保证可分配", "关不掉思考", "无法关闭思考", "请自定义 JSON", "需自定义")
         if (verdict == TestVerdict.FAIL || legacy.none { message.contains(it) }) return message
         val ms = Regex("(\\d+)\\s*ms").find(message)?.groupValues?.get(1) ?: return message
         val locked = Regex("「([A-Za-z0-9_.]+)」").find(message)?.groupValues?.get(1)
         return when (verdict) {
-            TestVerdict.PASS -> if (locked != null) "$ms · 思考已关（已锁定 $locked）" else "$ms · 思考已关"
-            else -> "$ms · 兼容写法已锁定，思考未关 · 需自定义"
+            TestVerdict.PASS -> if (locked != null) "${ms}ms · 思考已关（已锁定 $locked）" else "${ms}ms · 思考已关"
+            else -> "${ms}ms · 兼容写法已锁定，思考未关 · 需自定义"
         }
     }
+
+    /** 句首用时补单位（11-18）：更早期缓存写的是「4629 · 兼容写法…」——数字后直接「·」/「；」，
+     *  没有 ms。这类条目只补单位、不动正文；已带单位（4629ms）或非用时开头的一律原样返回。 */
+    private val BARE_LEADING_MS = Regex("^(\\d{1,6})(?=\\s*[·；;])")
+    private fun ensureTimingUnit(message: String): String =
+        if (BARE_LEADING_MS.containsMatchIn(message)) {
+            message.replaceFirst(BARE_LEADING_MS, "$1ms")
+        } else message
 
     /** 全量覆盖写测试结果（空表=清空）；失败返回 false */
     fun saveTestResults(tagRuleId: String, results: Map<String, TestOutcome>): Boolean = try {
@@ -1572,33 +1585,32 @@ object KeyListFile {
     }
 
 /**
- * 密钥是否属于某接口（10-10 用户定稿「同供应商一组合一」）：判据=**网址段同站**即归属，
- * 不再比 key——同渠道多账号各落一条（value=站@@模型@@各自token），全归同一分组，
- * 组里逐条可勾进启用池、调用时按池序轮换（「调用的时候随便用加的所属账号」）。
- * 旧判据（key 也要等于组级 apiKey）会让第 2+ 账号的条目掉进「未分组」，用户看到的就是
- * 组外一堆莫名其妙的「模型密钥」。
- * ⚠️ 历史坑变历史：旧注释记的「旧版丢了 key 相同这半，删接口 A 连带删 B」——那是插件
- * 一 key 一组时代的顾虑；app 侧已定稿一平台一组，删组本就该同站全删（见
- * deleteInterfaceCascade 同款判据）。若将来回到一 key 一组，两处要一起改回。
+ * 密钥是否属于某接口（11-18 用户定稿「同一网址、不同密钥 = 不同分组」）：判据=**同站 + 同密钥**。
+ * 同一网址下的两把钥（如幻城免费 / 幻城付费）各自成组，条目只落在自己那把钥的组里，
+ * 组与组的模型不再串（用户实拍：两把钥的条目混在「幻城免费」一张卡里）。
+ * 沿革：10-10 曾定「同站即同组」（同供应商一组合一，为多账号轮换）；11-18 用户改口
+ * 要按密钥分组 —— 两处判据（本函数 + deleteInterfaceCascade）必须同时收紧，
+ * 否则删组会连带删掉别的密钥的条目。
  */
     fun keyBelongsTo(entry: KeyEntry, ifc: ApiInterface): Boolean {
         val p = parseKeyValue(entry.value) ?: return false
         if (p.isDirect || p.url.isEmpty()) return false
-        return sameApiSite(p.url, ifc.baseUrl)
+        return sameApiSite(p.url, ifc.baseUrl) && p.key == ifc.apiKey.trim()
     }
 
     /** 删除接口连同其下所有密钥条目（照插件接口表单🗑）；返回 (新密钥表, 删除的密钥数) */
     fun deleteInterfaceCascade(tagRuleId: String, ifc: ApiInterface, keys: List<KeyEntry>): Pair<List<KeyEntry>, Int> {
-        // ⚠️ 判据是「同站」而不是 keyBelongsTo（10-10 真机实锤）：keyBelongsTo 拿条目 key
-        // 与**组级 apiKey**（建组时首个账号的 token）比——多账号同组时第 2+ 账号的条目
-        // key 是各自 token，比不上 → 删组漏删它们 → 残留孤儿条目。残留条目 url 同站+key
-        // =账号 token，账号池 addAsKey 的去重判据（同站+同钥）恰好命中 → 秒回「已在密钥
-        // 管理」，但组已删、去重分支不建组 → **分组永远不重建**（用户报障「删了分组回不来」，
-        // 组位置还看得到一条莫名「模型密钥」=残留条目本体）。组删即组内全删：同站就是本组。
+        // 判据=同站 + 同密钥（11-18 与 keyBelongsTo 同源收紧）：组 = 网址 + 密钥，
+        // 删「幻城免费」只删它那把钥的条目，同网址的「幻城付费」条目原样保留。
+        // 沿革：10-10 曾用「同站即全删」——那是按网址分组的年代，多账号同组时
+        // 第 2+ 账号 key 比不上组级 apiKey 会漏删；现在组与密钥一一对应，不存在该问题。
+        // ⚠️ 删「同站不同钥」的条目会直接毁掉隔壁分组（本组以外的一切都不许动）。
         // 纯 Key 条目（无 url 段）与解析不动的条目不动——它们不归属任何站。
+        val groupKey = ifc.apiKey.trim()
         val kept = keys.filter { e ->
             val p = parseKeyValue(e.value)
-            p == null || p.isDirect || !sameApiSite(p.url, ifc.baseUrl)
+            p == null || p.isDirect ||
+                !sameApiSite(p.url, ifc.baseUrl) || p.key != groupKey
         }
         val removed = keys.size - kept.size
         val ifaces = readInterfaces(tagRuleId).filter { it.name != ifc.name }
