@@ -300,7 +300,10 @@ fun CodeEditorScreen(
                             onDismissRequest = { showOptions = false }) {
                             if (onSaveFile != null)
                                 DropdownMenuItem(
-                                    text = { Text(stringResource(id = R.string.save_as_file)) },
+                                    // 11-19：本编辑器三个使用方（朗读规则/插件/直链上传）
+                                    // onSaveFile 返回的文件名都是 .js，标签改为「另存为JS」。
+                                    // 不用 save_as_file——那条被导出底栏（存 JSON）共用。
+                                    text = { Text(stringResource(id = R.string.save_as_js)) },
                                     onClick = {
                                         onSaveFile.invoke().let {
                                             fileSaver.launch(
