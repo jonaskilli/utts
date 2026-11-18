@@ -35,6 +35,22 @@ class TextProcessor : ITextProcessor {
         get() = SystemTtsConfig.isReplaceEnabled.value
 
     private lateinit var engine: SpeechRuleEngine
+
+    /**
+     * 11-18：规则引擎复用签名（ruleId|id|version|code.hashCode）。
+     *
+     * 背景（真机 14:31 实锤）：任何配置广播（改发音人/批量标签/启用开关…）都会
+     * `SystemTtsService.initManager()` → `MixSynthesizer.init()` → 本函数，
+     * 以前这里**无条件** `SpeechRuleEngine(...)` + `eval()`。规则 JS 的全部内存态
+     * 随之一并清零：慢钥暂停期、加赛统计、角色/密钥缓存、轮换索引，以及
+     * `BOOK_CHAPTER_LOGGED`（表现为章节半中央又打一条【书章就绪】）。
+     *
+     * 现在：签名没变就复用引擎，只刷新发音人配置；规则被编辑/导入/换用
+     * （sig 变化）才重建。配置变更仍会即时生效——配置是每次 [init] 重新读进
+     * [configs] 的，规则在 handleText 时从入参拿。
+     */
+    private var engineRuleSig: String = ""
+
     private val textReplacer = TextReplacer()
 
     private var configs: List<TtsConfiguration> = emptyList()
@@ -57,13 +73,22 @@ class TextProcessor : ITextProcessor {
             // 同步给全局：角色记录/发音人池/密钥等目录（SpeechRuleIds.DATA_DIR）跟着这条规则走，
             // 两条支线的数据互不覆盖。
             SpeechRuleIds.refresh(speechRule.ruleId)
-            logger.debug { "speechRule loaded: ruleId=${speechRule.ruleId}, name=${speechRule.name}" }
-            engine = SpeechRuleEngine(context, speechRule)
-            // 必须在 eval() 之前设置 console，否则 JavaScript 绑定的是默认 Console
-            logger.debug { "Before setting console: source=${engine.console.source}" }
-            engine.console = Console(Console.LogSource.SPEECH_RULE)
-            logger.debug { "After setting console: source=${engine.console.source}" }
-            engine.eval()
+            // 11-18（用户令「引擎没变就复用」）：签名未变不重建，保住规则内存态。
+            // 签名含 code.hashCode()：规则内容被编辑后必换，避免跑着旧字节码。
+            val ruleSig = speechRule.ruleId + "|" + speechRule.id + "|" + speechRule.version +
+                "|" + speechRule.code.hashCode()
+            if (ruleSig == engineRuleSig && this::engine.isInitialized) {
+                logger.debug { "speechRule reused（签名未变，保留内存态）: ruleId=${speechRule.ruleId}, name=${speechRule.name}" }
+            } else {
+                logger.debug { "speechRule loaded: ruleId=${speechRule.ruleId}, name=${speechRule.name}" }
+                engine = SpeechRuleEngine(context, speechRule)
+                // 必须在 eval() 之前设置 console，否则 JavaScript 绑定的是默认 Console
+                logger.debug { "Before setting console: source=${engine.console.source}" }
+                engine.console = Console(Console.LogSource.SPEECH_RULE)
+                logger.debug { "After setting console: source=${engine.console.source}" }
+                engine.eval()
+                engineRuleSig = ruleSig
+            }
             this.configs =
                 configs.entries.map { entry ->
                     val cfg = entry.value
