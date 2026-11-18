@@ -2434,10 +2434,16 @@ internal fun LogScreen(
         }
     }
 
-// 搜索命中判定（条目级）：正文或时间含搜索词
+// 搜索命中判定（条目级）：**只认正文/时间**（11-18 三改）。
+//
+// 为什么不再认书章名：用户实拍「搜『喜欢』81 处匹配，其中 78 条只是因为章节名叫
+// 『有喜欢的人了』」——同权染底会让真正相关的两行混在噪音里找不到。列表过滤仍保留
+// 书章命中（行照常显示），只是不打命中底色；匹配计数在顶部另报「共 N 处 · 正文 M 处」。
+// 原文带 <b>/<font> 标签，故同时比对剥标签文本——跨标签边界的词在上屏文本里是连着的。
 private fun isMatchEntry(e: LogEntry, q: String): Boolean =
-    q.isNotEmpty() && (e.message.contains(q, ignoreCase = true) || e.time.contains(q, ignoreCase = true) ||
-        e.bookName.contains(q, ignoreCase = true) || e.chapterTitle.contains(q, ignoreCase = true))
+    q.isNotEmpty() && (e.message.contains(q, ignoreCase = true) ||
+        e.message.replace(Regex("<[^>]*>"), "").contains(q, ignoreCase = true) ||
+        e.time.contains(q, ignoreCase = true))
 
 // 行级药丸推导（10-10 终案「失败链按以前单条处理+丸保留」）：每条日志按自己的
 // 级别/文案出一颗丸——重试 W 主行=重试N、兜底/备用 I 主行=切备用、成功请求行=成功、

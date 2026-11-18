@@ -193,10 +193,20 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
+    // 11-18 三改（用户实拍：搜「喜欢」出 81 处，正文命中只有 2 条，全被章名噪音淹了）：
+    // 命中拆成两种口径——书章节名**保留可搜**（按章名找日志的老用法不废），但降到次要：
+    //   matchesBody  = 正文/时间（主命中；匹配计数、黄底、上下箭头只认它）
+    //   matchesQuery = 正文/时间 + 书章名（全部命中；列表过滤仍用它，行照常显示）
+    // 两种都同时比对「原文」与「剥掉 HTML 标签后的文本」：原文形如
+    // `请求音频：<b>正文</b><br><font …>`，跨标签边界的词在原文里搜不到但上屏看得见
+    //（「明明有却搜不到」就是这么来的）。
+    fun LogEntry.plainMessage(): String = message.replace(Regex("<[^>]*>"), "")
+    fun LogEntry.matchesBody(q: String): Boolean =
+        message.contains(q, ignoreCase = true) || plainMessage().contains(q, ignoreCase = true) ||
+            time.contains(q, ignoreCase = true)
     fun LogEntry.matchesQuery(q: String): Boolean =
-        message.contains(q, ignoreCase = true) || time.contains(q, ignoreCase = true) ||
-            bookName.contains(q, ignoreCase = true) || chapterTitle.contains(q, ignoreCase = true) ||
-            bookName.contains(q, ignoreCase = true) || chapterTitle.contains(q, ignoreCase = true)
+        matchesBody(q) || bookName.contains(q, ignoreCase = true) ||
+            chapterTitle.contains(q, ignoreCase = true)
 
     // 基础列表 = 等级/插件筛选结果 → 书/章收窄（11-10）→ 搜索词实时过滤。
     // 书/章收窄放在搜索之前：搜索是在「选定范围内」找词，符合直觉
@@ -225,6 +235,15 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
             val q = searchQuery.trim()
             if (q.isEmpty()) 0
             else displayLogs.count { it.matchesQuery(q) }
+        }
+    }
+
+    // 正文命中数（不含书章名）——与 matchCount 并列显示，一眼看出「真正相关的有几条」
+    val bodyMatchCount by remember(vm) {
+        derivedStateOf {
+            val q = searchQuery.trim()
+            if (q.isEmpty()) 0
+            else displayLogs.count { it.matchesBody(q) }
         }
     }
 
@@ -426,7 +445,9 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
     LaunchedEffect(searchQuery) {
         val q = searchQuery.trim()
         if (q.isNotEmpty()) {
-            val idx = displayLogs.indexOfLast { it.matchesQuery(q) }
+            // 11-18：优先跳「正文命中」的最后一处；没有正文命中才退回全部命中
+            val idx = displayLogs.indexOfLast { it.matchesBody(q) }
+                .let { if (it >= 0) it else displayLogs.indexOfLast { it.matchesQuery(q) } }
             if (idx >= 0) listState.animateScrollToItem(logGroups.listItemFor(idx))
         }
     }
@@ -436,7 +457,10 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
     fun jumpToMatch(forward: Boolean) {
         val q = searchQuery.trim()
         if (q.isEmpty()) return
-        val matches = displayLogs.indices.filter { displayLogs[it].matchesQuery(q) }
+        // 11-18：箭头只跳「正文命中」，不在书章名噪音里空转；正文零命中时退回旧行为
+        val bodyMatches = displayLogs.indices.filter { displayLogs[it].matchesBody(q) }
+        val matches = if (bodyMatches.isNotEmpty()) bodyMatches
+        else displayLogs.indices.filter { displayLogs[it].matchesQuery(q) }
         if (matches.isEmpty()) return
         // 可视首项（可能是组/裸行/日期签）→ 取该列表项的首个条目下标做锚
         val firstVisible = listState.firstVisibleItemIndex
@@ -700,7 +724,11 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "${matchCount} 处匹配",
+                            // 11-18：全部命中 ≠ 正文命中时分开报（如「共 81 处 · 正文 2 处」），
+                            // 让用户知道真正相关的是哪几条；两者相等时保持原文案不啰嗦。
+                            text = if (bodyMatchCount in 1 until matchCount)
+                                "共 ${matchCount} 处 · 正文 ${bodyMatchCount} 处"
+                            else "${matchCount} 处匹配",
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(start = 8.dp)
