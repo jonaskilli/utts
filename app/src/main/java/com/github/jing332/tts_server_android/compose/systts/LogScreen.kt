@@ -2078,21 +2078,13 @@ internal fun LogScreen(
                                     else "${head.paraIndex + 1}"
                                 } else ""
                                 if (segText.isNotEmpty()) {
-                                    // 11-18 段号突出（用户拍板候选 2「字重对比」，与进度行同一口径）：
-                                    // 分子（段号，一直在跳）SemiBold 半粗，分母（/总数）保持常规——
-                                    // 不动色相明度，纯字重分层。无分母（旧日志没带 paraTotal）时整段半粗。
-                                    val slash = segText.indexOf('/')
-                                    val segStyled = if (slash > 0) {
-                                        buildAnnotatedString {
-                                            withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) {
-                                                append(segText.substring(0, slash))
-                                            }
-                                            append(segText.substring(slash))
-                                        }
-                                    } else {
-                                        buildAnnotatedString {
-                                            withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(segText) }
-                                        }
+                                    // 11-19 用户令「右上方的字号统一，都改为那个粗粗的样式」：
+                                    // 整个 N/M 全部 SemiBold（含分母）。上一版（11-18 候选2）只粗
+                                    // 分子、分母常规，但吸顶进度行「当前：55/103」的 boldSeg 包的是
+                                    // **整个 N/M**——同屏两处粗细不同，被用户点出；统一为整段半粗，
+                                    // 与进度行同口径。无分母（旧日志没带 paraTotal）时本来就走整段半粗。
+                                    val segStyled = buildAnnotatedString {
+                                        withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(segText) }
                                     }
                                     Text(
                                         text = segStyled,
