@@ -1073,12 +1073,14 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                 // 半角竖线会被排版引擎当成字母、与后面的省略号/逗号粘成不可断块，日志行
                 // 右侧还剩整字宽度就被提前折行（「台湾口/音|⋯，」实测差 5px 整块下移）；
                 // 全角｜自带断行机会，且只动显示文案，配置项名/标签匹配不受影响
-                // 上限跟设置页「限制显示名称长度」滑杆（10-06 用户拍板默认 20 字）；
-                // 0=不限制。截断走 limitDisplayLength（码点安全+竖线段回退+清尾），补「…」
-                val tagName = config.speechInfo.tagName.trim().replace('|', '｜')
+                // 11-19 用户令：日志声音名截断仿照插件名 limitByDisplayWidth——撞括号类符号
+                // 连符号带后面内容一起砍（「讯飞（Pro）」→讯飞），不留「讯飞（Pr」半截。
+                // 预算用户拍板 **12**（不是插件名的 8）——声音名比插件牌长一档；
+                // 且**不吃滑杆**：滑杆(默认15)管的是配置卡等处的名字上限，日志行空间更紧，
+                // 固定 12 宽独立成档。截断仍码点安全 + 撞符号即切 + 清尾，不补省略号（同插件牌）。
+                val tagName = config.speechInfo.tagName.trim().replace('|', '｜').limitByDisplayWidth(12)
                 val dispFull = tag.displayName.replace('|', '｜')
-                val maxChars = AppConfig.limitNameLength.value
-                val disp = if (maxChars > 0) dispFull.limitDisplayLength(maxChars) else dispFull
+                val disp = dispFull.limitByDisplayWidth(12)
                 // 声音部分 = 标签名 [+ 逗号 + 显示名]；显示名以标签开头时不重复拼（防“男主1男主1”），
                 // 此时二者本为一体、也就无需分隔；与角色行 voiceTagText 同规则。
                 // ⚠️ 去重判断必须用**全量** dispFull：disp 已被切到 8 字，标签名本身超过 8 字时
