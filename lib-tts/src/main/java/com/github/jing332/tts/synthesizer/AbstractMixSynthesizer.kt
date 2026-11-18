@@ -175,13 +175,13 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
                         // 「“……”」这类段原样进请求、原样进日志（引擎念出来是静音/停顿，
                         // 但日志与正文对得上）。仅保留空白段过滤（纯空白没有文本可念）。
                         val kept = list.filterNot { it.text.isBlank() }
-                        // 11-18 用户令（实锤 14:29 日志）：朗读规则把整段纯符号过滤成空列表时，
-                        // 这一段既没有请求也没有音频，默认日志里凭空缺号（16/115 → 17/115）。
-                        // 补一条独立事件让日志页记下「这一段存在、被规则跳过」，并带段号——
-                        // 预热的备货早于播放，只按时间判断不出它是第几段。
-                        if (kept.isEmpty() && segment.text.isNotBlank()) {
-                            event(NormalEvent.SegmentFiltered(segmentIndex, segment.text.trim()))
-                        }
+                        // 11-18 晚用户令（推翻同日「补一行带段号的过滤记录」）：整段纯符号的
+                        // 过滤记录**一律不落日志页**——播放路径的那些段被 U阅 前置静音、
+                        // 根本进不了引擎，日志页只能看到预热路径的一半，半套可见在对账时
+                        // 反而误导读日志的人（用户原话「干脆过滤符号都不显示吧」）。
+                        // 取证改走调试日志：本行上方的 "batch textProcess" 会打出 unitCount=0；
+                        // 播放路径的静音段在 U阅 appLog 有「纯符号段静音跳过: index=N」。
+                        // ⚠️ 过滤行为本身不变——kept 为空就继续跳过，只是不再发事件。
                         merged.addAll(kept)
                     }
                     .onFailure { err: TextProcessorError ->
