@@ -2562,12 +2562,13 @@ internal fun boldBodyOf(e: LogEntry): String {
     return m.groupValues[1].replace(Regex("<[^>]*>"), "").trim()
 }
 
-/** 朗读行跟随锚点：行顶落在视口高度的 5% 处（11-18 用户令「放顶部」，日志区第一行）。
+/** 朗读行跟随锚点：行顶落在视口高度的 0% 处＝**贴视口顶边**（11-19 用户令「还差一点，
+ *  留了个空隙」——0.05 锚点自带一条 ≈5% 视口的缝，装机截图实锤；归零即真贴顶，
+ *  行顶紧贴固定头正下方）。
  *  历史教训：这个比例是**日志视口**口径，视口上还压着顶栏/筛选/书章/进度固定头
  *  （约占整屏 1/4），所以 0.42 实测整屏 49%、0.30 实测整屏 43%，用户两次看着都
- *  还是「中下部」。0.30→0.05：行顶贴视口顶＝固定头正下方，实测定标「正在朗读段」
- *  截图，请求行顶从整屏 43% 提到 19%。 */
-private const val FOLLOW_ANCHOR_RATIO = 0.05f
+ *  还是「中下部」。0.30→0.05 那轮已贴到「固定头下方一条缝」，本轮归零封顶。 */
+private const val FOLLOW_ANCHOR_RATIO = 0f
 
 // ===== 11-16 晚：滚动三态（用户定稿状态机，详见 LogScreen 参数 scrollMode 注释）=====
 enum class ScrollMode { FOLLOW_PLAYING, NATURAL, FOLLOW_LATEST }
