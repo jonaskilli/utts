@@ -409,6 +409,12 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
         }
         synthesizerJob = null
         updateNotification(getString(R.string.systts_state_idle), "")
+        // 11-18 用户令：停播时把还没落位的过滤行按序补完。
+        // 为什么需要：过滤行本来要等「下一笔播放请求」才补打（保证段序位置），
+        // 但用户若在章末/某段后直接停播，后面就再也不会有请求，那几行会永远不出现。
+        // ⚠️ 破窗（跳段/重播）也会走 onStop，此时会把尚未播到的段一并打出，位置略偏前；
+        // 取舍：宁可位置略偏，也不能让记录凭空消失。
+        flushPendingFiltered()
     }
 
     private lateinit var mCurrentText: String
@@ -1264,6 +1270,16 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
             org.slf4j.MDC.remove("paraIndex")
             org.slf4j.MDC.remove("bookName")
             org.slf4j.MDC.remove("chapterTitle")
+        }
+    }
+
+    /** 11-18：把缓冲里的过滤行按段号升序全部打出（停播/销毁时兜底，见 onStop 注释）。 */
+    private fun flushPendingFiltered() {
+        if (pendingFiltered.isEmpty()) return
+        while (true) {
+            val first = pendingFiltered.firstEntry() ?: break
+            pendingFiltered.remove(first.key)
+            logFilteredSegment(first.key, first.value.first, first.value.second)
         }
     }
 
