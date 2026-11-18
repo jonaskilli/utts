@@ -173,6 +173,18 @@ fun RoleManagementScreen(sharedVM: SharedViewModel, pagerState: PagerState) {
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+    // 11-18 用户实报「主办方负责人/季屿彻是空的，不是没有实时分配」：朗读中规则
+    // 一直在实时建卡/分配音色并落盘，但同 Activity 内**切 Tab** 回本页不触发
+    // ON_RESUME，旧快照一直挂着——磁盘 22:23 已 10 人全有音色，页面 21:56 仍空白。
+    // 修法：页签每次变为可见即 reloadKey++ 重读 characterRecords.json；跳过首轮
+    // （首次进入由 LaunchedEffect(enabledSig) 初始加载，重复 load 白跑一遍 IO）。
+    var firstTabShow by remember { mutableStateOf(true) }
+    LaunchedEffect(isPageVisible.value) {
+        if (isPageVisible.value) {
+            if (firstTabShow) firstTabShow = false else reloadKey++
+        }
+    }
+
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     // 密钥管理=独立全屏页面（09-14 由弹窗改页，不再需要开关状态）；备份恢复仍是弹窗
     var showBackupCenter by remember { mutableStateOf(false) }
