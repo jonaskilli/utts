@@ -174,7 +174,15 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
                         // 11-17 用户令：不再过滤纯符号段——正文里是什么就发什么，
                         // 「“……”」这类段原样进请求、原样进日志（引擎念出来是静音/停顿，
                         // 但日志与正文对得上）。仅保留空白段过滤（纯空白没有文本可念）。
-                        merged.addAll(list.filterNot { it.text.isBlank() })
+                        val kept = list.filterNot { it.text.isBlank() }
+                        // 11-18 用户令（实锤 14:29 日志）：朗读规则把整段纯符号过滤成空列表时，
+                        // 这一段既没有请求也没有音频，默认日志里凭空缺号（16/115 → 17/115）。
+                        // 补一条独立事件让日志页记下「这一段存在、被规则跳过」，并带段号——
+                        // 预热的备货早于播放，只按时间判断不出它是第几段。
+                        if (kept.isEmpty() && segment.text.isNotBlank()) {
+                            event(NormalEvent.SegmentFiltered(segmentIndex, segment.text.trim()))
+                        }
+                        merged.addAll(kept)
                     }
                     .onFailure { err: TextProcessorError ->
                         event(ErrorEvent.TextProcessor(err))

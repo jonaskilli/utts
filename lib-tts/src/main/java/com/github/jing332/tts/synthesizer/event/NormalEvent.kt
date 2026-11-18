@@ -34,4 +34,18 @@ sealed interface NormalEvent : Event {
     data class RequestCountEnded(val isPreload: Boolean = false) : NormalEvent
 
     data class BgmCurrentPlaying(val source: BgmSource) : NormalEvent
+
+    /**
+     * 11-18 用户令：预热批里被朗读规则**整段过滤**的段（纯符号段）。
+     *
+     * 为什么要单独一条事件：这种段既没有请求也没有音频，日志页默认视图里整段凭空消失，
+     * 段序直接从 16/115 跳到 17/115（真机 14:29 实锤）。用户要「每一段正文都能对上」，
+     * 且这条不能只留在「朗读规则」混入视图里——默认日志就要能看见。
+     * 带 [paraIndex]（0-based，与日志页段号口径一致：显示时 +1）才能确认它属于哪一段：
+     * 预热是提前备货，事件时间必然早于该段播放，只按时间看不出归属。
+     */
+    data class SegmentFiltered(
+        val paraIndex: Int,
+        val text: String,
+    ) : NormalEvent
 }

@@ -1475,6 +1475,27 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                 val name = e.source.path.split("/").lastOrNull() ?: e.source.path
                 logI(getString(R.string.current_playing_bgm, "${e.source.volume}, ${name}"))
             }
+
+            // 11-18 用户令：预热批里被朗读规则整段过滤的纯符号段，要在**默认日志**里
+            // 留一行（此前只有「朗读规则」混入视图里那行 [SpeechRule]）。目的=让日志页
+            // 每一段正文都对得上号：普通段有请求卡，这一段有一行「已过滤」。
+            // ⚠️ 段号必须写：预热是提前备货，本行时间必然早于该段播放，光看位置会以为
+            // 插错（真机 14:29 那条「……为纯符号段，已过滤」夹在 16/115 与 17/115 之间，
+            // 而它其实属于 18）。书章走 MDC，与请求行同一套落盘口径，按书过滤才找得到。
+            is NormalEvent.SegmentFiltered -> {
+                try {
+                    val (bk, ch) = SysttsLogger.currentBookChapter()
+                    if (e.paraIndex >= 0) org.slf4j.MDC.put("paraIndex", e.paraIndex.toString())
+                    if (bk.isNotBlank()) org.slf4j.MDC.put("bookName", bk)
+                    if (ch.isNotBlank()) org.slf4j.MDC.put("chapterTitle", ch)
+                    val seg = if (e.paraIndex >= 0) "第 ${e.paraIndex + 1} 段" else "某段"
+                    logI("纯符号段，已过滤（$seg）：${e.text.take(20)}")
+                } finally {
+                    org.slf4j.MDC.remove("paraIndex")
+                    org.slf4j.MDC.remove("bookName")
+                    org.slf4j.MDC.remove("chapterTitle")
+                }
+            }
         }
     }
 
