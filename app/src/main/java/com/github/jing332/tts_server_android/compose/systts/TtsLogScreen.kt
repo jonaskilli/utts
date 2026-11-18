@@ -384,7 +384,20 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
             )
             // 状态更新后重组出完整列表再滚：等一帧让 displayLogs 生效
             withFrameNanos { }
-            listState.animateScrollToItem(freshGroups.listItemFor(idx))
+            val target = freshGroups.listItemFor(idx)
+            listState.animateScrollToItem(target)
+            // 11-18 校正（用户实测「回原位只到附近，前后翻翻才找到」）：LazyColumn 对
+            // 远距离目标的落点是**按估算偏移**滚的——日志行高差好几倍（一行正文 vs 一张卡），
+            // 隔几千行滚过去能偏好几行，且高亮只有 2 秒，偏了就等于没定位到。
+            // 修法：首滚后等两帧让目标邻域完成实际测量，再查一次可视区；
+            // 不在就用 scrollToItem 补滚——第二次从邻域出发、偏移已实测，落点精确；
+            // 补滚用 snap 不用动画，避免二段动画漂移。
+            repeat(2) {
+                withFrameNanos { }
+                if (listState.layoutInfo.visibleItemsInfo.none { it.index == target }) {
+                    listState.scrollToItem(target)
+                }
+            }
             // 高亮停留约 2s 后撤掉（LogEntryBody 按引用比对）
             kotlinx.coroutines.delay(2000)
             if (locateHighlight == entry) locateHighlight = null
