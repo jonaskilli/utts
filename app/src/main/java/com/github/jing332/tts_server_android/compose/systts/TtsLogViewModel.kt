@@ -24,6 +24,12 @@ class TtsLogViewModel : ViewModel() {
     companion object {
         const val TAG = "TtsLogViewModel"
 
+        /** 完整时间戳（logback 主日志 / console 文本日志）：`2026-11-19 00:38:56.648` */
+        private val TS_FULL = Regex("^\\d{4}-\\d\\d-\\d\\d \\d\\d:\\d\\d:\\d\\d\\.?\\d*")
+
+        /** 短时间戳（U阅 appLog 同款）：`11-19 00:38:56` */
+        private val TS_SHORT = Regex("^\\d\\d-\\d\\d \\d\\d:\\d\\d:\\d\\d")
+
         // 内存日志滑动窗口上限：旧值50万条，插件日志每条可达数KB，长会话直接吃满256MB堆
         // （装机实测 OOM：画列表项时连80字节都分配失败）。完整历史仍由磁盘
         // cache/log/system_tts.log 承载，内存只保最近段。超限后按批裁最旧，不清空全部
@@ -763,7 +769,8 @@ class TtsLogViewModel : ViewModel() {
         runCatching {
             if (file.exists()) {
                 // 最多读取最近 1500 行，解析后按类型路由批量添加，避免逐条触发多次重组
-                val entries = readTailLines(file, 1500).mapNotNull { line ->
+                // 11-19：先合并多行消息再逐条解析（堆栈/多行异常不再被拆成散条目）
+                val entries = mergeContinuationLines(readTailLines(file, 1500)).mapNotNull { line ->
                     runCatching { toLogEntry(line) }.getOrNull()
                 }
                 withMain {
@@ -806,7 +813,7 @@ class TtsLogViewModel : ViewModel() {
         val f = runCatching { File(file.parentFile, "system_tts_child.log") }.getOrNull() ?: return
         if (!f.exists() || f.length() == 0L) return
         runCatching {
-            val childEntries = readTailLines(f, 800).mapNotNull { line ->
+            val childEntries = mergeContinuationLines(readTailLines(f, 800)).mapNotNull { line ->
                 runCatching { toLogEntry(line) }.getOrNull()
             }
             if (childEntries.isEmpty()) return@runCatching
@@ -842,7 +849,8 @@ class TtsLogViewModel : ViewModel() {
     private suspend fun pullConsoleFile(f: File, isPlugin: Boolean) {
         if (!f.exists()) return
         runCatching {
-            val entries = readTailLines(f, 1500).mapNotNull { line ->
+            // 11-19：先合并多行消息（规则打的 AI 原始 JSON 是多行，散开后会变成一堆残条目）
+            val entries = mergeContinuationLines(readTailLines(f, 1500)).mapNotNull { line ->
                 runCatching { toConsoleEntry(line, isPlugin) }.getOrNull()
             }
             withMain { entries.forEach { routeEntry(it) } }
@@ -891,6 +899,41 @@ class TtsLogViewModel : ViewModel() {
                 isSpeechRuleLog = !isPlugin,
             )
         }
+    }
+
+    /**
+     * 把「物理行」还原成「逻辑消息」：一条日志可能跨多行（规则打的 AI 原始 JSON、
+     * 崩溃堆栈、插件异常都是多行的），落盘时是一条消息里含 '\n'，读回来却成了多个物理行。
+     *
+     * ⚠️ 不合并的后果（11-19 用户实拍）：一条 `【别名校验-日志】序号01格式错误，AI返回内容：`
+     * 被拆成 `[`、`"isAlias": false,`、`"mainName": null,`…… 多个**独立条目**散在列表里，
+     * 既看不出它们属于同一条消息，`toConsoleEntry` 还会把残行走「旧格式」兜底分支，
+     * 连级别/书章都丢了。
+     *
+     * 判据：**行首是否带时间戳**（`yyyy-MM-dd HH:mm:ss.SSS` 或 `MM-dd HH:mm:ss`）。
+     * 带时间戳 = 新消息开头；不带 = 上一条消息的续行，用 '\n' 接回去。
+     * 只在「已经有一条消息」时合并——文件头部被截断产生的孤立续行直接丢弃（那半条
+     * 本来就缺开头，拼不出完整消息）。
+     */
+    private fun mergeContinuationLines(lines: List<String>): List<String> {
+        if (lines.isEmpty()) return lines
+        val out = ArrayList<String>(lines.size)
+        val sb = StringBuilder()
+        for (line in lines) {
+            val isNewMessage = line.length >= 19 &&
+                (TS_FULL.containsMatchIn(line) || TS_SHORT.containsMatchIn(line))
+            if (isNewMessage) {
+                if (sb.isNotEmpty()) out.add(sb.toString())
+                sb.setLength(0)
+                sb.append(line)
+            } else if (sb.isNotEmpty()) {
+                // 续行：接回上一条消息（保留原始缩进与换行）
+                sb.append('\n').append(line)
+            }
+            // else：文件头部被截断的孤立续行，丢弃
+        }
+        if (sb.isNotEmpty()) out.add(sb.toString())
+        return out
     }
 
     /**
