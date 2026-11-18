@@ -71,6 +71,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -900,7 +901,8 @@ internal fun LogScreen(
     list: List<LogEntry>,
     listState: LazyListState = rememberLazyListState(),
     // ===== 11-16 晚：滚动三态（用户定稿状态机）=====
-    // FOLLOW_PLAYING（默认）=温和跟随：朗读行始终拉回视口 30% 锚点（≈整屏 40%，中上部）；
+    // FOLLOW_PLAYING（默认）=温和跟随：朗读行始终拉回视口 5% 锚点（固定头正下方，
+    //   日志区第一行，11-18 用户令「放顶部」）；
     //   此态下用户手动拖拽 → onScrollModeChange(NATURAL)（被动自然，复位浮钮接管）；
     // NATURAL=自由浏览：温和跟随与自动滚底都门控关闭，什么都不自动滚；
     //   朗读行滚出视野且在朗读中 → 出现复位浮钮（点它=切回 FOLLOW_PLAYING）；
@@ -1119,6 +1121,20 @@ internal fun LogScreen(
         derivedStateOf {
             val m = playingMatch ?: return@derivedStateOf true
             listState.layoutInfo.visibleItemsInfo.any { it.index == m.listItem }
+        }
+    }
+    // 11-18 用户实报「上下滑动时复位键一闪一闪」：朗读行滚到视口边缘时
+    // 「在/不在视野」逐帧反复横跳，浮钮跟着进出动画闪烁。修法=迟滞：
+    //   行回来 → 立即灭（要灭得快，不能残留无用键）；
+    //   行出去 → 先等 600ms 确认真出去了再亮（边缘抖动全被吃掉）。
+    // 代价是滚出后亮键慢半拍，正好符合「看不到的时候它就会出现」的体感。
+    var showResetFab by remember { mutableStateOf(false) }
+    LaunchedEffect(playingRowVisible) {
+        if (playingRowVisible) {
+            showResetFab = false
+        } else {
+            delay(600)
+            if (!playingRowVisible) showResetFab = true
         }
     }
     // 与 autoScrollToBottom（用户勾选的持续跟随）是两回事，别合并。
@@ -1352,7 +1368,9 @@ internal fun LogScreen(
             val vEnd = info.viewportEndOffset
             val vpH = vEnd - vStart
             if (vpH <= 0) return@LaunchedEffect
-            // 目标锚点：行顶落在视口 30% 处（11-17 用户令「放中上部」，≈整屏 40%）
+            // 目标锚点：行顶落在视口 5% 处（11-18 用户令「放顶部」＝固定头正下方）
+            // ⚠️ 锚点是**日志视口**比例：视口不含上方固定头，5% ≈ 整屏 19%。
+            // 别再按「整屏观感」直觉调这个数——0.42/0.30 两轮都是被视口口径骗的。
             val anchorPx = (vpH * FOLLOW_ANCHOR_RATIO).toInt()
 
             val item = info.visibleItemsInfo.firstOrNull { it.index == target }
@@ -2163,9 +2181,10 @@ internal fun LogScreen(
                     // 下方全是空白；②朗读行后面明明还有日志（预合成在刷，常态），白填那么多。
                     // 新口径：
                     //   · 只在**跟随朗读态**补缺口——自然/跟随最新态尾白=8dp，贴底无空白；
-                    //   · 缺口 = 视口×0.30（锚线下方所需）− 朗读行之后剩余项的估算高度
-                    //    （剩余项数 × 朗读行自身行高，主题字号自动校准）；≤0 时 8dp。
-                    //   · 上限 FOLLOW_TAIL_RATIO 兜底（剩余项少且矮时保锚线可落位）。
+                    //   · 缺口 = 视口×(1−锚点)（锚线下方所需，11-18 修正，旧公式少算）
+                    //    − 朗读行之后剩余项的估算高度（×朗读行自身行高，主题字号自动校准）；
+                    //    ≤0 时 8dp。
+                    //   · 上限 FOLLOW_TAIL_RATIO 兜底（=1−锚点，保锚线必可落位）。
                     // 装机若觉得空太多/太少，只调 FOLLOW_TAIL_RATIO / FOLLOW_ANCHOR_RATIO。
                     val tailHeight = if (playingMatch != null && viewportHeightPx > 0 &&
                         scrollMode == ScrollMode.FOLLOW_PLAYING
@@ -2181,8 +2200,13 @@ internal fun LogScreen(
                         val avgItemDp = with(LocalDensity.current) { avgItemPx.toDp() }
                         // 剩余内容 ≈ itemsAfterPlaying × 平均行高；打 8 折保守（首末项高矮不一）
                         val contentBelow = avgItemDp * itemsAfterPlaying * 0.8f
-                        // 缺口 = 锚线下方所需 − 已有内容；≤0 说明后面日志足够多，不用补
-                        val gap = vp * FOLLOW_ANCHOR_RATIO - contentBelow
+                        // 缺口 = 锚线**下方**所需（视口×(1−锚点)，含行自身已计入 contentBelow）
+                        //   − 已有内容；≤0 说明后面日志足够多，不用补。
+                        // ⚠️ 11-18 定位的历史 bug：旧公式写成 vp×锚点−contentBelow，
+                        //   少算 (1−2×锚点) 视口——0.30 锚点时尾白差 40% 视口，朗读行
+                        //   物理上滚不到锚线，这就是「42%→30% 两轮都看不出变化」的
+                        //   真因（改锚点不添尾白=白改）。公式必须与锚点联动。
+                        val gap = vp * (1f - FOLLOW_ANCHOR_RATIO) - contentBelow
                         val capped = gap.coerceIn(0.dp, vp * FOLLOW_TAIL_RATIO)
                         capped + TAIL_BREATH_DP.dp
                     } else TAIL_BREATH_DP.dp
@@ -2249,7 +2273,7 @@ internal fun LogScreen(
         // 唯一不出现的是跟随朗读态本身（朗读行本就在界面内跟随，无复位需求）。
         // 用户原话：「上下滑动到这个正在朗读这条日志，你在界面看不到的时候，
         // 它就会出现复位键，复位键就是切换到这个跟随朗读状态」。
-        // 点击 = 切回 FOLLOW_PLAYING（温和跟随立刻把朗读行拉回 30% 锚点并持续跟随）。
+        // 点击 = 切回 FOLLOW_PLAYING（温和跟随立刻把朗读行拉回锚点并持续跟随）。
         //
         // 【11-17 用户定稿】两颗都放**右下角**、⟲ 在 ↓ 正上方一格：
         // 「这个位置我决定都放右侧，然后复位键放箭头键的上方」。
@@ -2269,7 +2293,7 @@ internal fun LogScreen(
             // 【11-16 晚澄清】跟随最新态拖拽期间也隐藏（用户滑动时体感=自然态，⟲ 冒出来干扰）；
             // 松手立刻回底，⟲ 没有出现窗口。仅自然态长期驻留。
             visible = (scrollMode == ScrollMode.NATURAL || (scrollMode == ScrollMode.FOLLOW_LATEST && !userDragging)) &&
-                playingSnapshot != null && !playingRowVisible,
+                playingSnapshot != null && showResetFab,
             enter = fadeIn() + expandIn(expandFrom = Alignment.BottomCenter),
             exit = shrinkOut(shrinkTowards = Alignment.BottomCenter) + fadeOut(),
         ) {
@@ -2529,11 +2553,12 @@ internal fun boldBodyOf(e: LogEntry): String {
     return m.groupValues[1].replace(Regex("<[^>]*>"), "").trim()
 }
 
-/** 朗读行跟随锚点：行顶落在视口高度的 30% 处（11-17 用户令「放中上部」）。
- *  历史：0.42（11-16 定稿）——但那是**视口**比例；视口上还压着吸顶区、下有底栏，
- *  42% 视口 ≈ 整屏 49%，实机看着仍是「中下部」。0.42→0.30：≈整屏 40%，
- *  屏幕中上部。 */
-private const val FOLLOW_ANCHOR_RATIO = 0.30f
+/** 朗读行跟随锚点：行顶落在视口高度的 5% 处（11-18 用户令「放顶部」，日志区第一行）。
+ *  历史教训：这个比例是**日志视口**口径，视口上还压着顶栏/筛选/书章/进度固定头
+ *  （约占整屏 1/4），所以 0.42 实测整屏 49%、0.30 实测整屏 43%，用户两次看着都
+ *  还是「中下部」。0.30→0.05：行顶贴视口顶＝固定头正下方，实测定标「正在朗读段」
+ *  截图，请求行顶从整屏 43% 提到 19%。 */
+private const val FOLLOW_ANCHOR_RATIO = 0.05f
 
 // ===== 11-16 晚：滚动三态（用户定稿状态机，详见 LogScreen 参数 scrollMode 注释）=====
 enum class ScrollMode { FOLLOW_PLAYING, NATURAL, FOLLOW_LATEST }
@@ -2559,8 +2584,11 @@ enum class ScrollMode { FOLLOW_PLAYING, NATURAL, FOLLOW_LATEST }
  *      朗读行后面还有日志时（预合成在刷，常态），缺口≈0，尾白=8dp，无空白；
  *      只有朗读行就是列表末条（刚开播第一条）时才补出真实需要的空白。
  * 跟随朗读态的锚线滚动对齐的是**组合结果**（内容+缺口尾白），视觉不变。
+ *
+ * 11-18：上限必须 ≥ 1−FOLLOW_ANCHOR_RATIO（锚线下方整段都要能填出来），
+ * 锚点改 0.05 后这里 0.65→0.95 同步放行，否则缺口被截断、行又顶不上去。
  */
-private const val FOLLOW_TAIL_RATIO = 0.65f
+private const val FOLLOW_TAIL_RATIO = 0.95f
 
 /** 非跟随朗读态（自然/跟随最新）与缺口≈0 时的兜底尾白：只做行尾呼吸。 */
 private const val TAIL_BREATH_DP = 8
