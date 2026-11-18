@@ -99,6 +99,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.TextUnit
@@ -2077,8 +2078,24 @@ internal fun LogScreen(
                                     else "${head.paraIndex + 1}"
                                 } else ""
                                 if (segText.isNotEmpty()) {
+                                    // 11-18 段号突出（用户拍板候选 2「字重对比」，与进度行同一口径）：
+                                    // 分子（段号，一直在跳）SemiBold 半粗，分母（/总数）保持常规——
+                                    // 不动色相明度，纯字重分层。无分母（旧日志没带 paraTotal）时整段半粗。
+                                    val slash = segText.indexOf('/')
+                                    val segStyled = if (slash > 0) {
+                                        buildAnnotatedString {
+                                            withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) {
+                                                append(segText.substring(0, slash))
+                                            }
+                                            append(segText.substring(slash))
+                                        }
+                                    } else {
+                                        buildAnnotatedString {
+                                            withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(segText) }
+                                        }
+                                    }
                                     Text(
-                                        text = segText,
+                                        text = segStyled,
                                         style = MaterialTheme.typography.bodySmall,
                                         fontSize = LOG_AUX_SIZE,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,

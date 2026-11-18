@@ -97,12 +97,15 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import com.github.jing332.tts_server_android.compose.theme.AppShapes
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -2360,10 +2363,45 @@ private fun PinnedLogHeader(
                 }
             }
             // 竖线两侧**不留空格**（用户给的样例就是 1/25｜缓存）；全角竖线本身自带间距。
+            // 11-18 段号突出（用户拍板候选 2「字重对比」）：N/M 里的**分子**（正在朗读/
+            // 合成的段号，一直在跳）用 SemiBold 半粗，**分母**（/总数，基本不动）保持常规
+            // ——不动色相不动明度，纯字重分层，无头重脚轻问题（绿色反例已否）。
+            // 当前侧分子半粗；缓存侧分子同为半粗（同一信息口径，用户令两侧统一）。
+            // 用 AnnotatedString 局部加粗，不拆多 Text（保持单行居右 + Ellipsis 整体行为）。
+            fun boldSeg(numerator: String) = buildAnnotatedString {
+                withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(numerator) }
+            }
             val text = if (playingNow && playHead.isNotBlank()) {
-                "当前：" + playHead + "｜缓存：" + synthHead
+                buildAnnotatedString {
+                    append("当前：")
+                    // playHead 可能带跨章章名前缀（「第2章 33/89」）：章名常规，分子才半粗
+                    val sp = playHead.indexOf(' ')
+                    if (sp > 0) {
+                        append(playHead.substring(0, sp + 1))
+                        append(boldSeg(playHead.substring(sp + 1)))
+                    } else {
+                        append(boldSeg(playHead))
+                    }
+                    append("｜缓存：")
+                    val spS = synthHead.indexOf(' ')
+                    if (spS > 0) {
+                        append(synthHead.substring(0, spS + 1))
+                        append(boldSeg(synthHead.substring(spS + 1)))
+                    } else {
+                        append(boldSeg(synthHead))
+                    }
+                }
             } else {
-                "缓存：" + synthHead
+                buildAnnotatedString {
+                    val spS = synthHead.indexOf(' ')
+                    if (spS > 0) {
+                        append("缓存：" + synthHead.substring(0, spS + 1))
+                        append(boldSeg(synthHead.substring(spS + 1)))
+                    } else {
+                        append("缓存：")
+                        append(boldSeg(synthHead))
+                    }
+                }
             }
             // 11-16 用户令「合成日志都居右放」：**一律居右**，不再分朗读中/停止两态
             // （原先朗读中左对齐、停止才居右）。文字内容不变，「当前：…｜缓存：…」
