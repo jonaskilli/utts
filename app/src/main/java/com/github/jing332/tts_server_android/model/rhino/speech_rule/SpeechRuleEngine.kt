@@ -24,6 +24,13 @@ class SpeechRuleEngine(
         const val FUNC_SPLIT_TEXT = "splitText"
         const val FUNC_GET_CATEGORY_TAG = "getCategoryTag"
 
+        /**
+         * 11-18（v1.7.32 约定）：配置变更后让规则重读角色记录 / 清发音人池。
+         * 引擎复用（TextProcessor 按签名复用）时必须靠它保证「改角色/换发音人实时生效」，
+         * 否则规则内存里的旧角色表会把 App 刚写进 characterRecords.json 的改动覆盖回去。
+         */
+        const val FUNC_RELOAD_CHARACTER_RECORDS = "reloadCharacterRecords"
+
         fun getTagName(context: Context, speechRule: SpeechRule, info: SpeechRuleInfo): String {
             // 规则外标签（jread 未映射的性格/群杂等）：规则 JS 对表外标签一律兜底返回「旁白」，
             // 会把未映射项显示名误标成旁白——直接原样返回，不进 JS
@@ -102,6 +109,19 @@ class SpeechRuleEngine(
         return runCatching {
             engine.invokeMethod(objJS, FUNC_GET_CATEGORY_TAG, category, seq)?.toString()
         }.getOrNull()?.takeIf { it.isNotBlank() }
+    }
+
+    /**
+     * 11-18：请规则重载角色记录（引擎复用的前置条件）。
+     *
+     * @return true=规则已重载，可安全复用引擎；false=规则未实现该方法（v1.7.31 及更早）
+     *   或执行失败——调用方必须回退「重建引擎」，保持旧规则原有行为。
+     */
+    fun reloadCharacterRecords(): Boolean {
+        return runCatching {
+            val ret = engine.invokeMethod(objJS, FUNC_RELOAD_CHARACTER_RECORDS)
+            ret == null || ret.toString() != "false"
+        }.getOrDefault(false)
     }
 
     data class TagData(val id: String, val value: String)

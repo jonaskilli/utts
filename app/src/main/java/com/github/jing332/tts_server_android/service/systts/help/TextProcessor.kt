@@ -77,8 +77,15 @@ class TextProcessor : ITextProcessor {
             // 签名含 code.hashCode()：规则内容被编辑后必换，避免跑着旧字节码。
             val ruleSig = speechRule.ruleId + "|" + speechRule.id + "|" + speechRule.version +
                 "|" + speechRule.code.hashCode()
-            if (ruleSig == engineRuleSig && this::engine.isInitialized) {
-                logger.debug { "speechRule reused（签名未变，保留内存态）: ruleId=${speechRule.ruleId}, name=${speechRule.name}" }
+            // 11-18（用户令）：复用前必须先让规则重读角色记录。
+            // App 的角色管理页 / 换声面板直接写 characterRecords.json，规则只在 eval 时
+            // loadRecords() 一次；不重读就既不同步还会覆盖用户刚改的记录（用户原话
+            // 「前台更换发音人是要跟角色列表实时同步的，角色列表要实时反应」）。
+            // 规则没这个钩子（v1.7.31 及更早）或重读失败 → 回退重建，老行为一字不变。
+            val canReuse = ruleSig == engineRuleSig && this::engine.isInitialized &&
+                runCatching { engine.reloadCharacterRecords() }.getOrDefault(false)
+            if (canReuse) {
+                logger.debug { "speechRule reused + 角色记录已重读（保留慢钥/加赛/书章内存态）: ruleId=${speechRule.ruleId}, name=${speechRule.name}" }
             } else {
                 logger.debug { "speechRule loaded: ruleId=${speechRule.ruleId}, name=${speechRule.name}" }
                 engine = SpeechRuleEngine(context, speechRule)
