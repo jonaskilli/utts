@@ -74,6 +74,7 @@
     <string name="add_config">添加配置</string>
     <string name="import_config">导入</string>
     <string name="export_config">导出</string>
+    <string name="export_js">导出 JS</string>
     <string name="copy" tools:ignore="PrivateResource">复制</string>
     <string name="follow_system_or_read_aloud_app">跟随系统或朗读应用</string>
     <string name="raw_format_is_play_while_downloading">Raw格式为边下边播模式</string>

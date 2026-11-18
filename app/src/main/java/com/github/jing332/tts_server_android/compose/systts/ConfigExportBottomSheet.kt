@@ -45,6 +45,10 @@ private const val PREVIEW_MAX_CHARS = 32 * 1024
 fun ConfigExportBottomSheet(
     json: String,
     fileName: String = "config.json",
+    // 11-19 导出 JS：朗读规则/插件单条分享走 JS 源码（与导入侧 JS 自识别直存同链），
+    // SAF 新建文档要用 text/javascript，扩展名 .js 才不落成 config.json 一类；
+    // 原 JSON 调用方（列表/规则/插件/替换/迁移）不传此参，行为不变。
+    fileMime: String = "application/json",
     content: @Composable ColumnScope.() -> Unit = {},
     onDismissRequest: () -> Unit,
 ) {
@@ -97,7 +101,7 @@ fun ConfigExportBottomSheet(
                             fileSaver.launch(
                                 FilePickerActivity.RequestSaveFile(
                                     fileName = name,
-                                    fileMime = "application/json",
+                                    fileMime = fileMime,
                                     fileBytes = bytes
                                 )
                             )

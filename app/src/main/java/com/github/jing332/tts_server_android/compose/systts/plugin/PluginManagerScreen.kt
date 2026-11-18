@@ -46,6 +46,7 @@ import androidx.compose.material.icons.filled.AppShortcut
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.EditNote
@@ -141,6 +142,7 @@ import com.github.jing332.tts_server_android.conf.AppConfig
 import com.github.jing332.tts_server_android.compose.LocalNavController
 import com.github.jing332.tts_server_android.compose.SharedViewModel
 import com.github.jing332.tts_server_android.compose.systts.ConfigDeleteDialog
+import com.github.jing332.tts_server_android.compose.systts.ConfigExportBottomSheet
 import com.github.jing332.tts_server_android.constant.AppConst
 import com.github.jing332.tts_server_android.service.systts.SystemTtsService
 import com.github.jing332.tts_server_android.utils.MyTools
@@ -219,6 +221,19 @@ fun PluginManagerScreen(sharedVM: SharedViewModel, onFinishActivity: () -> Unit)
             }
         }
     }
+
+    // 11-19 导出 JS：仅单条分享入口（⋮ 菜单）。批量导出仍只有 JSON（多条 PluginJS
+    // 拼一文件互相覆盖）；JSON 也不撤——「导出变量」勾选带 userVars（密钥），
+    // 换机迁移只有 JSON 带得走。JS 导出不含 isEnabled/userVars，落库由
+    // saveJsDirect 走 eval 元数据自识别，与导入侧同链。
+    var showExportJsSheet by remember { mutableStateOf<Plugin?>(null) }
+    if (showExportJsSheet != null)
+        ConfigExportBottomSheet(
+            onDismissRequest = { showExportJsSheet = null },
+            json = showExportJsSheet!!.code,
+            fileName = "插件-${showExportJsSheet!!.name}.js",
+            fileMime = "text/javascript"
+        )
 
     var showDeleteDialog by remember { mutableStateOf<Plugin?>(null) }
     if (showDeleteDialog != null) {
@@ -930,6 +945,7 @@ fun PluginManagerScreen(sharedVM: SharedViewModel, onFinishActivity: () -> Unit)
                             context.longToast(R.string.clear_cache_ok)
                         },
                         onExport = { showExportConfig = listOf(item) },
+                        onExportJs = { showExportJsSheet = item },
                         // 第11项: 内联展开编辑 + 运行键（跳编辑器并自动调试）
                         plugin = item,
                         onUpdatePlugin = { dbm.pluginDao.update(it) },
@@ -962,6 +978,8 @@ private fun Item(
     onSetVars: () -> Unit,
     onAudioParams: () -> Unit,
     onExport: () -> Unit,
+    // 11-19 导出 JS（单条分享）：与 onExport(JSON) 并列，仅 ⋮ 菜单入口
+    onExportJs: () -> Unit = {},
     onDelete: () -> Unit,
     isSelectionMode: Boolean = false,
     isSelected: Boolean = false,
@@ -1215,6 +1233,19 @@ private fun Item(
                                 },
                                 leadingIcon = {
                                     Icon(Icons.Default.Output, stringResource(R.string.export_config))
+                                }
+                            )
+
+                            // 11-19 导出 JS：放「导出」下方——旧项位置不挪；
+                            // 与朗读规则页统一为「新项紧跟导出之后」一条规则
+                            DropdownMenuItem(
+                                text = { Text(stringResource(id = R.string.export_js)) },
+                                onClick = {
+                                    showOptions = false
+                                    onExportJs()
+                                },
+                                leadingIcon = {
+                                    Icon(Icons.Default.Code, stringResource(R.string.export_js))
                                 }
                             )
 

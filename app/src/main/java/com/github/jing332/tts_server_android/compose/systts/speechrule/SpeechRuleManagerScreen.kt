@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Checklist
+import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Output
@@ -84,6 +85,7 @@ import com.github.jing332.tts_server_android.R
 import com.github.jing332.tts_server_android.compose.LocalNavController
 import com.github.jing332.tts_server_android.compose.SharedViewModel
 import com.github.jing332.tts_server_android.compose.systts.ConfigDeleteDialog
+import com.github.jing332.tts_server_android.compose.systts.ConfigExportBottomSheet
 import com.github.jing332.tts_server_android.utils.MyTools
 import com.drake.net.utils.withIO
 import kotlinx.coroutines.Dispatchers
@@ -149,6 +151,17 @@ fun SpeechRuleManagerScreen(sharedVM: SharedViewModel, finish: () -> Unit) {
         SpeechRuleExportBottomSheet(
             onDismissRequest = { showExportSheet = null },
             list = showExportSheet!!,
+        )
+
+    // 11-19 导出 JS：仅单条分享入口（⋮ 菜单），批量导出仍只有 JSON——
+    // 多条规则的 JS 拼一文件会互相覆盖 SpeechRuleJS 全局对象，导入只认最后一条
+    var showExportJsSheet by remember { mutableStateOf<SpeechRule?>(null) }
+    if (showExportJsSheet != null)
+        ConfigExportBottomSheet(
+            onDismissRequest = { showExportJsSheet = null },
+            json = showExportJsSheet!!.code,
+            fileName = "朗读规则-${showExportJsSheet!!.name}.js",
+            fileMime = "text/javascript"
         )
 
     var showDeleteDialog by remember { mutableStateOf<SpeechRule?>(null) }
@@ -454,6 +467,7 @@ fun SpeechRuleManagerScreen(sharedVM: SharedViewModel, finish: () -> Unit) {
                             navController.navigate(NavRoutes.SpeechRuleEdit.id)
                         },
                         onExport = { showExportSheet = listOf(item) },
+                        onExportJs = { showExportJsSheet = item },
                         onDelete = { showDeleteDialog = item },
                         // 第11项: 内联展开编辑 + 运行键（跳编辑器并自动调试）
                         rule = item,
@@ -478,6 +492,8 @@ internal fun Item(
     onClick: () -> Unit,
     onEdit: () -> Unit,
     onExport: () -> Unit,
+    // 11-19 导出 JS（单条分享）：与 onExport(JSON) 并列，仅 ⋮ 菜单入口
+    onExportJs: () -> Unit = {},
     onDelete: () -> Unit,
     isSelectionMode: Boolean = false,
     isSelected: Boolean = false,
@@ -586,6 +602,19 @@ internal fun Item(
                                 },
                                 leadingIcon = {
                                     Icon(Icons.Default.Output, stringResource(R.string.export_config))
+                                }
+                            )
+
+                            // 11-19 导出 JS：放「导出」下方——不挪 09-12 定的旧项位置；
+                            // 与插件页统一为「新项紧跟导出之后」一条规则
+                            DropdownMenuItem(
+                                text = { Text(stringResource(id = R.string.export_js)) },
+                                onClick = {
+                                    showOptions = false
+                                    onExportJs()
+                                },
+                                leadingIcon = {
+                                    Icon(Icons.Default.Code, stringResource(R.string.export_js))
                                 }
                             )
 
