@@ -195,18 +195,20 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
 
     // 11-18 三改（用户实拍：搜「喜欢」出 81 处，正文命中只有 2 条，全被章名噪音淹了）：
     // 命中拆成两种口径——书章节名**保留可搜**（按章名找日志的老用法不废），但降到次要：
-    //   matchesBody  = 正文/时间（主命中；匹配计数、黄底、上下箭头只认它）
+    //   matchesBody  = 只认正文（主命中；匹配计数、黄底、上下箭头只认它）
     //   matchesQuery = 正文/时间 + 书章名（全部命中；列表过滤仍用它，行照常显示）
     // 两种都同时比对「原文」与「剥掉 HTML 标签后的文本」：原文形如
     // `请求音频：<b>正文</b><br><font …>`，跨标签边界的词在原文里搜不到但上屏看得见
     //（「明明有却搜不到」就是这么来的）。
     fun LogEntry.plainMessage(): String = message.replace(Regex("<[^>]*>"), "")
+    // 主命中=**只认正文**（原文或剥标签后）。时间/书章都归「全部命中」——
+    // 11-18 自审纠正：早先把时间也算主命中，搜「18:47」会显示「正文 2 处」，文案不实；
+    // 现在按时间搜仍能在列表里找到行（走全部命中），箭头在无正文命中时也会退回跳它。
     fun LogEntry.matchesBody(q: String): Boolean =
-        message.contains(q, ignoreCase = true) || plainMessage().contains(q, ignoreCase = true) ||
-            time.contains(q, ignoreCase = true)
+        message.contains(q, ignoreCase = true) || plainMessage().contains(q, ignoreCase = true)
     fun LogEntry.matchesQuery(q: String): Boolean =
-        matchesBody(q) || bookName.contains(q, ignoreCase = true) ||
-            chapterTitle.contains(q, ignoreCase = true)
+        matchesBody(q) || time.contains(q, ignoreCase = true) ||
+            bookName.contains(q, ignoreCase = true) || chapterTitle.contains(q, ignoreCase = true)
 
     // 基础列表 = 等级/插件筛选结果 → 书/章收窄（11-10）→ 搜索词实时过滤。
     // 书/章收窄放在搜索之前：搜索是在「选定范围内」找词，符合直觉
@@ -726,7 +728,7 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                         Text(
                             // 11-18：全部命中 ≠ 正文命中时分开报（如「共 81 处 · 正文 2 处」），
                             // 让用户知道真正相关的是哪几条；两者相等时保持原文案不啰嗦。
-                            text = if (bodyMatchCount in 1 until matchCount)
+                            text = if (bodyMatchCount != matchCount)
                                 "共 ${matchCount} 处 · 正文 ${bodyMatchCount} 处"
                             else "${matchCount} 处匹配",
                             style = MaterialTheme.typography.labelMedium,
