@@ -45,6 +45,8 @@ import java.time.format.DateTimeFormatter
 import com.github.jing332.database.dbm
 import com.github.jing332.database.entities.systts.AudioParams
 import com.github.jing332.database.entities.systts.SystemTtsV2
+import com.github.jing332.database.entities.systts.SpeechRuleIds
+import com.github.jing332.tts_server_android.service.systts.help.VoiceMarksFile
 import com.github.jing332.database.entities.systts.TtsConfigurationDTO
 import com.github.jing332.database.entities.systts.source.PluginTtsSource
 import com.github.jing332.tts.ConfigType
@@ -1119,6 +1121,20 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                 if (voiceText.isNotEmpty()) {
                     append("<font color=\"" + VOICE_META_COLOR + "\">")
                     append(voiceText)
+                    // 11-19 用户令「配置项卡片发言人后面的 ❤️🚶😈 标记，日志声音名后面也这样跟」：
+                    // 与配置卡同源同键——voice_marks.json，marksFor(voice 优先、tag 兜底)
+                    //（与 ListManagerScreen.marksOf 完全同一查找口径）；emoji 跟在 voiceText
+                    // 尾（= 显示名后），仍在声音信息自己的 font 里，与后续参数逗号不混段。
+                    // 每请求读一次该 JSON（几百字节，与逐请求查库同量级，可接受）；
+                    // readAll 内部已 try/catch，读失败=无标记，不拦合成。
+                    val markEmoji = VoiceMarksFile.emojiOf(
+                        VoiceMarksFile.marksFor(
+                            SpeechRuleIds.RULE_ID,
+                            config.speechInfo.tag,
+                            config.speechInfo.voice,
+                        )
+                    )
+                    if (markEmoji.isNotEmpty()) append(" ").append(markEmoji)
                     append("</font>")
                 }
                 if (paramsInfo.isNotEmpty()) {
