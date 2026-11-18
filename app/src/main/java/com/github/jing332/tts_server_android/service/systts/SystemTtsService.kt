@@ -423,6 +423,17 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
     private var mNotificationJob: Job? = null
 
     /**
+     * 11-18 用户令：被朗读规则整段过滤的纯符号段（预热批里产生），先按段号攒着，
+     * 等「更晚的播放请求」到达时按序补打，让日志页里的位置与正文段序一致。
+     *
+     * key = 段号（0-based，与请求行同口径）；value = (原文缩略, 事件发生时的书名)。
+     * 书名用于换书/换章时丢弃陈旧条目——否则上一章的过滤行会补到下一章的卡片缝里。
+     */
+    private val pendingFiltered =
+        java.util.concurrent.ConcurrentSkipListMap<Int, Pair<String, String>>()
+    private val PENDING_FILTERED_MAX = 32
+
+    /**
      * 11-16：当前在跑的**后台预热批次** Job（路 C 的备货请求）。
      *
      * 为什么需要单独一个句柄：预热刻意不写进 [synthesizerJob]（那是「用户正在听的
@@ -1234,6 +1245,28 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
         else t.javaClass.simpleName + "：" + msg.take(120)
     }
 
+    /**
+     * 打一行「纯符号段，已过滤」（11-18 用户令：这条要在默认日志里，且位置按段序）。
+     *
+     * @param book 事件发生时的书名。与当前书名不一致 ⇒ 丢弃（换书/换章后才轮到的
+     *   陈旧条目，补到新章卡片缝里就是错的位置）。
+     */
+    private fun logFilteredSegment(index: Int, text: String, book: String?) {
+        val (curBook, curChapter) = SysttsLogger.currentBookChapter()
+        if (!book.isNullOrBlank() && curBook.isNotBlank() && book != curBook) return
+        try {
+            if (index >= 0) org.slf4j.MDC.put("paraIndex", index.toString())
+            if (curBook.isNotBlank()) org.slf4j.MDC.put("bookName", curBook)
+            if (curChapter.isNotBlank()) org.slf4j.MDC.put("chapterTitle", curChapter)
+            val seg = if (index >= 0) "第 ${index + 1} 段" else "某段"
+            logI("纯符号段，已过滤（$seg）：$text")
+        } finally {
+            org.slf4j.MDC.remove("paraIndex")
+            org.slf4j.MDC.remove("bookName")
+            org.slf4j.MDC.remove("chapterTitle")
+        }
+    }
+
     private fun normalEvent(e: NormalEvent) {
         // 11-16（日志顺序修复）：后台预热批次的合成事件**不落日志页**。
         //
@@ -1276,6 +1309,21 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                     // MDC 携带配置项 id + 实时角色名 供日志快捷面板定位（写完立即清理防串扰）
                     val configId = (e.request.config.tag as? SystemTtsV2)?.id ?: 0L
                     try {
+                        // 11-18：先把「比本段更早、还没落过」的过滤行按序补上。
+                        // 它们属于已经/即将越过的段，落在本张卡之前正好占住那个段位
+                        //（例：第 18 段是纯符号，播放时被 U阅 前置静音、不会来请求，
+                        //  于是它的过滤行在 19 段的请求卡落盘前补出，正好在 17 与 19 之间）。
+                        // ⚠️ 必须在下面的 MDC.put 之前：补打函数收尾会 remove 书章/段号，
+                        // 放在后面会把本行自己的 MDC 清掉。
+                        val _pi = e.request.paraIndex
+                        if (_pi >= 0) {
+                            while (true) {
+                                val first = pendingFiltered.firstEntry() ?: break
+                                if (first.key >= _pi) break
+                                pendingFiltered.remove(first.key)
+                                logFilteredSegment(first.key, first.value.first, first.value.second)
+                            }
+                        }
                         org.slf4j.MDC.put("configId", configId.toString())
                         if (e.request.roleName.isNotBlank())
                             org.slf4j.MDC.put("roleName", e.request.roleName)
@@ -1477,23 +1525,26 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
             }
 
             // 11-18 用户令：预热批里被朗读规则整段过滤的纯符号段，要在**默认日志**里
-            // 留一行（此前只有「朗读规则」混入视图里那行 [SpeechRule]）。目的=让日志页
-            // 每一段正文都对得上号：普通段有请求卡，这一段有一行「已过滤」。
-            // ⚠️ 段号必须写：预热是提前备货，本行时间必然早于该段播放，光看位置会以为
-            // 插错（真机 14:29 那条「……为纯符号段，已过滤」夹在 16/115 与 17/115 之间，
-            // 而它其实属于 18）。书章走 MDC，与请求行同一套落盘口径，按书过滤才找得到。
+            // 留一行，而且**位置必须对**——第 18 段就该显示在 17/115 与 19/115 之间。
+            //
+            // 为什么不能直接打：这条事件发生在**预热**（提前备货），时间早于该段播放。
+            // 直接落页会像真机 14:29 那样夹在 16/115 与 17/115 中间，用户一眼看出插错。
+            // 做法：先按段号攒着，等「比它更晚的播放请求」到达时按序补打——播放请求
+            // 的卡片顺序本身有段序闸门（见 SegmentEventGate），补打行落在下一张卡之前，
+            // 正好占住该段的位置。
             is NormalEvent.SegmentFiltered -> {
-                try {
-                    val (bk, ch) = SysttsLogger.currentBookChapter()
-                    if (e.paraIndex >= 0) org.slf4j.MDC.put("paraIndex", e.paraIndex.toString())
-                    if (bk.isNotBlank()) org.slf4j.MDC.put("bookName", bk)
-                    if (ch.isNotBlank()) org.slf4j.MDC.put("chapterTitle", ch)
-                    val seg = if (e.paraIndex >= 0) "第 ${e.paraIndex + 1} 段" else "某段"
-                    logI("纯符号段，已过滤（$seg）：${e.text.take(20)}")
-                } finally {
-                    org.slf4j.MDC.remove("paraIndex")
-                    org.slf4j.MDC.remove("bookName")
-                    org.slf4j.MDC.remove("chapterTitle")
+                if (e.paraIndex < 0) {
+                    logFilteredSegment(-1, e.text.take(20), null)
+                } else {
+                    val (bk, _) = SysttsLogger.currentBookChapter()
+                    pendingFiltered[e.paraIndex] = e.text.take(20) to bk
+                    // 兜底：攒太多（章尾 / 之后不再有播放请求）就按序打掉最早的，
+                    // 不能让它永远不出现（漏一行比位置偏更糟）
+                    while (pendingFiltered.size > PENDING_FILTERED_MAX) {
+                        val first = pendingFiltered.firstEntry() ?: break
+                        pendingFiltered.remove(first.key)
+                        logFilteredSegment(first.key, first.value.first, first.value.second)
+                    }
                 }
             }
         }
