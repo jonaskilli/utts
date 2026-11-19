@@ -300,23 +300,42 @@ object CharacterRecordsFile {
      *
      * @return 文件里的下标；找不到返回 null
      */
-    private fun locateRecord(records: List<RoleRecord>, identity: RoleIdentity): Int? {
+    private fun locateRecord(records: List<RoleRecord>, identity: RoleIdentity): Int? =
+        locateIn(
+            names = records.map { it.name },
+            voices = records.map { it.voice },
+            identity = identity,
+        )
+
+    private fun locateRecord(records: List<RoleRecord>, name: String, currentVoice: String = ""): Int? =
+        locateRecord(records, RoleIdentity(name, currentVoice))
+
+    /**
+     * [locateRecord] 的纯逻辑内核（不碰 Android 类，可被 JVM 单元测试直接覆盖）。
+     *
+     * 分成两层的原因：`RoleRecord` 包的是 `org.json.JSONObject`（Android 才有），
+     * 把定位逻辑绑在它上面就没法在 local JVM 单测里跑——而这恰恰是最需要被测的一段
+     *（下标错配 bug 的修复点）。收成「名字列表 + 标签列表 + 身份」三个纯参数即可测。
+     *
+     * @param names  各记录的名字（**文件顺序**）
+     * @param voices 各记录的标签（**文件顺序**，与 names 一一对应）
+     * @return 文件里的下标；找不到返回 null
+     */
+    internal fun locateIn(names: List<String>, voices: List<String>, identity: RoleIdentity): Int? {
         val target = norm(identity.name)
         if (target.isEmpty()) return null
-        val sameName = records.indices.filter { norm(records[it].name) == target }
+        if (names.size != voices.size) return null
+        val sameName = names.indices.filter { norm(names[it]) == target }
         if (sameName.isEmpty()) return null
         if (sameName.size == 1) return sameName[0]
         val voice = identity.voice.trim()
         if (voice.isNotEmpty()) {
-            val byVoice = sameName.filter { records[it].voice == voice }
+            val byVoice = sameName.filter { voices[it].trim() == voice }
             if (byVoice.size == 1) return byVoice[0]
             if (byVoice.isNotEmpty()) return byVoice.getOrNull(identity.ordinal.coerceAtLeast(0))
         }
         return sameName.getOrNull(identity.ordinal.coerceAtLeast(0)) ?: sameName[0]
     }
-
-    private fun locateRecord(records: List<RoleRecord>, name: String, currentVoice: String = ""): Int? =
-        locateRecord(records, RoleIdentity(name, currentVoice))
 
     // ==================== 内置角色列表（Phase 1，拍板）====================
     // 角色管理页签换原生渲染后，app 端直接读写同一份数据。写入口径与插件
