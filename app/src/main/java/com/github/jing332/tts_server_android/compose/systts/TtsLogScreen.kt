@@ -920,6 +920,41 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
             onAtBottomChanged = { atListBottom = it },
             // 切过去时强制滚底（见 LogScreen 里 autoScrollToBottom 的注释）
             jumpToLiveTick = jumpToLiveTick,
+            // 11-20「日志栏喇叭」：卡右上喇叭 → 两个动作。
+            // resynthesize=true：先让 U阅 删该段缓存、再读该段原文送合成
+            //   （UTTS 侧跳过合成缓存，SynthCacheBypass）。这样做而不是在本页直接
+            //   发合成请求：本页拿不到「该段最终的合成文本」（规则跑完后会加音效标记、
+            //   拆句、换角色音色），只有 U阅 重新走一遍整链才与正常朗读同源。
+            // resynthesize=false：只写命令文件，由 U阅 从该段起连续朗读。
+            onSpeakerAction = { entry, resynthesize ->
+                // 重合成先登记 UTTS 侧合成缓存旁路（按「该段最终合成文本」放行一次）。
+                // 文本取请求行 <b>…</b> 内的正文——那正是送合成器的最终文本，
+                // 与 RequestPayload.text() 同源，故能命中。不登记的话 U阅 重新请求
+                // 会直接命中 synth_cache 秒回旧音频，等于没重新合成。
+                val segmentText = com.github.jing332.tts_server_android.compose.systts
+                    .boldBodyOf(entry)
+                if (resynthesize && segmentText.isNotBlank()) {
+                    com.github.jing332.tts.synthesizer.SynthCacheBypass.arm(segmentText)
+                }
+                com.github.jing332.tts_server_android.service.systts.help.ReadCommandFile
+                    .writePlayFrom(
+                        book = entry.bookName,
+                        chapterTitle = entry.chapterTitle,
+                        chapterIndex = -1, // 日志行不带章序，由 U阅 按章标题自行解析
+                        segIndex = entry.paraIndex,
+                        singleParagraph = resynthesize,
+                        purgeCache = resynthesize,
+                    ).let { ok ->
+                        context.toast(
+                            if (ok) {
+                                if (resynthesize) "已请求重新合成该段"
+                                else "已通知从该段开始朗读"
+                            } else {
+                                "操作失败：无法写入朗读命令"
+                            }
+                        )
+                    }
+            },
             // 点章节签只负责滚动到本章首条（滚动已在 LogScreen 内完成，这里不再改筛选——
             // 一改 scopeChapter 列表就重排，刚滚到的位置会立刻错位）
         )

@@ -51,11 +51,15 @@ import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.SwipeToDismissBox
@@ -950,6 +954,17 @@ internal fun LogScreen(
     onSwitchBook: ((String) -> Unit)? = null,
     // 点章节签跳章：上层可借此同步「当前章」用于筛选联动
     onJumpToChapter: ((book: String, chapter: String) -> Unit)? = null,
+    // 11-20「日志栏喇叭」（用户令：像阅读里的喇叭功能）：
+    // 请求卡右侧的喇叭键，点开两个动作——
+    //   ① 重新合成：删掉该段在 U阅 侧的缓存并让 UTTS 跳过合成缓存、重新合成一遍
+    //      （对话重新请求，避免一直听旧音频）；
+    //   ② 从这段开始读：通知 U阅 朗读服务从该段起连续朗读（可跨章）。
+    // 判据：必须有 onSpeakerAction（宿主提供）；书/章/段任一缺失则不画喇叭。
+    // 段号 paraIndex 是本页唯一可靠的定位依据（日志行由 U阅 的 Bundle 带入）。
+    onSpeakerAction: ((
+        entry: LogEntry,
+        resynthesize: Boolean,
+    ) -> Unit)? = null,
     // 章条右侧「切换章」键（11-11 用户指出「切换书有键、切换章没有」）：
     // 与「切换书」对称——书条右端弹书单，章条右端弹章节列表。
     // 始终传非 null（用户令「始终显示」）：只有一章的书也显示，点了能看见确实只有一章。
@@ -2123,6 +2138,47 @@ internal fun LogScreen(
                                     val segStyled = buildAnnotatedString {
                                         withStyle(SpanStyle(fontWeight = FontWeight.Medium)) { append(segText) }
                                     }
+                                    // 11-20「日志栏喇叭」：段号左侧的喇叭键。
+                                    // 只在本卡能定位到段落时才画（书/章/段号齐全），
+                                    // 否则点了也没法重合成或定位朗读——宁缺勿错。
+                                    // 放在段号前而不是正文行尾：右上是本卡「操作角」，
+                                    // 与下方正文不抢位，且与段号同为 LOG_AUX_SIZE 档，视觉同组。
+                                    if (onSpeakerAction != null && isSpeakerEligible(head)) {
+                                        var showSpeakerMenu by remember(head) { mutableStateOf(false) }
+                                        Box {
+                                            IconButton(
+                                                onClick = { showSpeakerMenu = true },
+                                                modifier = Modifier.size(22.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.VolumeUp,
+                                                    contentDescription = "朗读这段",
+                                                    modifier = Modifier.size(15.dp),
+                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                                                .copy(alpha = 0.78f)
+                                                )
+                                            }
+                                            DropdownMenu(
+                                                expanded = showSpeakerMenu,
+                                                onDismissRequest = { showSpeakerMenu = false }
+                                            ) {
+                                                DropdownMenuItem(
+                                                    text = { Text("重新合成") },
+                                                    onClick = {
+                                                        showSpeakerMenu = false
+                                                        onSpeakerAction?.invoke(head, true)
+                                                    }
+                                                )
+                                                DropdownMenuItem(
+                                                    text = { Text("从这段开始读") },
+                                                    onClick = {
+                                                        showSpeakerMenu = false
+                                                        onSpeakerAction?.invoke(head, false)
+                                                    }
+                                                )
+                                            }
+                                        }
+                                    }
                                     Text(
                                         text = segStyled,
                                         style = MaterialTheme.typography.bodySmall,
@@ -2594,6 +2650,20 @@ internal fun boldBodyOf(e: LogEntry): String {
     val m = Regex("<b>([\\s\\S]*?)</b>").find(e.message) ?: return ""
     return m.groupValues[1].replace(Regex("<[^>]*>"), "").trim()
 }
+
+/**
+ * 11-20「日志栏喇叭」：本卡能不能做「重新合成 / 从这段开始读」。
+ *
+ * 三个条件缺一不可，任一缺失就不画喇叭（点了也没法定位，宁缺勿错）：
+ *  1. `bookName`：U阅 侧要按书名校验「用户还在读这本书吗」，空串无法校验；
+ *  2. `chapterTitle`：日志行不带章序，章标题是唯一能反查章序的键；
+ *  3. `paraIndex >= 0`：段号是段落定位的唯一依据（0-based，与 readProgress.json
+ *     的 segIndex 同口径）。旧日志/第三方调用没带 → -1，不画。
+ *
+ * ⚠️ 不要求 `paraTotal > 0`：老版 U阅 可能只带段号不带总数，段号本身已足够定位。
+ */
+internal fun isSpeakerEligible(e: LogEntry): Boolean =
+    e.bookName.isNotBlank() && e.chapterTitle.isNotBlank() && e.paraIndex >= 0
 
 /** 朗读行跟随锚点：行顶落在视口高度的 0% 处＝**贴视口顶边**（11-19 用户令「还差一点，
  *  留了个空隙」——0.05 锚点自带一条 ≈5% 视口的缝，装机截图实锤；归零即真贴顶，

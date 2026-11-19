@@ -516,7 +516,14 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
         val playKey = if (retries == 0) cacheKeyOf(params.text, config) else null
         if (retries == 0) {
             logCacheKey("playRead", playKey!!, params.text, config)
-            val cachedPcm = SynthesizedAudioCache.get(playKey)
+            // 11-20（日志栏喇叭「重新合成」）：日志页点重合成时按文本放行一次——
+            // 不读缓存、直接重新合成。必须放在 get() 之前且消费掉，否则重合成
+            // 命中的还是旧 PCM，功能等于没做。只影响被点名的那一段，其余不受影响。
+            val bypassCache = SynthCacheBypass.consumeIfMatch(params.text)
+            if (bypassCache) {
+                logger.info { "cache bypass (用户点了重新合成): ${params.text.take(20)}" }
+            }
+            val cachedPcm = if (bypassCache) null else SynthesizedAudioCache.get(playKey)
             if (cachedPcm != null) {
                 logger.info { "cache hit: ${params.text.take(20)}" }
                 if (emitHitLog) {
