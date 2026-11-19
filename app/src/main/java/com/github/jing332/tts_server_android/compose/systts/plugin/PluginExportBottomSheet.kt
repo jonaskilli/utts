@@ -25,6 +25,19 @@ import com.github.jing332.tts_server_android.compose.systts.ConfigExportBottomSh
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+/**
+ * 勾选「导出变量」时在文件名主干的末尾插「（带变量）」，扩展名保持在最后：
+ * `插件-xxx.json` → `插件-xxx（带变量）.json`。
+ * 没有扩展名（或点号在首位）时直接追加；重复调用不会叠加后缀。
+ */
+internal fun withVarsSuffix(fileName: String): String {
+    val suffix = "（带变量）"
+    if (fileName.endsWith("$suffix") || fileName.contains("$suffix.")) return fileName
+    val dot = fileName.lastIndexOf('.')
+    return if (dot > 0) fileName.substring(0, dot) + suffix + fileName.substring(dot)
+    else fileName + suffix
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun PluginExportBottomSheet(
@@ -54,7 +67,8 @@ internal fun PluginExportBottomSheet(
         }
     } else {
         ConfigExportBottomSheet(
-            fileName = fileName,
+            // 11-19: 勾「导出变量」时文件名插「（带变量）」，一眼区分带密钥的迁移件
+            fileName = if (isExportVars) withVarsSuffix(fileName) else fileName,
             json = jStr,
             onDismissRequest = onDismissRequest,
             content = {

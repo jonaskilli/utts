@@ -336,7 +336,7 @@ fun SpeechRuleManagerScreen(sharedVM: SharedViewModel, finish: () -> Unit) {
                             )
 
                             DropdownMenuItem(
-                                text = { Text(text = stringResource(id = R.string.export_config)) },
+                                text = { Text(text = stringResource(id = R.string.export_json)) },
                                 onClick = {
                                     showOptions = false
                                     scope.launch {
@@ -595,13 +595,13 @@ internal fun Item(
                             }
 
                             DropdownMenuItem(
-                                text = { Text(stringResource(id = R.string.export_config)) },
+                                text = { Text(stringResource(id = R.string.export_json)) },
                                 onClick = {
                                     showOptions = false
                                     onExport()
                                 },
                                 leadingIcon = {
-                                    Icon(Icons.Default.Output, stringResource(R.string.export_config))
+                                    Icon(Icons.Default.Output, stringResource(R.string.export_json))
                                 }
                             )
 

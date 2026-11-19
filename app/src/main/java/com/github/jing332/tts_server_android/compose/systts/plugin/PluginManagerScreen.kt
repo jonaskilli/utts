@@ -750,7 +750,7 @@ fun PluginManagerScreen(sharedVM: SharedViewModel, onFinishActivity: () -> Unit)
                                 selectedIds = emptySet()
                             }
                         ) {
-                            Icon(Icons.Default.Output, stringResource(id = R.string.export_config))
+                            Icon(Icons.Default.Output, stringResource(id = R.string.export_json))
                         }
                         IconButton(
                             enabled = selectedIds.isNotEmpty(),
@@ -807,7 +807,7 @@ fun PluginManagerScreen(sharedVM: SharedViewModel, onFinishActivity: () -> Unit)
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text(stringResource(id = R.string.export_config)) },
+                                text = { Text(stringResource(id = R.string.export_json)) },
                                 onClick = {
                                     showOptions = false
                                     scope.launch {
@@ -817,7 +817,7 @@ fun PluginManagerScreen(sharedVM: SharedViewModel, onFinishActivity: () -> Unit)
                                     }
                                 },
                                 leadingIcon = {
-                                    Icon(Icons.Default.Output, stringResource(R.string.export_config))
+                                    Icon(Icons.Default.Output, stringResource(R.string.export_json))
                                 }
                             )
                             DropdownMenuItem(
@@ -1045,7 +1045,7 @@ private fun Item(
                 customActions = listOf(
                     CustomAccessibilityAction(context.getString(R.string.edit_desc, name)) { onEdit(); true },
                     CustomAccessibilityAction(context.getString(R.string.plugin_set_vars, name)) { onSetVars(); true },
-                    CustomAccessibilityAction(context.getString(R.string.export_config)) { onExport(); true },
+                    CustomAccessibilityAction(context.getString(R.string.export_json)) { onExport(); true },
                     CustomAccessibilityAction(context.getString(R.string.clear_cache, name)) { onClear(); true },
                     CustomAccessibilityAction(context.getString(R.string.delete, name)) { onDelete(); true },
                 )
@@ -1226,13 +1226,13 @@ private fun Item(
 
                             // 导出（用户 09-12 拍板：上栏最后一格）
                             DropdownMenuItem(
-                                text = { Text(stringResource(id = R.string.export_config)) },
+                                text = { Text(stringResource(id = R.string.export_json)) },
                                 onClick = {
                                     showOptions = false
                                     onExport()
                                 },
                                 leadingIcon = {
-                                    Icon(Icons.Default.Output, stringResource(R.string.export_config))
+                                    Icon(Icons.Default.Output, stringResource(R.string.export_json))
                                 }
                             )
 
