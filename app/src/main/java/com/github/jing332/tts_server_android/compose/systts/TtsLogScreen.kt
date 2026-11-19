@@ -197,11 +197,13 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
     val scope = rememberCoroutineScope()
 
     // 11-18 三改（用户实拍：搜「喜欢」出 81 处，正文命中只有 2 条，全被章名噪音淹了）：
-    // 命中拆成两种口径——书章节名**保留可搜**（按章名找日志的老用法不废），但降到次要：
-    //   matchesBody  = 只认正文（主命中；黄底、上下箭头只认它）
-    //   matchesQuery = 正文/时间（列表过滤用它）
-    //   ⚠️ 11-19 起书章名**不再参与这两个判据**：它改由下方 bookChapterHits 单独成栏，
-    //      否则搜书/章名会把整本书/整章的每一行都倒进列表（见 matchesQuery 处注释）。
+    // 命中拆成两种口径：
+    //   matchesBody  = 可搜文本（已剔角色名）——计数主数、标记底色都用它
+    //   matchesQuery = 正文/时间（列表过滤用它；时间另算，不虚增正文数）
+    //   ⚠️ 11-19 起书章名**完全不参与搜索**：曾经改由「书章命中」栏单独呈现，
+    //      但实测那栏价值低（搜正文时不出现、搜书名时点它反而把列表从 3 条扩到 401 条），
+    //      已按用户令整栏删除。搜书名/章名现在只靠正文是否含该词命中。
+    //      ⚠️ 别再把它加回 matchesQuery：那正是「整本书的行灌满列表」的老 bug。
     // 两种都同时比对「原文」与「剥掉 HTML 标签后的文本」：原文形如
     // `请求音频：<b>正文</b><br><font …>`，跨标签边界的词在原文里搜不到但上屏看得见
     //（「明明有却搜不到」就是这么来的）。
@@ -242,10 +244,10 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
     // 只要搜的是书/章名，整本书/整章的行就都被捞进列表——用户原话：
     // 「搜索的时候没有把书名和章节名单独列出来，而是显示了一堆无关紧要的」。
     //
-    // 新口径（用户 11-19 拍板「正文命中列下面，书章命中单独一栏」）：
-    //   · 列表只列**正文/时间**命中（matchesQuery 收窄为 matchesBody + 时间）；
-    //   · 书/章命中改由顶部「书章命中」一栏单独呈现，点它=把查看范围收窄到那本书/那一章
-    //     （复用既有的 scopeBook / scopeChapter，与吸顶筛选同一条路）。
+    // 现行口径（11-20 定稿）：**列表只列正文/时间命中**（matchesQuery = matchesBody + 时间）。
+    // 书/章名**完全不参与搜索**——曾经的「书章命中」栏已按用户令删除（11-20），
+    // 因为它搜正文时不出现、搜书名时点它反而把列表从 3 条扩到 401 条（扩大而非收窄）。
+    // 想按章找日志，走吸顶的书/章选择器（那里本来就能切）。
     fun LogEntry.matchesQuery(q: String): Boolean =
         matchesBody(q) || time.contains(q, ignoreCase = true)
 
@@ -270,32 +272,6 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
         }
     }
 
-    // ===== 11-19：书章命中单独一栏 =====
-    //
-    // 从范围收窄**之前**的全量日志里找「书名/章名包含搜索词」的书与章，
-    // 供控制行下方那条「书章命中」栏渲染。不参与 displayLogs 的过滤——
-    // 那正是旧版把整本书的行都倒出来的原因。
-    // 口径：书名命中 → 记该书（章留空=整本书）；章名命中 → 记该书那一章。
-    val bookChapterHits by remember(vm) {
-        derivedStateOf {
-            val q = searchQuery.trim()
-            if (q.isEmpty()) emptyList()
-            else {
-                val out = LinkedHashMap<Pair<String, String>, Int>()
-                vm.filteredLogs.forEach { e ->
-                    val b = e.bookName.takeIf { it.isNotBlank() } ?: return@forEach
-                    if (b.contains(q, ignoreCase = true)) {
-                        out[b to ""] = (out[b to ""] ?: 0) + 1
-                    } else if (e.chapterTitle.contains(q, ignoreCase = true)) {
-                        val k = b to e.chapterTitle
-                        out[k] = (out[k] ?: 0) + 1
-                    }
-                }
-                out.entries.sortedByDescending { it.value }.map { it.key to it.value }
-            }
-        }
-    }
-
     // 匹配统计(控制行展示用)
     val matchCount by remember(vm) {
         derivedStateOf {
@@ -305,8 +281,8 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
         }
     }
 
-    // 正文命中数：控制行主数就用它（不含时间命中）——搜书/章名时正文可能 0 处，
-    // 这时列表为空而书章命中栏有内容，用户一眼能分清「一条正文都没提」和「搜错了」。
+    // 正文命中数：控制行主数就用它（不含时间命中）。
+    // 搜到 0 处 + 列表空 = 这次搜索确实没命中（书章名已不参与搜索，不再有别处兜着显示）。
     val bodyMatchCount by remember(vm) {
         derivedStateOf {
             val q = searchQuery.trim()
@@ -772,76 +748,18 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                         // 的定位式列表；用户选择维持过滤式，故箭头连同 jumpToMatch 一并删除。
                         //
                         // 计数文案保留（用户要靠它判断「到底有没有搜到」）：
-                        // 列表已只列命中行，故主数报正文；时间命中另计；书章命中单独成栏。
+                        // 列表已只列命中行，故主数报正文；时间命中另计。
                         Text(
                             text = buildString {
                                 append("正文 ${bodyMatchCount} 处")
                                 if (matchCount != bodyMatchCount) {
                                     append(" · 共 ${matchCount} 处(含时间)")
                                 }
-                                if (bookChapterHits.isNotEmpty()) {
-                                    append(" · 书章命中 ${bookChapterHits.size} 项")
-                                }
                             },
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(start = 8.dp, top = 2.dp, bottom = 2.dp)
                         )
-                    // ===== 11-19：书章命中一栏 =====
-                    // 用户原话：「搜索的时候没有把书名和章节名单独列出来，而是显示了一堆无关紧要的」。
-                    // 这里只列「哪本书 / 哪一章」命中了，点一下=把查看范围收窄到它
-                    //（复用吸顶筛选的 scopeBook/scopeChapter，不另起一套状态）。
-                    if (bookChapterHits.isNotEmpty()) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState())
-                                .padding(start = 8.dp, end = 8.dp, bottom = 2.dp),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                "书章命中",
-                                style = MaterialTheme.typography.labelSmall,
-                                fontSize = 10.5.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            bookChapterHits.take(12).forEach { (pair, cnt) ->
-                                val (b, c) = pair
-                                val active = vm.scopeBook.value == b &&
-                                    (c.isEmpty() || vm.scopeChapter.value == c)
-                                Text(
-                                    text = (if (c.isEmpty()) b else "$b · $c") + " ($cnt)",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontSize = 10.5.sp,
-                                    color = if (active) MaterialTheme.colorScheme.onPrimaryContainer
-                                    else MaterialTheme.colorScheme.primary,
-                                    maxLines = 1,
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(50))
-                                        .background(
-                                            if (active) MaterialTheme.colorScheme.primaryContainer
-                                            else Color.Transparent
-                                        )
-                                        .border(
-                                            1.dp,
-                                            MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
-                                            RoundedCornerShape(50)
-                                        )
-                                        .clickable {
-                                            // 点「书」=收窄到整本书；点「章」=收窄到那一章
-                                            if (active) {
-                                                vm.clearScope()
-                                            } else {
-                                                vm.scopeBook.value = b
-                                                vm.scopeChapter.value = c.ifEmpty { null }
-                                            }
-                                        }
-                                        .padding(horizontal = 8.dp, vertical = 2.dp),
-                                )
-                            }
-                        }
-                    }
                     }
                 }
 
