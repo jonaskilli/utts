@@ -248,21 +248,60 @@ object CharacterRecordsFile {
         return changed
     }
 
-    /** 「再次分配」：给单条记录换一个同类别发音人（≠当前）。成功四写落盘并返回新 tag；无候选 null。 */
-    fun rerollVoice(tagRuleId: String, index: Int, enabledTags: Collection<String>): String? {
+    /** 「再次分配」：给单条记录换一个同类别发音人（≠当前）。成功四写落盘并返回新 tag；无候选 null。
+     *
+     * ⚠️ 11-19 用户实报「长按标签换声换错了人」后改按**角色名**定位，不再按下标：
+     * 角色列表 11-19 加了「冻结显示顺序」（frozenOrder，治朗读时 moveRecordToTop 致行序跳变），
+     * 显示顺序被钉死后**显示下标 ≠ 文件下标**——而规则的 moveRecordToTop 一直在改文件顺序。
+     * 于是「按显示下标取文件记录」会取到**另一条**角色（改的是 B 的声音，提示却说 A）。
+     * 偶发的原因：只有「朗读重排过文件 + 页面没重进（重进会按新文件顺序重建 frozenOrder，
+     * 重新对齐）」这个窗口内才错；窗口外显示序=文件序，一切正常。
+     *
+     * @param name 角色名（显示层身份）
+     * @param currentVoice 该角色当前的标签（同名多条时用于二次区分）
+     */
+    fun rerollVoice(tagRuleId: String, name: String, currentVoice: String, enabledTags: Collection<String>): String? {
         val records = readRecords(tagRuleId)
-        val rec = records.getOrNull(index) ?: return null
+        val idx = locateRecord(records, name, currentVoice) ?: return null
+        val rec = records[idx]
         // 28 改（用户令 11-10）：候选池只认启用配置，不再与 fayinren.json 取交集。
         // 理由同换声面板（见 VoicePickerDialog 同段注释）：池文件由规则脚本运行时生成，
         // 受「规则版本未同步 / saveVoicesToFile 关闭 / duihua 解析失败」影响，会漏掉
         // 已启用且实际可用的标签——取交集会让这些标签在改绑时被跳过。
         // 能建出启用配置即证明该发音人可用，故直接用启用标签全集。
         val poolEnabled = enabledTags.toList()
-        val newVoice = pickCategoryVoice(rec.voice, records, index, poolEnabled) ?: return null
+        val newVoice = pickCategoryVoice(rec.voice, records, idx, poolEnabled) ?: return null
         rec.obj.put("voice", newVoice)
         saveRecords(tagRuleId, records)
         return newVoice
     }
+
+    /**
+     * 按角色身份在记录表里定位下标。
+     *
+     * 11-19：显示顺序与文件顺序解耦后，下标不再可靠，故一律改按**名字**定位。
+     * 定位次序：名字唯一 → 直接命中；同名多条 → 先按当前标签筛；标签也相同 → 按
+     * [RoleIdentity.ordinal]（同名同标签里的第几条）取。
+     *
+     * @return 文件里的下标；找不到返回 null
+     */
+    private fun locateRecord(records: List<RoleRecord>, identity: RoleIdentity): Int? {
+        val target = norm(identity.name)
+        if (target.isEmpty()) return null
+        val sameName = records.indices.filter { norm(records[it].name) == target }
+        if (sameName.isEmpty()) return null
+        if (sameName.size == 1) return sameName[0]
+        val voice = identity.voice.trim()
+        if (voice.isNotEmpty()) {
+            val byVoice = sameName.filter { records[it].voice == voice }
+            if (byVoice.size == 1) return byVoice[0]
+            if (byVoice.isNotEmpty()) return byVoice.getOrNull(identity.ordinal.coerceAtLeast(0))
+        }
+        return sameName.getOrNull(identity.ordinal.coerceAtLeast(0)) ?: sameName[0]
+    }
+
+    private fun locateRecord(records: List<RoleRecord>, name: String, currentVoice: String = ""): Int? =
+        locateRecord(records, RoleIdentity(name, currentVoice))
 
     // ==================== 内置角色列表（Phase 1，拍板）====================
     // 角色管理页签换原生渲染后，app 端直接读写同一份数据。写入口径与插件
@@ -359,29 +398,56 @@ object CharacterRecordsFile {
     }
 
     /**
-     * 删除角色——**按文件下标**（照插件 doDeleteCharacterOperation：遍历 `characterRecords`、
-     * 只保留未被标记的 index）。
+     * 角色身份：显示层用它唯一指向一条记录。
      *
-     * ⚠️ 旧版按**名字**删（`filter { it.name !in names }`）：文件里存在同名两条时，
-     * 想删其一结果两条一起没了（插件侧 `+添加角色` 不查重、框架 AI 规则回写记录都可能造出同名）。
+     * ⚠️ 11-19 新增。角色列表冻结显示顺序后**显示下标 ≠ 文件下标**（规则一直在用
+     * moveRecordToTop 改文件顺序），下标不能再当身份用——一律改用「名字 + 当前标签」。
+     *
+     * @param name 角色名
+     * @param voice 该角色当前的标签（同名多条时用于二次区分）
+     * @param ordinal 同名同标签时的第几条（从 0 起）。同角色名+同标签的多条记录确实存在
+     *   （插件 `+添加角色` 不查重、框架 AI 规则回写都可能造出），删除时要能各删各的，
+     *   故留这个序号兜底；常规情况（同名不同标签或名字唯一）用不到。
+     */
+    data class RoleIdentity(
+        val name: String,
+        val voice: String = "",
+        val ordinal: Int = 0,
+    )
+
+    /**
+     * 删除角色——**按角色身份**（名字 + 当前标签）定位后删。
+     *
+     * 沿革：①最初按**名字**删（`filter { it.name !in names }`）——文件里存在同名两条时，
+     * 想删其一结果两条一起没了（插件侧 `+添加角色` 不查重、框架 AI 规则回写记录都可能造出同名）；
+     * ②后改按**文件下标**删——但 11-19 冻结显示顺序后显示下标 ≠ 文件下标，会删错人；
+     * ③现按**身份**删，兼顾两者：同名不同标签能各删各的，同名同标签取第一条。
      * 成功返回删掉的条数。
      */
-    fun deleteRecordsAt(tagRuleId: String, indices: Set<Int>): Int {
-        if (indices.isEmpty()) return 0
-        val records = readRecords(tagRuleId)
-        val kept = records.filterIndexed { i, _ -> i !in indices }
-        val removed = records.size - kept.size
-        if (removed > 0 && saveRecords(tagRuleId, kept)) return removed
+    fun deleteRecordsBy(tagRuleId: String, identities: List<RoleIdentity>): Int {
+        if (identities.isEmpty()) return 0
+        val records = readRecords(tagRuleId).toMutableList()
+        var removed = 0
+        identities.forEach { id ->
+            val idx = locateRecord(records, id.name, id.voice) ?: return@forEach
+            records.removeAt(idx)
+            removed++
+        }
+        if (removed > 0 && saveRecords(tagRuleId, records)) return removed
         return 0
     }
 
     /**
      * 设为主角——**只改标记的那一条**（照插件 setAsMainCharacter：`characterRecords[longPressedIndex]`
      * 单个对象；旧版按名字改、同名两条会一起变主角）。age="主角" + usageCount=100 同字段同值。
+     *
+     * ⚠️ 11-19 改按**角色名**定位（不再用下标）：角色列表冻结显示顺序后，
+     * 显示下标 ≠ 文件下标，按下标会改到别的角色（同 rerollVoice 的坑）。
      */
-    fun setMainCharacterAt(tagRuleId: String, index: Int): Boolean {
+    fun setMainCharacterAt(tagRuleId: String, name: String, currentVoice: String = ""): Boolean {
         val records = readRecords(tagRuleId)
-        val rec = records.getOrNull(index) ?: return false
+        val idx = locateRecord(records, name, currentVoice) ?: return false
+        val rec = records[idx]
         rec.obj.put("age", "主角")
         rec.obj.put("usageCount", 100)
         return saveRecords(tagRuleId, records)
@@ -694,14 +760,16 @@ object CharacterRecordsFile {
      * 多行名称编辑保存（照插件 showEditCharacterDialog）：names[0]=主名，其余=aliases。
      * - names 先 trim 去空、**再去重**（插件 `names.indexOf(txt) === -1` 才 push；旧版不去重，
      *   同一个名字录两遍会写进 aliases 两条）
-     * - **只改 [index] 那一条**（插件按 position 定位；旧版按名字改，同名两条会一起被改）
+     * - **只改定位到的那一条**（旧版按名字改，同名两条会一起被改；再版按文件下标，
+     *   但 11-19 冻结显示顺序后显示下标 ≠ 文件下标，会改到别的角色——现按**身份**定位）
      * - 主名与其他记录重名（排除自己这条）返回 false
      */
-    fun editCharacterNamesAt(tagRuleId: String, index: Int, names: List<String>): Boolean {
+    fun editCharacterNames(tagRuleId: String, identity: RoleIdentity, names: List<String>): Boolean {
         val cleaned = names.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
         if (cleaned.isEmpty()) return false
         val records = readRecords(tagRuleId)
-        val rec = records.getOrNull(index) ?: return false
+        val index = locateRecord(records, identity.name, identity.voice) ?: return false
+        val rec = records[index]
         val mainName = cleaned[0]
         for (i in records.indices) {
             if (i != index && norm(records[i].name) == norm(mainName)) return false
