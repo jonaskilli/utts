@@ -262,7 +262,10 @@ object CharacterRecordsFile {
      */
     fun rerollVoice(tagRuleId: String, name: String, currentVoice: String, enabledTags: Collection<String>): String? {
         val records = readRecords(tagRuleId)
-        val idx = locateRecord(records, name, currentVoice) ?: return null
+        val idx = locateRecord(records, name, currentVoice) ?: run {
+            Log.w(TAG, "rerollVoice: 定位不到角色「$name」(voice=$currentVoice)，未改动")
+            return null
+        }
         val rec = records[idx]
         // 28 改（用户令 11-10）：候选池只认启用配置，不再与 fayinren.json 取交集。
         // 理由同换声面板（见 VoicePickerDialog 同段注释）：池文件由规则脚本运行时生成，
@@ -270,7 +273,19 @@ object CharacterRecordsFile {
         // 已启用且实际可用的标签——取交集会让这些标签在改绑时被跳过。
         // 能建出启用配置即证明该发音人可用，故直接用启用标签全集。
         val poolEnabled = enabledTags.toList()
-        val newVoice = pickCategoryVoice(rec.voice, records, idx, poolEnabled) ?: return null
+        val newVoice = pickCategoryVoice(rec.voice, records, idx, poolEnabled) ?: run {
+            Log.i(TAG, "rerollVoice: 「$name」(voice=$currentVoice) 无同类别候选，未改动")
+            return null
+        }
+        // 11-19：落盘前把「改的是谁」打进日志。
+        // 之前只有 UI 层 toast 说改了谁，数据层改的哪条完全不可查——用户实报「换了别人的」
+        // 时无法从日志判定真假（截图也没法证明）。带上 fileIndex 与改前/改后标签，
+        // 下次再报就能直接对账：定位到的角色名必须 == 用户按的那行。
+        Log.i(
+            TAG,
+            "rerollVoice: 角色=「${rec.name}」 fileIndex=$idx 标签 ${rec.voice} → $newVoice" +
+                "（请求方给的 name=$name voice=$currentVoice，记录数=${records.size}）"
+        )
         rec.obj.put("voice", newVoice)
         saveRecords(tagRuleId, records)
         return newVoice
