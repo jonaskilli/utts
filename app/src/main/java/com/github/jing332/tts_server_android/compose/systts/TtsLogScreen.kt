@@ -52,7 +52,6 @@ import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LocalTextStyle
@@ -198,20 +197,56 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
 
     // 11-18 三改（用户实拍：搜「喜欢」出 81 处，正文命中只有 2 条，全被章名噪音淹了）：
     // 命中拆成两种口径——书章节名**保留可搜**（按章名找日志的老用法不废），但降到次要：
-    //   matchesBody  = 只认正文（主命中；匹配计数、黄底、上下箭头只认它）
-    //   matchesQuery = 正文/时间 + 书章名（全部命中；列表过滤仍用它，行照常显示）
+    //   matchesBody  = 只认正文（主命中；黄底、上下箭头只认它）
+    //   matchesQuery = 正文/时间（列表过滤用它）
+    //   ⚠️ 11-19 起书章名**不再参与这两个判据**：它改由下方 bookChapterHits 单独成栏，
+    //      否则搜书/章名会把整本书/整章的每一行都倒进列表（见 matchesQuery 处注释）。
     // 两种都同时比对「原文」与「剥掉 HTML 标签后的文本」：原文形如
     // `请求音频：<b>正文</b><br><font …>`，跨标签边界的词在原文里搜不到但上屏看得见
     //（「明明有却搜不到」就是这么来的）。
     fun LogEntry.plainMessage(): String = message.replace(Regex("<[^>]*>"), "")
-    // 主命中=**只认正文**（原文或剥标签后）。时间/书章都归「全部命中」——
-    // 11-18 自审纠正：早先把时间也算主命中，搜「18:47」会显示「正文 2 处」，文案不实；
-    // 现在按时间搜仍能在列表里找到行（走全部命中），箭头在无正文命中时也会退回跳它。
+
+    /**
+     * 11-19（用户定稿「只把角色名排除吧」）：**只剔角色名，其余全部保留可搜**。
+     *
+     * 演进（别走回头路）：
+     *   ① 最初整条 message 都搜 → 搜「太太」命中角色名「丁太太」11 条（用户实拍报障）；
+     *   ② 我一度收窄成「只搜 <b>正文</b>」→ 用户否掉：「日期、底部插件名、声音名也有价值」，
+     *      查「某个插件昨晚是不是老失败」「某个音色在哪几段」全都搜不到了，等于功能退化；
+     *   ③ **终稿（本条）**：只剔除**角色名**这一段，其余（正文 / 声音名 / 语速音量 /
+     *      插件名 / 时间 / 规则日志 / 子行）全部照常可搜。
+     *
+     * 为什么能精确定位角色名：服务端拼这条消息时给角色名单独套了
+     * `<font color="#0F0F0F">角色名</font>`（ROLE_CHIP_COLOR，专属哨兵色，别处不用），
+     * 所以按颜色精确剔除即可，不靠猜文字位置。
+     */
+    fun LogEntry.searchableText(): String {
+        // 先剥 HTML 标签，再按行剥掉「角色名」那段——剥离在剥标签之前做不了，
+        // 因为要认的是 <font color="#0F0F0F">…</font> 这层包裹。
+        return message
+            // 剔角色名：连带吃掉它后面紧跟的那个分隔逗号（否则搜「太太」仍会因
+            // 「丁太太，」这半截的逗号残留而边界不清——不影响命中，但保持文本干净）
+            .replace(Regex("<font color=\"#0F0F0F\">.*?</font>", RegexOption.DOT_MATCHES_ALL), "")
+            .replace(Regex("<[^>]*>"), "")
+    }
+
+    // 主命中=可搜文本（已剔角色名）。时间也算——搜「18:47」时用户就是想找那一刻。
     fun LogEntry.matchesBody(q: String): Boolean =
-        message.contains(q, ignoreCase = true) || plainMessage().contains(q, ignoreCase = true)
+        searchableText().contains(q, ignoreCase = true)
+    // ===== 11-19（用户实拍）：书章名命中不再参与「按行列结果」 =====
+    //
+    // 症状：搜「呼啸」→「共 482 处 · 正文 10 处」，列表里 472 条全是**这本书的每一行**；
+    // 搜「第3章」→「共 25 处 · 正文 4 处」，同样被 21 条「属于这一章」的行灌满。
+    // 旧判据把 `bookName.contains(q) || chapterTitle.contains(q)` 也算命中，于是
+    // 只要搜的是书/章名，整本书/整章的行就都被捞进列表——用户原话：
+    // 「搜索的时候没有把书名和章节名单独列出来，而是显示了一堆无关紧要的」。
+    //
+    // 新口径（用户 11-19 拍板「正文命中列下面，书章命中单独一栏」）：
+    //   · 列表只列**正文/时间**命中（matchesQuery 收窄为 matchesBody + 时间）；
+    //   · 书/章命中改由顶部「书章命中」一栏单独呈现，点它=把查看范围收窄到那本书/那一章
+    //     （复用既有的 scopeBook / scopeChapter，与吸顶筛选同一条路）。
     fun LogEntry.matchesQuery(q: String): Boolean =
-        matchesBody(q) || time.contains(q, ignoreCase = true) ||
-            bookName.contains(q, ignoreCase = true) || chapterTitle.contains(q, ignoreCase = true)
+        matchesBody(q) || time.contains(q, ignoreCase = true)
 
     // 基础列表 = 等级/插件筛选结果 → 书/章收窄（11-10）→ 搜索词实时过滤。
     // 书/章收窄放在搜索之前：搜索是在「选定范围内」找词，符合直觉
@@ -234,6 +269,32 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
         }
     }
 
+    // ===== 11-19：书章命中单独一栏 =====
+    //
+    // 从范围收窄**之前**的全量日志里找「书名/章名包含搜索词」的书与章，
+    // 供控制行下方那条「书章命中」栏渲染。不参与 displayLogs 的过滤——
+    // 那正是旧版把整本书的行都倒出来的原因。
+    // 口径：书名命中 → 记该书（章留空=整本书）；章名命中 → 记该书那一章。
+    val bookChapterHits by remember(vm) {
+        derivedStateOf {
+            val q = searchQuery.trim()
+            if (q.isEmpty()) emptyList()
+            else {
+                val out = LinkedHashMap<Pair<String, String>, Int>()
+                vm.filteredLogs.forEach { e ->
+                    val b = e.bookName.takeIf { it.isNotBlank() } ?: return@forEach
+                    if (b.contains(q, ignoreCase = true)) {
+                        out[b to ""] = (out[b to ""] ?: 0) + 1
+                    } else if (e.chapterTitle.contains(q, ignoreCase = true)) {
+                        val k = b to e.chapterTitle
+                        out[k] = (out[k] ?: 0) + 1
+                    }
+                }
+                out.entries.sortedByDescending { it.value }.map { it.key to it.value }
+            }
+        }
+    }
+
     // 匹配统计(控制行展示用)
     val matchCount by remember(vm) {
         derivedStateOf {
@@ -243,7 +304,8 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
         }
     }
 
-    // 正文命中数（不含书章名）——与 matchCount 并列显示，一眼看出「真正相关的有几条」
+    // 正文命中数：控制行主数就用它（不含时间命中）——搜书/章名时正文可能 0 处，
+    // 这时列表为空而书章命中栏有内容，用户一眼能分清「一条正文都没提」和「搜错了」。
     val bodyMatchCount by remember(vm) {
         derivedStateOf {
             val q = searchQuery.trim()
@@ -455,30 +517,6 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                 .let { if (it >= 0) it else displayLogs.indexOfLast { it.matchesQuery(q) } }
             if (idx >= 0) listState.animateScrollToItem(logGroups.listItemFor(idx))
         }
-    }
-
-    // 上一处/下一处：以当前可视位置为锚点跳转，到头自动绕回；条目下标经归组映射
-    // 换算成列表项下标再滚动
-    fun jumpToMatch(forward: Boolean) {
-        val q = searchQuery.trim()
-        if (q.isEmpty()) return
-        // 11-18：箭头只跳「正文命中」，不在书章名噪音里空转；正文零命中时退回旧行为
-        val bodyMatches = displayLogs.indices.filter { displayLogs[it].matchesBody(q) }
-        val matches = if (bodyMatches.isNotEmpty()) bodyMatches
-        else displayLogs.indices.filter { displayLogs[it].matchesQuery(q) }
-        if (matches.isEmpty()) return
-        // 可视首项（可能是组/裸行/日期签）→ 取该列表项的首个条目下标做锚
-        val firstVisible = listState.firstVisibleItemIndex
-        val anchorEntry = when (val item = logGroups.items.getOrNull(firstVisible)) {
-            is LogGroups.Item.Bare -> item.index
-            is LogGroups.Item.Group -> item.head
-            else -> firstVisible
-        }
-        val target = if (forward)
-            matches.firstOrNull { it > anchorEntry } ?: matches.first()
-        else
-            matches.lastOrNull { it < anchorEntry } ?: matches.last()
-        scope.launch { listState.animateScrollToItem(logGroups.listItemFor(target)) }
     }
 
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
@@ -721,30 +759,88 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                     enter = fadeIn(),
                     exit = fadeOut()
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 8.dp, vertical = 2.dp),
-                        horizontalArrangement = Arrangement.spacedBy(2.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        // ===== 11-19 用户令：撤掉「上一处/下一处」箭头 =====
+                        //
+                        // 用户原话：「这个搜索顶部的上一个，下一个是不是没什么用啊？
+                        // 他每次都出来一大片，我点击上一个下一个没什么作用吧？」
+                        // 核实结论：**箭头没坏，是它在这个形态下必然多余**——
+                        // 搜索一开，displayLogs 已被 matchesQuery 过滤成「只剩命中行」，
+                        // 相邻两条命中之间没有无关行可跳，点一下只是从第 1 条挪到第 2 条，
+                        // 手指一滑就做到。若要箭头有意义，得改成「保留全部行 + 高亮命中」
+                        // 的定位式列表；用户选择维持过滤式，故箭头连同 jumpToMatch 一并删除。
+                        //
+                        // 计数文案保留（用户要靠它判断「到底有没有搜到」）：
+                        // 列表已只列命中行，故主数报正文；时间命中另计；书章命中单独成栏。
                         Text(
-                            // 11-18：全部命中 ≠ 正文命中时分开报（如「共 81 处 · 正文 2 处」），
-                            // 让用户知道真正相关的是哪几条；两者相等时保持原文案不啰嗦。
-                            text = if (bodyMatchCount != matchCount)
-                                "共 ${matchCount} 处 · 正文 ${bodyMatchCount} 处"
-                            else "${matchCount} 处匹配",
+                            text = buildString {
+                                append("正文 ${bodyMatchCount} 处")
+                                if (matchCount != bodyMatchCount) {
+                                    append(" · 共 ${matchCount} 处(含时间)")
+                                }
+                                if (bookChapterHits.isNotEmpty()) {
+                                    append(" · 书章命中 ${bookChapterHits.size} 项")
+                                }
+                            },
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(start = 8.dp)
+                            modifier = Modifier.padding(start = 8.dp, top = 2.dp, bottom = 2.dp)
                         )
-                        Spacer(Modifier.weight(1f))
-                        IconButton(onClick = { jumpToMatch(false) }) {
-                            Icon(Icons.Default.KeyboardArrowUp, "上一处")
+                    // ===== 11-19：书章命中一栏 =====
+                    // 用户原话：「搜索的时候没有把书名和章节名单独列出来，而是显示了一堆无关紧要的」。
+                    // 这里只列「哪本书 / 哪一章」命中了，点一下=把查看范围收窄到它
+                    //（复用吸顶筛选的 scopeBook/scopeChapter，不另起一套状态）。
+                    if (bookChapterHits.isNotEmpty()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState())
+                                .padding(start = 8.dp, end = 8.dp, bottom = 2.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "书章命中",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontSize = 10.5.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            bookChapterHits.take(12).forEach { (pair, cnt) ->
+                                val (b, c) = pair
+                                val active = vm.scopeBook.value == b &&
+                                    (c.isEmpty() || vm.scopeChapter.value == c)
+                                Text(
+                                    text = (if (c.isEmpty()) b else "$b · $c") + " ($cnt)",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontSize = 10.5.sp,
+                                    color = if (active) MaterialTheme.colorScheme.onPrimaryContainer
+                                    else MaterialTheme.colorScheme.primary,
+                                    maxLines = 1,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(50))
+                                        .background(
+                                            if (active) MaterialTheme.colorScheme.primaryContainer
+                                            else Color.Transparent
+                                        )
+                                        .border(
+                                            1.dp,
+                                            MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
+                                            RoundedCornerShape(50)
+                                        )
+                                        .clickable {
+                                            // 点「书」=收窄到整本书；点「章」=收窄到那一章
+                                            if (active) {
+                                                vm.clearScope()
+                                            } else {
+                                                vm.scopeBook.value = b
+                                                vm.scopeChapter.value = c.ifEmpty { null }
+                                            }
+                                        }
+                                        .padding(horizontal = 8.dp, vertical = 2.dp),
+                                )
+                            }
                         }
-                        IconButton(onClick = { jumpToMatch(true) }) {
-                            Icon(Icons.Default.KeyboardArrowDown, "下一处")
-                        }
+                    }
                     }
                 }
 

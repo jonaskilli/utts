@@ -2473,10 +2473,30 @@ internal fun LogScreen(
 // 『有喜欢的人了』」——同权染底会让真正相关的两行混在噪音里找不到。列表过滤仍保留
 // 书章命中（行照常显示），只是不打命中底色；匹配计数在顶部另报「共 N 处 · 正文 M 处」。
 // 原文带 <b>/<font> 标签，故同时比对剥标签文本——跨标签边界的词在上屏文本里是连着的。
-private fun isMatchEntry(e: LogEntry, q: String): Boolean =
-    q.isNotEmpty() && (e.message.contains(q, ignoreCase = true) ||
-        e.message.replace(Regex("<[^>]*>"), "").contains(q, ignoreCase = true) ||
-        e.time.contains(q, ignoreCase = true))
+/**
+ * 11-19：命中底色判据，与搜索列表过滤判据（TtsLogScreen.matchesBody）**同口径**。
+ *
+ * 口径（用户定稿「只把角色名排除吧」）：除**角色名**外全部可搜
+ * ——正文 / 声音名 / 语速音量 / 插件名 / 时间 / 规则日志 / 子行。
+ *
+ * 旧版是独立实现、拿整条 message 做 contains，于是搜「太太」会把
+ * **角色名「丁太太」**那行也染黄（用户实拍 11 条全是角色名），且与列表口径漂移，
+ * 出现「没进结果却染黄」的错位。
+ *
+ * 角色名靠服务端的专属哨兵色精确剔除：`<font color="#0F0F0F">角色名</font>`
+ *（ROLE_CHIP_COLOR，别处不用这个颜色）。
+ */
+private fun isMatchEntry(e: LogEntry, q: String): Boolean {
+    if (q.isEmpty()) return false
+    // 剔角色名后再剥标签比对；时间照常算命中（与 matchesBody 对齐）
+    val searchable = e.message
+        .replace(Regex("<font color=\"#0F0F0F\">.*?</font>", RegexOption.DOT_MATCHES_ALL), "")
+        .replace(Regex("<[^>]*>"), "")
+    if (searchable.contains(q, ignoreCase = true)) return true
+    if (e.time.contains(q, ignoreCase = true)) return true
+    // 书/章名单独成栏（bookChapterHits），这里不算行命中，避免与列表口径不一致
+    return false
+}
 
 // 行级药丸推导（10-10 终案「失败链按以前单条处理+丸保留」）：每条日志按自己的
 // 级别/文案出一颗丸——重试 W 主行=重试N、兜底/备用 I 主行=切备用、成功请求行=成功、
