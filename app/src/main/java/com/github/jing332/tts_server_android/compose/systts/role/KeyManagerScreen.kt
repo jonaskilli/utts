@@ -1097,8 +1097,13 @@ fun KeyManagerScreen(tagRuleId: String, onBack: () -> Unit) {
         // 旧数据迁移（幂等）：裸 Key 条目补全智谱全串、池内空地址段补真端点
         // → 分组自愈：匹配不上分组的 @@ 条目按（网址 + 密钥）自动建组
         //（智谱内置种子已退役 10-04：不再内置 Key/自动重建任何组；存量失效 key 由用户手动删）
+        var mergedDup = 0
         withIO {
             KeyListFile.migrateLegacy(tagRuleId)
+            // 11-19 用户定稿「重复都不能存在，只要重复就让他合并」：
+            // 进密钥页先自愈一遍——盘上已有的重复条目合并掉（保留先出现的那条）。
+            // 必须排在 heal 之前，合并后的条目才按最终名单归组。
+            mergedDup = KeyListFile.healDuplicates(tagRuleId)
             // 启用池孤儿收养（11-10 用户需求）：外部 App（z阅读 混元太极）点「使用」时
             // 直接覆写 miyue.txt，那把钥在密钥列表里没有条目——池页只能显示「已无对应条目」、
             // 不能编辑也不能出现在密钥管理里。按它自带的三要素补建成正式条目，
@@ -1107,6 +1112,13 @@ fun KeyManagerScreen(tagRuleId: String, onBack: () -> Unit) {
             KeyListFile.adoptOrphanPoolValues(tagRuleId)
             KeyListFile.heal(tagRuleId)
             KeyListFile.writeFolderGuide(tagRuleId) // 文件说明.txt（幂等，内容没变不重写）
+        }
+        if (mergedDup > 0) {
+            // ⚠️ 这里的 toast() 辅助函数定义在下方（Kotlin 局部函数须先声明后用），直接用 Toast
+            android.widget.Toast.makeText(
+                context, context.getString(R.string.role_key_dup_merged, mergedDup),
+                android.widget.Toast.LENGTH_SHORT
+            ).show()
         }
         val loaded = withIO {
             Triple(
@@ -1149,11 +1161,13 @@ fun KeyManagerScreen(tagRuleId: String, onBack: () -> Unit) {
             if (ok) version++
         }
     }
-    /** 启用池落盘并刷新（主页与密钥池子页共用的唯一写入口）。空池就是空池，不自动顶回 */
+    /** 启用池落盘并刷新（主页与密钥池子页共用的唯一写入口）。空池就是空池，不自动顶回
+     *  ⚠️ 11-19：池值去重后回填内存态——[KeyListFile.savePool] 落盘时已去重，
+     *  内存态不同步的话，池页会仍显示两行一模一样的条目（盘上却只有一把）。 */
     fun savePoolList(list: List<String>) {
         scope.launch {
             withIO { KeyListFile.savePool(tagRuleId, list) }
-            pool = list
+            pool = KeyListFile.dedupPoolValues(list)
             version++
         }
     }
@@ -1884,6 +1898,14 @@ fun KeyManagerScreen(tagRuleId: String, onBack: () -> Unit) {
                         name = name, keyCode = KeyListFile.nextKeyCode(keys), value = value,
                         thinkingMode = thinkMode, thinkingCustom = thinkCustom,
                     )
+                    // 11-19 用户定稿「重复都不能存在，只要重复就让他合并」：
+                    // 同地址+同模型+同密钥已有一条 → 不新增（保留先出现的那条），
+                    // 直接告诉用户「这条已经在了」，而不是造出第二条。
+                    val dup = KeyListFile.findDuplicate(keys, value)
+                    if (dup != null) {
+                        toast(R.string.role_key_dup_value, KeyListFile.displayName(dup))
+                        return@KeyEditDialog
+                    }
                     save(keys + newEntry)
                     // 新增后自动展开其所属组（10-08：结果落在组里，折叠着看不见）；
                     // 未分组条目没有组卡可展开，跳过
@@ -1924,7 +1946,7 @@ fun KeyManagerScreen(tagRuleId: String, onBack: () -> Unit) {
             jumpToThinkingCustom = thinkingFor != null,
             onDismiss = { renameFor = null; thinkingFor = null },
             onDelete = { renameFor = null; thinkingFor = null; deleteFor = entry },
-            onConfirm = { name, value, overwrite, thinkMode, thinkCustom ->
+            onConfirm=onConfirm@{ name, value, overwrite, thinkMode, thinkCustom ->
                 renameFor = null
                 thinkingFor = null
                 if (overwrite && name != entry.name) {
@@ -1932,6 +1954,13 @@ fun KeyManagerScreen(tagRuleId: String, onBack: () -> Unit) {
                     // ⚠️ 旧版走覆盖分支：只覆盖同名条目、旧名条目没删 ⇒ 列表里两条并存
                     toast(R.string.role_key_name_dup, name)
                 } else {
+                    // 11-19 用户定稿「重复都不能存在」：改成与另一条同地址+同模型+同密钥 → 拒绝
+                    // （合并时保留先出现的那条 = 不改那条已有的；本次编辑若变成重复，就是造重复）
+                    val dupOther = KeyListFile.findDuplicate(keys, value, excludeName = entry.name)
+                    if (dupOther != null) {
+                        toast(R.string.role_key_dup_value, KeyListFile.displayName(dupOther))
+                        return@onConfirm
+                    }
                     save(keys.map {
                         if (it.name == entry.name) it.copy(
                             name = name, value = value,

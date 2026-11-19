@@ -536,14 +536,87 @@ object KeyListFile {
         return emptyList()
     }
 
-    /** 全量保存：先留备份再写主文件（与插件 saveKeyMapToData 同顺序） */
+    /**
+     * 重复条目判据（11-19 用户定稿）：**同地址 + 同模型 + 同密钥** = 重复，合并成一条。
+     * ⚠️ 同地址 + 同密钥但**模型不同**不是重复——一把钥挂多个模型是合法用法
+     * （真机：agnes-2.5 / agnes-3.0 共用一把 sk-，hunyuan4 / hunyuan3 / hy3-preview 共用 localhost:8801），
+     * 合并它们会把现役用法拆掉。
+     * 地址走 normalizePoolValue 口径（剥 /chat/completions 等端点尾巴），
+     * 否则同一把钥以 /v1 与 /v1/chat/completions 两种写法并存会被当成两条。
+     */
+    fun dupSignature(value: String): String {
+        val p = parseKeyValue(value) ?: return "raw:" + value.trim()
+        if (p.isDirect) return "direct:" + p.key.trim()
+        return "${openAiBaseUrl(p.url)}|${p.model.trim()}|${p.key.trim()}"
+    }
+
+    /**
+     * 找出与给定值重复的既有条目（判据同 [dupSignature]），excludeName 用于编辑场景排除自己。
+     * 返回最先出现的那条（= 合并时保留的那条）。
+     */
+    fun findDuplicate(
+        keys: List<KeyEntry>,
+        value: String,
+        excludeName: String? = null,
+    ): KeyEntry? {
+        val sig = dupSignature(value)
+        for (k in keys) {
+            if (excludeName != null && k.name == excludeName) continue
+            if (dupSignature(k.value) == sig) return k
+        }
+        return null
+    }
+
+    /**
+     * 合并重复条目：**保留先出现的那条**，后来的重复条目直接删掉
+     * （11-19 用户定稿「重复都不能存在，只要重复就让他合并」）。
+     * 被删条目连同它的名字一并消失（keyCode 不回收，避免与既有 keyCode 撞号）。
+     * 返回 (合并后列表, 被删条数)。
+     */
+    fun mergeDuplicates(keys: List<KeyEntry>): Pair<List<KeyEntry>, Int> {
+        if (keys.size <= 1) return keys to 0
+        val seen = HashSet<String>()
+        val out = mutableListOf<KeyEntry>()
+        var dropped = 0
+        for (k in keys) {
+            val sig = dupSignature(k.value)
+            if (!seen.add(sig)) {
+                dropped++
+                continue
+            }
+            out.add(k)
+        }
+        return out to dropped
+    }
+
+    /**
+     * 自愈：把盘上已存在的重复条目合并掉（11-19 用户定稿「重复都不能存在」）。
+     * 保留先出现的那条；返回被合并掉的条数（0 = 本来就干净）。
+     * ⚠️ 池侧不用在这里管：[readPool]→[parsePoolValues] 已按归一值去重、
+     * [savePool] 落盘前也去重，miyue.txt 里本来就不会有重复值。
+     */
+    fun healDuplicates(tagRuleId: String): Int {
+        val keys = readKeys(tagRuleId)
+        val (merged, dropped) = mergeDuplicates(keys)
+        if (dropped > 0) {
+            Log.i(TAG, "healDuplicates($tagRuleId): 合并重复条目 $dropped 条")
+            saveKeys(tagRuleId, merged)
+        }
+        return dropped
+    }
+
+    /** 全量保存：先留备份再写主文件（与插件 saveKeyMapToData 同顺序）
+     *  ⚠️ 落盘前先合并重复条目（11-19 用户定稿）：重复不该存在，出现即合并——
+     *  保留先出现的那条。后来者无论从哪条路进来（手动新增、导入、池页编辑）都过这道闸。 */
     fun saveKeys(tagRuleId: String, keys: List<KeyEntry>): Boolean = try {
         val d = dir(tagRuleId)
         if (!d.exists()) d.mkdirs()
         val main = keyFile(tagRuleId)
         if (main.exists()) runCatching { keyBackupFile(tagRuleId).writeText(main.readText()) }
+        val (merged, dropped) = mergeDuplicates(keys)
+        if (dropped > 0) Log.i(TAG, "saveKeys: 合并重复条目 $dropped 条")
         val arr = JSONArray()
-        keys.forEach { k ->
+        merged.forEach { k ->
             val obj = JSONObject()
             obj.put("keyCode", k.keyCode)
             obj.put("value", k.value)
@@ -944,9 +1017,20 @@ object KeyListFile {
     /** 读启用池（miyue → gengxin → backup 链） */
     fun readPool(tagRuleId: String): List<String> = parsePoolValues(readCurrentRaw(tagRuleId))
 
-    /** 启用池落盘：值按序 @@ 连接（规则即按序轮换该池），miyue/gengxin/miyue_backup 三写不变 */
+    /** 启用池值去重（按归一值、保序）：11-19「重复都不能存在」——同一把钥只留一条。
+     *  落盘与内存态共用这一份口径，避免池页显示两行一模一样的条目。 */
+    fun dedupPoolValues(values: List<String>): List<String> {
+        val seen = HashSet<String>()
+        return values.map { normalizePoolValue(it) }
+            .filter { it.isNotEmpty() }
+            .filter { seen.add(it) }
+    }
+
+    /** 启用池落盘：值按序 @@ 连接（规则即按序轮换该池），miyue/gengxin/miyue_backup 三写不变
+     *  ⚠️ 落盘前按归一值去重（11-19 用户定稿「重复都不能存在」）：同名同值的条目若都在池里，
+     *  会写出重复串——规则虽在读时跳过，但池页会显示两行一模一样的条目、轮换也会挨着打同一把钥。 */
     fun savePool(tagRuleId: String, values: List<String>): Boolean =
-        saveCurrentRaw(tagRuleId, values.map { normalizePoolValue(it) }.filter { it.isNotEmpty() }.joinToString("@@"))
+        saveCurrentRaw(tagRuleId, dedupPoolValues(values).joinToString("@@"))
 
     /**
      * 旧数据迁移（幂等，随自愈每次进页执行）：
@@ -1749,10 +1833,13 @@ object KeyListFile {
         return out
     }
 
-/** 导入合并（照插件 doImport）：重名跳过；返回 (新增数, 跳过数)。不写备份（增量合并） */
+/** 导入合并（照插件 doImport）：重名跳过；返回 (新增数, 跳过数)。不写备份（增量合并）
+ *  ⚠️ 11-19 用户定稿「重复都不能存在」：同地址+同模型+同密钥的条目**也算重复**，
+ *  不因名字不同而导入成两条——直接跳过（保留先出现的那条）。 */
     fun importKeys(tagRuleId: String, incoming: List<KeyEntry>): Pair<Int, Int> {
         val existing = readKeys(tagRuleId)
         val nameSet = existing.map { it.name }.toMutableSet()
+        val sigSet = existing.map { dupSignature(it.value) }.toMutableSet()
         var added = 0
         var skipped = 0
         val merged = existing.toMutableList()
@@ -1760,6 +1847,9 @@ object KeyListFile {
             // 照插件 doImport：空名 / 空 value 的条目直接忽略，不计入统计
             if (item.name.isBlank() || item.value.isBlank()) {
             } else if (item.name in nameSet) {
+                skipped++
+            } else if (!sigSet.add(dupSignature(item.value))) {
+                // 值重复（名字不同也算）→ 跳过，不造第二条
                 skipped++
             } else {
                 nameSet.add(item.name)

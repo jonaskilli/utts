@@ -783,6 +783,10 @@
     <string name="role_key_overwrite">【%1$s】已存在，是否覆盖？</string>
     <string name="role_key_overwrite_btn">覆盖</string>
     <string name="role_key_name_dup">名称【%1$s】已存在</string>
+    <!-- 11-19 用户定稿「重复都不能存在，只要重复就让他合并」：同地址+同模型+同密钥已有一条时，不再新增 -->
+    <string name="role_key_dup_value">【%1$s】已存在，未重复添加</string>
+    <!-- 11-19 进密钥页自动合并重复条目的提示 -->
+    <string name="role_key_dup_merged">已合并 %1$d 条重复密钥</string>
     <string name="role_key_export">导出密钥</string>
     <string name="role_key_import">导入密钥</string>
     <string name="role_key_action_export">导出</string>
