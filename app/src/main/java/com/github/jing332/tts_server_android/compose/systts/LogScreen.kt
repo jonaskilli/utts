@@ -1605,7 +1605,6 @@ internal fun LogScreen(
                         is LogGroups.Item.Bare -> {
                             val log = renderList[item.index]
                             val checked = log in checkedEntries
-                            val isMatch = isMatchEntry(log, searchQuery)
                             // 裸行内容一份定义，滑删/非滑删两分支共用（避免复制整段 Column）
                             val bareContent: @Composable () -> Unit = {
                             Column(
@@ -1718,7 +1717,6 @@ internal fun LogScreen(
                                     lineHeight = if (bareFailStyle) 18.2.sp else 17.sp, // 13×1.3
                                     oldStyleFail = bareFailStyle,
                                     // 命中高亮已在整行背景，正文不再叠一层
-                                    isMatch = false,
                                     highlight = log == locateHighlight,
                                     // 重试行不画正文（10-11 用户令修正）：服务端保留「开始第 N 次
                                     // 重试」原文只为让「重试N」丸解析得到，行头丸已表达同一信息，
@@ -2111,7 +2109,6 @@ internal fun LogScreen(
                                         // 11-11 恢复：卡内正文原为 14sp（与上面主行同档），收档时被压到 13。
                                         fontSize = LOG_HEAD_SIZE,
                                         lineHeight = 18.2.sp, // 14×1.3（还原收档前的原值）
-                                        isMatch = isMatchEntry(absorbed, searchQuery),
                                         emphasizeError = true,
                                         oldStyleFail = true,
                                         highlight = absorbed == locateHighlight,
@@ -2130,7 +2127,6 @@ internal fun LogScreen(
                                     // 11-11 恢复：收档时这里被压到 13，现用 LOG_HEAD_SIZE 回到 14。
                                     fontSize = LOG_HEAD_SIZE,
                                     lineHeight = 18.2.sp, // 14×1.3（还原收档前的原值；收档时曾压到 17）
-                                    isMatch = isMatchEntry(head, searchQuery),
                                     // 排版实验 1008（C）：只染"请求音频："前缀，正文回默认色
                                     isRequestHead = true,
                                     highlight = head == locateHighlight ||
@@ -2157,7 +2153,6 @@ internal fun LogScreen(
                                                 pluginChipColor = pluginChipColor,
                                                 fontSize = LOG_BODY_SIZE,
                                                 lineHeight = 17.sp, // 13×1.3
-                                                isMatch = isMatchEntry(m, searchQuery),
                                                 emphasizeError = true,
                                                 highlight = m == locateHighlight,
                                             )
@@ -2467,36 +2462,13 @@ internal fun LogScreen(
         }
     }
 
-// 搜索命中判定（条目级）：**只认正文/时间**（11-18 三改）。
+// 11-19 清理：原 isMatchEntry() 已删除。
 //
-// 为什么不再认书章名：用户实拍「搜『喜欢』81 处匹配，其中 78 条只是因为章节名叫
-// 『有喜欢的人了』」——同权染底会让真正相关的两行混在噪音里找不到。列表过滤仍保留
-// 书章命中（行照常显示），只是不打命中底色；匹配计数在顶部另报「共 N 处 · 正文 M 处」。
-// 原文带 <b>/<font> 标签，故同时比对剥标签文本——跨标签边界的词在上屏文本里是连着的。
-/**
- * 11-19：命中底色判据，与搜索列表过滤判据（TtsLogScreen.matchesBody）**同口径**。
- *
- * 口径（用户定稿「只把角色名排除吧」）：除**角色名**外全部可搜
- * ——正文 / 声音名 / 语速音量 / 插件名 / 时间 / 规则日志 / 子行。
- *
- * 旧版是独立实现、拿整条 message 做 contains，于是搜「太太」会把
- * **角色名「丁太太」**那行也染黄（用户实拍 11 条全是角色名），且与列表口径漂移，
- * 出现「没进结果却染黄」的错位。
- *
- * 角色名靠服务端的专属哨兵色精确剔除：`<font color="#0F0F0F">角色名</font>`
- *（ROLE_CHIP_COLOR，别处不用这个颜色）。
- */
-private fun isMatchEntry(e: LogEntry, q: String): Boolean {
-    if (q.isEmpty()) return false
-    // 剔角色名后再剥标签比对；时间照常算命中（与 matchesBody 对齐）
-    val searchable = e.message
-        .replace(Regex("<font color=\"#0F0F0F\">.*?</font>", RegexOption.DOT_MATCHES_ALL), "")
-        .replace(Regex("<[^>]*>"), "")
-    if (searchable.contains(q, ignoreCase = true)) return true
-    if (e.time.contains(q, ignoreCase = true)) return true
-    // 书/章名单独成栏（bookChapterHits），这里不算行命中，避免与列表口径不一致
-    return false
-}
+// 它算出来的命中标志只喂给 LogEntryBody 的 `isMatch` 参数，而那个参数在函数体内
+// **从未被读取**——传了 4 处、算了 4 次，一个像素都没影响（死链路）。本文件另有
+// 自己的搜索过滤（与 TtsLogScreen 同页切换），两条链路的判据都在
+// TtsLogScreen.searchableText / matchesQuery，这里不再重复实现，避免口径漂移。
+// 将来真要给日志行加命中底色，统一在 TtsLogScreen 侧做，别在这个文件另起一套。
 
 // 行级药丸推导（10-10 终案「失败链按以前单条处理+丸保留」）：每条日志按自己的
 // 级别/文案出一颗丸——重试 W 主行=重试N、兜底/备用 I 主行=切备用、成功请求行=成功、
@@ -2868,7 +2840,6 @@ private fun LogEntryBody(
     pluginChipColor: Color,
     fontSize: TextUnit,
     lineHeight: TextUnit,
-    isMatch: Boolean,
     // 非空=成员行统一用次级色（石板灰/暗红），级别色让位
     forceColor: Color? = null,
     // 排版实验 1008（C）：请求主行——"请求音频："前缀染深绿、其余回默认色。
