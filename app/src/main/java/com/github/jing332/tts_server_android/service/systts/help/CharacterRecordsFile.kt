@@ -1,6 +1,7 @@
 package com.github.jing332.tts_server_android.service.systts.help
 
 import android.util.Log
+import io.github.oshai.kotlinlogging.KotlinLogging
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -18,7 +19,39 @@ import java.io.File
  */
 object CharacterRecordsFile {
     private const val TAG = "CharacterRecordsFile"
+    // 11-20 串书追查（03:30:40 剔 6 人查不到写方）：android.util.Log 的 Log.i 只进 logcat，
+    // **不进 debug.log**（logback root 收的是 KotlinLogging 通道，实锤名单 TtsManager/BgmPlayer/JsNet…）。
+    // 邮筒 gengxin.json 的每个写方必须留痕到 debug.log 才能对上「谁在切书窗口写了别书角色」——
+    // 统一走这个 logger，函数名+书名+条数+文件清单一行全带。
+    private val fileLogger = KotlinLogging.logger("CharacterRecords")
     private const val BASE_DIR = "/storage/emulated/0/Download/chajian"
+
+    /**
+     * 11-20 邮筒信封化（串书根治第二步，用户拍板「要改」）：
+     * gengxin.json 是三方共享邮筒（App 写 / 规则消费），旧格式=裸数组、内容无书名——
+     * 换书窗口期写进去的是哪本书的表，消费端只能靠语料核验猜（03:30:40 剔 6 人）。
+     * 现改为**信封** {"book":"写这一刻的当前书","records":[...]}：写方盖章、消费验章，
+     * 章不匹配整份丢弃并点名写方。规则侧（v1.7.52+）对信封验 book==data.json.bookName；
+     * 裸数组（旧版 App/漏网写方写的）按旧口径降级处理并打日志。
+     * 写入口统一走 [writeGengxinEnvelope]，书名取写这一刻的 cunfang.txt——
+     * 注意必须在 cunfang.txt **已切到目标书之后**调用（switchBook 现有顺序恰好如此：
+     * 先写三份再切 cunfang，故信封章取的是**旧书**——这里特意保持与旧数据流一致：
+     * 邮筒装的本来就是「按旧书内存态导出的表」，规则侧验章拿它和 data.json 对比，
+     * 换书窗口期两者必不一致 → 规则丢弃，正是我们要的拦截效果）。
+     */
+    private fun writeGengxinEnvelope(d: File, recordsJson: String) {
+        val book = runCatching { readCurrentBookSync(d) }.getOrDefault("")
+        val envelope = JSONObject().apply {
+            put("book", book)
+            put("records", JSONArray(recordsJson))
+        }
+        File(d, "gengxin.json").writeText(envelope.toString(2))
+        fileLogger.info { "gengxin 写入(book=$book, n=${JSONArray(recordsJson).length()}) 信封盖章" }
+    }
+
+    /** 同步读当前书名（cunfang.txt；空/缺失/异常=空串）——writeGengxinEnvelope 专用 */
+    private fun readCurrentBookSync(d: File): String =
+        runCatching { File(d, "cunfang.txt").readText().trim() }.getOrDefault("")
 
     private fun recordsFile(tagRuleId: String) = File(File(BASE_DIR, tagRuleId), "characterRecords.json")
     private fun poolFile(tagRuleId: String) = File(File(BASE_DIR, tagRuleId), "fayinren.json")
@@ -159,8 +192,11 @@ object CharacterRecordsFile {
             val book = readCurrentBook(tagRuleId)
             runCatching {
                 File(dir, "shuming.$book.json").writeText(json)
-                File(dir, "gengxin.json").writeText(json)
+                writeGengxinEnvelope(dir, json)
                 File(dir, "characterRecords_backup.json").writeText(json)
+            }.onSuccess {
+                // 11-20：邮筒写方留痕（进 debug.log）——换声改绑也会经 gengxin 通知规则
+                fileLogger.info { "rebind(book=$book, char=$characterName, n=$changed) -> shuming.$book+gengxin(信封)+backup 三写" }
             }
             Log.i(TAG, "rebind: $characterName -> $newVoiceTag ($changed records, 4 files)")
             true
@@ -421,9 +457,10 @@ object CharacterRecordsFile {
             val book = readCurrentBook(tagRuleId)
             File(dir, "characterRecords.json").writeText(json)
             File(dir, "shuming.$book.json").writeText(json)
-            File(dir, "gengxin.json").writeText(json)
+            writeGengxinEnvelope(dir, json)
             File(dir, "characterRecords_backup.json").writeText(json)
             Log.i(TAG, "saveRecords: ${records.size} records (book=$book, 4 files)")
+            fileLogger.info { "saveRecords(book=$book, n=${records.size}) -> characterRecords+shuming.$book+gengxin(信封)+backup 四写" }
             true
         } catch (e: Exception) {
             Log.w(TAG, "saveRecords failed: ${e.message}")
@@ -628,8 +665,13 @@ object CharacterRecordsFile {
             val arr = if (data.isNullOrBlank() || data.trim() == "[]") JSONArray() else JSONArray(data)
             val json = arr.toString(2)
             File(d, "characterRecords.json").writeText(json)
-            File(d, "gengxin.json").writeText(json)
+            writeGengxinEnvelope(d, json)
             File(d, "characterRecords_backup.json").writeText(json)
+            // 11-20：邮筒写方留痕——切书瞬间写邮筒是 03:30:40「别书角色进邮筒」的头号
+            // 嫌疑路径。注意信封章取的是**旧书**（cunfang.txt 此刻还没切），与旧数据流一致：
+            // 邮筒装的就是旧书视角的表，规则侧验章时 data.json 已是新书 → 必不一致 → 丢弃，
+            // 正是信封要拦的场景；正常（非换书窗口）写方章与消费时书名一致 → 放行。
+            fileLogger.info { "switchBook($oldBook -> $newBook, n=${arr.length()}) -> characterRecords+gengxin(信封,章=旧书$oldBook)+backup 三写" }
             currentBookFile(tagRuleId).writeText(newBook)
             // 补录用**追加**（照插件 updateBookList 的 push；旧版头插，与插件顺序不一致）
             val books = readBookList(tagRuleId).toMutableList()
@@ -749,7 +791,9 @@ object CharacterRecordsFile {
                 val defData = runCatching { File(d, "shuming.默认.json").readText() }.getOrNull()
                 val payload = if (defData.isNullOrBlank()) "[]" else defData
                 File(d, "characterRecords.json").writeText(payload)
-                File(d, "gengxin.json").writeText(payload)
+                writeGengxinEnvelope(d, payload)
+                // 11-20：邮筒写方留痕——删书切默认也动邮筒（信封章=删书后 cunfang 已写「默认」前的读值？此处 currentBookFile 在上面一行已写「默认」，章即「默认」）
+                fileLogger.info { "deleteBooks(currentDeleted, -> 默认, n=${if (payload == "[]") 0 else JSONArray(payload).length()}) -> characterRecords+gengxin(信封,章=默认) 二写" }
             }
             // 删存档
             var deleted = 0
@@ -1017,7 +1061,11 @@ object CharacterRecordsFile {
                 }
             }
             val rec = map.optString("characterRecords.json")
-            if (rec.isNotEmpty()) runCatching { File(d, "gengxin.json").writeText(rec) }
+            if (rec.isNotEmpty()) runCatching { writeGengxinEnvelope(d, rec) }
+                .onSuccess {
+                    // 11-20：邮筒写方留痕——备份恢复也是邮筒写方
+                    fileLogger.info { "applyBackup(n=${JSONArray(rec).length()}) -> gengxin(信封) 单写（恢复主表）" }
+                }
             val miyue = map.optString("miyue.txt")
             if (miyue.isNotEmpty()) runCatching { KeyListFile.saveCurrentRaw(tagRuleId, miyue) }
             Log.i(TAG, "applyBackup ${f.name}: $n files")
@@ -1074,7 +1122,7 @@ object CharacterRecordsFile {
             currentBookFile(tagRuleId).writeText(n)
             File(d, "characterRecords.json").writeText(json)
             File(d, "shuming.$n.json").writeText(json)
-            File(d, "gengxin.json").writeText(json)
+            writeGengxinEnvelope(d, json)   // 章=cunfang 已切到新书 n，信封章=导入的这本书，正确
             Log.i(TAG, "importBook: $n (${JSONArray(json).length()} records)")
             true
         } catch (e: Exception) {
