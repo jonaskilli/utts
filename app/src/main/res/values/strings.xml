@@ -329,10 +329,10 @@
     <string name="failed_timed_out">已超时：%1$dms</string>
     <string name="builtin_player_settings_tip_msg">启用内置播放器时，使用此处设置覆盖全局。</string>
     <string name="systts_standby_help_msg">勾选后，本配置作为备用发音人：当使用同一朗读规则、同一标签名的配置重试失败，并达到「备用配置使用条件」时，改由本配置朗读。\n备用请求同样按「最大重试次数」重试，并非首次失败即跳过。</string>
-    <string name="save_as_file">另存为JS文件</string>
-    <!-- 11-19 编辑器菜单专用：编辑器三个使用方（朗读规则/插件/直链上传）落盘全是 .js，
-         菜单叫「另存为文件」名不副实。不与 save_as_file 合并——那条仍被导出底栏
-         （ConfigExportBottomSheet，存 JSON）共用，改了会把 JSON 按钮也叫成 JS。 -->
+    <!-- 11-19 保存按钮按落盘类型分两条（原 save_as_file「另存为文件」已删除，两用都名不副实）：
+         - save_as_json：导出底栏 ConfigExportBottomSheet 存 JSON 时（列表/规则/插件/替换/迁移）；
+         - save_as_js：编辑器菜单「另存为JS」+ 导出底栏存 .js 时（插件页/朗读规则页的「导出 JS」）。 -->
+    <string name="save_as_json">另存为JSON</string>
     <string name="save_as_js">另存为JS</string>
     <string name="import_from_js_file">从JS文件导入覆盖</string>
     <string name="group_move_a11y_msg">分组已从 %1$d 移动到 %2$d</string>

@@ -54,6 +54,10 @@ fun ConfigExportBottomSheet(
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    // 11-19: 按钮按落盘类型显示「另存为JSON / 另存为JS」，与菜单「导出 JSON / 导出 JS」对齐。
+    // 原来两种导出都叫「另存为文件」，改了菜单后按钮与菜单对不上。
+    val saveLabelRes = if (fileMime == "text/javascript") R.string.save_as_js
+    else R.string.save_as_json
 
     val fileSaver =
         rememberLauncherForActivityResult(AppActivityResultContracts.filePickerActivity()) {
@@ -107,7 +111,7 @@ fun ConfigExportBottomSheet(
                             )
                         }
                     }) {
-                    Text(stringResource(id = R.string.save_as_file))
+                    Text(stringResource(id = saveLabelRes))
                 }
             }
 
