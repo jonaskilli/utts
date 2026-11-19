@@ -28,6 +28,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -1549,7 +1551,26 @@ internal fun LogScreen(
             // candidates is applicable"），只有 all / horizontal+vertical / start+top+end+bottom。
             // 11-14 晚：朗读行已改为「列表内提为第 0 项」，不再有悬浮副本，
             // 因此顶部**不再需要让出 84dp**——它本身就是首项，自然在最上面。
-            contentPadding = PaddingValues(start = 0.dp, top = 0.dp, end = 0.dp, bottom = 0.dp)
+            //
+            // ===== 11-20 底部动态垫高 =====
+            // 用户实报「全屏看日志离底部太近、信息看不清」：底栏藏满后（heightOffset 走到
+            // -满高），布局裁剪把 80dp+手势条整条让给列表，末行直接压在屏幕物理底边/手势条上。
+            // 垫高 = 底栏「已藏起的部分」中属于手势条的那段——底栏在时垫 0（底栏本体已经
+            // 替列表避了手势条，不破坏「末条与中间条同拍」的定稿）；底栏越藏越垫、藏满时
+            // 恰好垫满手势条高度，末行永远停在手势条上方。heightOffset 为负=隐藏量（px），
+            // 与 MainPager 的 bottomBarHeight 裁剪同源同帧，无自己的动画时序。
+            contentPadding = PaddingValues(
+                start = 0.dp, top = 0.dp, end = 0.dp,
+                bottom = with(LocalDensity.current) {
+                    val hiddenPx = (-LocalBottomBarBehavior.current.state.heightOffset)
+                        .coerceAtLeast(0f)
+                    // 满高=80dp+手势条；已藏部分里只有手势条那段需要列表自己避让
+                    //（80dp 本体那部分是被裁掉的布局空间，列表视口本就不到它）。
+                    // 隐藏量可能超过手势条高度（含 80dp 本体），按手势条高度封顶。
+                    val navInsetPx = WindowInsets.navigationBars.getBottom(this)
+                    (hiddenPx.coerceAtMost(navInsetPx.toFloat())).toDp()
+                }
+            )
         ) {
                 itemsIndexed(currentGroups.items, key = { index, _ -> index }) { index, item ->
                     // 11-19 用户令：末条后面不再画条目分隔线。分隔线的职责是分开「相邻两条」，
