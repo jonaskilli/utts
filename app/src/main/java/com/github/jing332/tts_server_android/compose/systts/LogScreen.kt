@@ -1550,7 +1550,11 @@ internal fun LogScreen(
             // 因此顶部**不再需要让出 84dp**——它本身就是首项，自然在最上面。
             contentPadding = PaddingValues(start = 0.dp, top = 0.dp, end = 0.dp, bottom = 0.dp)
         ) {
-                itemsIndexed(currentGroups.items, key = { index, _ -> index }) { _, item ->
+                itemsIndexed(currentGroups.items, key = { index, _ -> index }) { index, item ->
+                    // 11-19 用户令：末条后面不再画条目分隔线。分隔线的职责是分开「相邻两条」，
+                    // 末条下面没有下一条——留着它只会和底栏顶缘线（MainPager overlay）夹出
+                    // 一条 8dp 白缝，装机截图里的「日志下方与底栏之间小空隙」即此。
+                    val isLastItem = index == currentGroups.items.lastIndex
                     when (item) {
                         // 11-11 用户令：书条/章条不再出现在日志流里，改为**吸顶**
                         //（在 TtsLogScreen 的 topBar 下方固定渲染）。此处保留分支只因
@@ -1735,8 +1739,9 @@ internal fun LogScreen(
                             bareContent()
                             // 条目间分隔线（10-10 用户令「分隔线需要加」）：行流撤卡后行间只剩
                             // 空白，加发丝线恢复条目边界；日期签前不画（签自带灰底已是边界）。
-                            // 口径沿用顶栏分隔线 outlineVariant@50%
-                            HorizontalDivider(
+                            // 口径沿用顶栏分隔线 outlineVariant@50%。
+                            // 11-19：末项不画（见 itemsIndexed 处 isLastItem 注释）。
+                            if (!isLastItem) HorizontalDivider(
                                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
                             )
                         }
@@ -2161,7 +2166,8 @@ internal fun LogScreen(
                                 }
                             }
                             // 条目间分隔线（10-10 用户令）：与裸行分支同款，组与组之间画线
-                            HorizontalDivider(
+                            // 11-19：末项不画（见 itemsIndexed 处 isLastItem 注释）。
+                            if (!isLastItem) HorizontalDivider(
                                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
                             )
                         }
