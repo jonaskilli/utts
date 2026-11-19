@@ -107,6 +107,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.text.HtmlCompat
 import com.github.jing332.tts_server_android.compose.theme.isAppInDarkTheme
+import com.github.jing332.tts_server_android.compose.theme.SegNumberFont
 import com.github.jing332.tts_server_android.compose.theme.AppShapes
 import com.github.jing332.common.LogEntry
 import com.github.jing332.common.LogLevel
@@ -2086,6 +2087,11 @@ internal fun LogScreen(
                                     // 分子、分母常规，但吸顶进度行「当前：55/103」的 boldSeg 包的是
                                     // **整个 N/M**——同屏两处粗细不同，被用户点出；统一为整段半粗，
                                     // 与进度行同口径。无分母（旧日志没带 paraTotal）时本来就走整段半粗。
+                                    // 11-19 晚用户令「右上方的段数换字体」→ IBM Plex Mono SemiBold
+                                    // （SegNumberFont，见 theme/Type.kt）。只换字形，字号/字重/颜色不动：
+                                    // 字体文件自带 600，Font() 里也登记成 600，两者对上才不会被合成伪粗。
+                                    // 段号只会是 0-9 和 '/'，故字体只裁了这些字形（2.2 KB）；
+                                    // 万一将来出现别的字符，会回落到系统字体，不会变豆腐块。
                                     val segStyled = buildAnnotatedString {
                                         withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(segText) }
                                     }
@@ -2093,6 +2099,7 @@ internal fun LogScreen(
                                         text = segStyled,
                                         style = MaterialTheme.typography.bodySmall,
                                         fontSize = LOG_AUX_SIZE,
+                                        fontFamily = SegNumberFont,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         maxLines = 1,
                                         softWrap = false,

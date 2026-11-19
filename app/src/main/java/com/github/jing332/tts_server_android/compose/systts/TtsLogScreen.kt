@@ -71,6 +71,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import com.github.jing332.tts_server_android.compose.nav.NavTopAppBar
 import com.github.jing332.tts_server_android.compose.theme.softStructureColor
+import com.github.jing332.tts_server_android.compose.theme.SegNumberFont
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -2464,8 +2465,19 @@ private fun PinnedLogHeader(
             // ——不动色相不动明度，纯字重分层，无头重脚轻问题（绿色反例已否）。
             // 当前侧分子半粗；缓存侧分子同为半粗（同一信息口径，用户令两侧统一）。
             // 用 AnnotatedString 局部加粗，不拆多 Text（保持单行居右 + Ellipsis 整体行为）。
+            // 11-19 晚用户令「段数换字体，顶部播放和缓存那一行也要改」→ 同一个
+            // SegNumberFont（IBM Plex Mono SemiBold）。**只作用于 N/M 这一段**：
+            // 参数名虽叫 numerator，实际调用方传的是整个「133/389」（含分母）——
+            // 与日志行右侧段号同口径（11-19 整段半粗）。
+            // 中文「当前：」「｜缓存：」「第12章」不在这个 span 内，仍走系统字体；
+            // 即便误入也不会变豆腐块——Plex 子集没有的字形会自动回落。
             fun boldSeg(numerator: String) = buildAnnotatedString {
-                withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(numerator) }
+                withStyle(
+                    SpanStyle(
+                        fontFamily = SegNumberFont,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                ) { append(numerator) }
             }
             val text = if (playingNow && playHead.isNotBlank()) {
                 buildAnnotatedString {
