@@ -16,6 +16,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.gestures.animateScrollBy
@@ -965,6 +966,10 @@ internal fun LogScreen(
         entry: LogEntry,
         resynthesize: Boolean,
     ) -> Unit)? = null,
+    // 11-20「试听这一段」：喇叭**单击**动作（照阅读端段落喇叭）。
+    // 有缓存播成品、没缓存现场合成；两条路都用独立播放器，**不打断** U阅 正在进行的朗读。
+    // null=单击退化为打开菜单（只有 onSpeakerAction 的宿主可用）。
+    onAuditionSegment: ((entry: LogEntry) -> Unit)? = null,
     // 章条右侧「切换章」键（11-11 用户指出「切换书有键、切换章没有」）：
     // 与「切换书」对称——书条右端弹书单，章条右端弹章节列表。
     // 始终传非 null（用户令「始终显示」）：只有一章的书也显示，点了能看见确实只有一章。
@@ -2146,13 +2151,36 @@ internal fun LogScreen(
                                     if (onSpeakerAction != null && isSpeakerEligible(head)) {
                                         var showSpeakerMenu by remember(head) { mutableStateOf(false) }
                                         Box {
-                                            IconButton(
-                                                onClick = { showSpeakerMenu = true },
-                                                modifier = Modifier.size(22.dp)
+                                            // 11-20 三改（用户令「跟阅读一样吧」）：交互照阅读端段落喇叭——
+                                            //   单击 = 试听这一段（有缓存播成品、没缓存现合成，都**不打断**朗读）
+                                            //   长按 = 从这段开始读（接管朗读、可跨章）
+                                            // 阅读端就是这个分工（ContentTextView.checkParagraphSpeakerClick：
+                                            // 单击走独立的 paragraphPlayer 播缓存，长按 continueFromParagraph）。
+                                            // ⚠️ 不能用 IconButton + combinedClickable：IconButton 自带的
+                                            // onClick 会吃掉手势，长按收不到。这里用 Box 自己挂手势，
+                                            // 触摸区仍是 22dp（与原来一致，视觉大小不变）。
+                                            // 菜单里的「重新合成」保留成长按菜单项——它不是阅读端的功能，
+                                            // 是日志页排查用的（重做这段音频），不占主交互。
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(22.dp)
+                                                    .combinedClickable(
+                                                        onLongClick = { showSpeakerMenu = true },
+                                                        onClickLabel = "试听这一段",
+                                                        onLongClickLabel = "更多操作",
+                                                        onClick = {
+                                                            if (onAuditionSegment != null) {
+                                                                onAuditionSegment(head)
+                                                            } else {
+                                                                showSpeakerMenu = true
+                                                            }
+                                                        },
+                                                    ),
+                                                contentAlignment = Alignment.Center,
                                             ) {
                                                 Icon(
                                                     imageVector = Icons.Default.VolumeUp,
-                                                    contentDescription = "朗读这段",
+                                                    contentDescription = "试听这一段（长按更多）",
                                                     modifier = Modifier.size(15.dp),
                                                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                                                                 .copy(alpha = 0.78f)

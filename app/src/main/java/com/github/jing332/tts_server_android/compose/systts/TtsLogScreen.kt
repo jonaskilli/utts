@@ -955,6 +955,24 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                         )
                     }
             },
+            // 11-20「试听这一段」：喇叭单击（照阅读端段落喇叭）。
+            // 走 TaggedTtsPreviewPlayer（独立播放器：不触发 BGM、不进朗读队列、
+            // 不落服务日志），preferCache=true 让它优先播合成缓存里的成品——
+            // 有缓存时听到的就是 U阅 刚才那一份，没缓存时现场合成。
+            // 与「重新合成」的关键区别：**不打断** U阅 正在进行的朗读。
+            onAuditionSegment = { entry ->
+                val entity = entry.configId
+                    .takeIf { it > 0L }
+                    ?.let { com.github.jing332.database.dbm.systemTtsV2.get(it) }
+                val text = com.github.jing332.tts_server_android.compose.systts.boldBodyOf(entry)
+                if (entity == null || text.isBlank()) {
+                    context.toast("无法试听：这条日志找不到对应配置项或正文")
+                } else {
+                    com.github.jing332.tts.TaggedTtsPreviewPlayer.play(
+                        context, entity, text, preferCache = true,
+                    )
+                }
+            },
             // 点章节签只负责滚动到本章首条（滚动已在 LogScreen 内完成，这里不再改筛选——
             // 一改 scopeChapter 列表就重排，刚滚到的位置会立刻错位）
         )

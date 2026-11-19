@@ -64,6 +64,11 @@ object TaggedTtsPreviewPlayer {
      * [pluginParamsOverride]/[globalParamsOverride]（09-10）：预览调参弹窗的三层草稿覆盖——
      * 插件/全局层草稿未落库，传入则替代 DB 值/全局提供者参与本次试听的三层乘积，
      * 使「调滑杆→▶听→再调」不用先点应用即得完整终值效果；不传行为与旧版完全一致。
+     *
+     * @param preferCache 11-20 日志页「试听这一段」：先用合成缓存里的成品播。
+     *   有缓存时听到的就是 U阅 刚才那一份（同一份 PCM，参数也是当时那份），
+     *   这才是核对「这段读得对不对」要的东西；没缓存则照旧现场合成。
+     *   默认 false＝旧行为（角色管理/参数弹窗的试听是「听当前设置」，不该吃旧缓存）。
      */
     fun play(
         context: Context,
@@ -71,6 +76,7 @@ object TaggedTtsPreviewPlayer {
         text: String,
         pluginParamsOverride: AudioParams? = null,
         globalParamsOverride: AudioParams? = null,
+        preferCache: Boolean = false,
     ) {
         synchronized(lock) {
             job?.cancel()
@@ -91,6 +97,25 @@ object TaggedTtsPreviewPlayer {
                     if (resolved == null) {
                         toast(context, "试听失败：配置项解析失败")
                         return@launch
+                    }
+                    // 11-20（日志页试听）：命中合成缓存就直接播这份成品，不调插件。
+                    // 键含七项参数且采样率取全库最高值，只有合成器算得对，
+                    // 所以查询走 MixSynthesizer.cachedAudio（与写入处逐字段同源）。
+                    if (preferCache) {
+                        val cached = MixSynthesizer.global.cachedAudio(text, entity.id)
+                        if (cached != null) {
+                            val local = resolved.localPlaybackParams
+                            val loudnessGain = SpeakerLoudnessManager.infoFor(resolved.configuration).gain
+                            val localVolume = (local.volume * loudnessGain).coerceIn(0f, 1f)
+                            audible = true
+                            _state.value = PreviewState.PLAYING
+                            // 采样率用这份 PCM 自己的（= maxSampleRate），不是本条配置的
+                            audioPlayer.play(
+                                cached.pcm, cached.sampleRate,
+                                local.speed, localVolume, local.pitch,
+                            )
+                            return@launch
+                        }
                     }
                     val provider = CachedEngineManager.getEngineForPreview(context.applicationContext, resolved.configuration.source)
                     if (provider == null) {

@@ -238,6 +238,35 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
     private fun cacheKeyOf(segment: TextSegment, params: SystemParams): String =
         cacheKeyOf(segment.text, segment.tts)
 
+    /**
+     * 11-20 日志页「试听这一段」取成品音频：命中返回 PCM + 它的采样率，未命中返回 null。
+     *
+     * 键与 [cacheKeyOf] **逐字段同源**（含采样率取全库最高值 `maxSampleRate`），
+     * 别在调用方另算一份——差一位就恒不命中。
+     *
+     * ⚠️ 采样率**必须**一起返回，不能拿 `configuration.audioFormat.sampleRate` 去播：
+     * 缓存里的 PCM 是按 `maxSampleRate` 写的（写缓存处 `targetSampleRate = maxSampleRate`），
+     * 与本条配置的 audioFormat 是两个数。用错就是变调。
+     */
+    fun cachedAudio(text: String, configId: Long): CachedAudio? {
+        if (text.isBlank() || configId <= 0L) return null
+        val cfg = mConfigs[configId] ?: return null
+        return runCatching {
+            val pcm = SynthesizedAudioCache.get(cacheKeyOf(text, cfg))
+            if (pcm == null || pcm.isEmpty()) null else CachedAudio(pcm, maxSampleRate)
+        }.getOrNull()
+    }
+
+    /** 合成缓存里取出的成品音频（PCM + 真实采样率，见 [cachedAudio] 的告警）。 */
+    data class CachedAudio(val pcm: ByteArray, val sampleRate: Int) {
+        // ByteArray 在 data class 里要手写 equals/hashCode，否则退化成引用比较
+        override fun equals(other: Any?): Boolean =
+            this === other || (other is CachedAudio && sampleRate == other.sampleRate &&
+                pcm.contentEquals(other.pcm))
+
+        override fun hashCode(): Int = 31 * pcm.contentHashCode() + sampleRate
+    }
+
     // 11-17（预热复用率 33~45% 排障插桩，装机一轮后可删）：预热写 key 与播放读 key
     // 分别打出来——同一文本两行 key 不同时，从维度明细里直接看差在哪个字段。
     // 只打 DEBUG 且截断 key，不影响行为与性能。
