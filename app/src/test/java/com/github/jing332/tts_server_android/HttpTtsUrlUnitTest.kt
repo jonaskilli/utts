@@ -1,12 +1,15 @@
 package com.github.jing332.tts_server_android
 
-import com.github.jing332.tts_server_android.model.AnalyzeUrl
 import org.junit.Test
 
 /**
  * Example local unit test, which will execute on the development machine (host).
  *
  * See [testing documentation](http://d.android.com/tools/testing).
+ *
+ * ⚠️ 11-19：原来 import 了 `model.AnalyzeUrl`，但那个源文件整体被注释掉了（功能已迁走），
+ * 导致**整个单元测试源集编译不过**（连别的测试文件一起挡）。故把 import 去掉——
+ * 下面 testJs 的内容本就全被注释，没有实际引用。
  */
 class HttpTtsUrlUnitTest {
 //    @Test
