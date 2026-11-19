@@ -1642,8 +1642,12 @@ internal fun LogScreen(
                                     // ⚠️ 这推翻了 10-10 的「全站 ListGutter 16」B 案：
                                     // 该口径的前提是「控制带 16/控制带 8 分家」，而吸顶两排
                                     // 在 11-14 已整体收到 8，日志页内部再守 16 就成了孤例。
-                                    // 纵向 3.5 未动（行距与边距是两件事）。
-                                    .padding(horizontal = 8.dp, vertical = 3.5.dp)
+                                    // 纵向 11-20 用户令 3.5→6：全屏看日志（底栏藏起后视口整屏）
+                                    // 离屏底太近、信息看不清，行距加一档降密度。与组头行
+                                    // vertical=6（1893 行）从此同档，不再出现裸行 3.5/组头 6
+                                    // 两拍——此前 3.5 是「行距与边距是两件事」的独立拍板，
+                                    // 现按用户实感统一到 6。
+                                    .padding(horizontal = 8.dp, vertical = 6.dp)
                             ) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     // 行内元素套 Row(CenterVertically)：与组头行同因——FlowRow
@@ -2083,17 +2087,20 @@ internal fun LogScreen(
                                 } else ""
                                 if (segText.isNotEmpty()) {
                                     // 11-19 用户令「右上方的字号统一，都改为那个粗粗的样式」：
-                                    // 整个 N/M 全部 SemiBold（含分母）。上一版（11-18 候选2）只粗
+                                    // 整个 N/M 全部半粗（含分母）。上一版（11-18 候选2）只粗
                                     // 分子、分母常规，但吸顶进度行「当前：55/103」的 boldSeg 包的是
-                                    // **整个 N/M**——同屏两处粗细不同，被用户点出；统一为整段半粗，
-                                    // 与进度行同口径。无分母（旧日志没带 paraTotal）时本来就走整段半粗。
-                                    // 11-19 晚用户令「右上方的段数换字体」→ IBM Plex Mono SemiBold
-                                    // （SegNumberFont，见 theme/Type.kt）。只换字形，字号/字重/颜色不动：
-                                    // 字体文件自带 600，Font() 里也登记成 600，两者对上才不会被合成伪粗。
-                                    // 段号只会是 0-9 和 '/'，故字体只裁了这些字形（2.2 KB）；
+                                    // **整个 N/M**——同屏两处粗细不同，被用户点出；统一为整段，
+                                    // 与进度行同口径。无分母（旧日志没带 paraTotal）时同口径。
+                                    // 11-19 晚用户令「右上方的段数换字体」→ IBM Plex Mono
+                                    // （SegNumberFont，见 theme/Type.kt）。只换字形，字号/颜色不动。
+                                    // 11-20 装机实拍 600「太重」→ 用户选定降一档 **500 Medium**：
+                                    // SpanStyle 必须与 Type.kt 里 Font() 的登记同步（Medium/Medium），
+                                    // 否则要不到 500 就叠合成伪粗。比正文（400）重半档，段号仍能
+                                    // 站出来；比 600 细一圈。
+                                    // 段号只会是 0-9 和 '/'，故字体只裁了这些字形（2.1 KB）；
                                     // 万一将来出现别的字符，会回落到系统字体，不会变豆腐块。
                                     val segStyled = buildAnnotatedString {
-                                        withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(segText) }
+                                        withStyle(SpanStyle(fontWeight = FontWeight.Medium)) { append(segText) }
                                     }
                                     Text(
                                         text = segStyled,
@@ -2605,8 +2612,13 @@ enum class ScrollMode { FOLLOW_PLAYING, NATURAL, FOLLOW_LATEST }
  */
 private const val FOLLOW_TAIL_RATIO = 0.95f
 
-/** 非跟随朗读态（自然/跟随最新）与缺口≈0 时的兜底尾白：只做行尾呼吸。 */
-private const val TAIL_BREATH_DP = 8
+/**
+ * 非跟随朗读态（自然/跟随最新）与缺口≈0 时的兜底尾白。
+ * 11-20 用户令 8→0：行内边距已统一 6dp（裸行/组头同档），末条文字到底栏线=6dp，
+ * 与中间条「文字→分隔线=6dp」完全同拍（贴边派：容器线本身就是边界）。
+ * 缺口式尾白的最小值仍用它（capped + TAIL_BREATH_DP），0 即「缺口外不再加呼吸」。
+ */
+private const val TAIL_BREATH_DP = 0
 
 /**
  * 某条日志是不是「成功的获取结果子行」。

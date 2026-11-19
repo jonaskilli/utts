@@ -2460,22 +2460,24 @@ private fun PinnedLogHeader(
                 }
             }
             // 竖线两侧**不留空格**（用户给的样例就是 1/25｜缓存）；全角竖线本身自带间距。
-            // 11-18 段号突出（用户拍板候选 2「字重对比」）：N/M 里的**分子**（正在朗读/
-            // 合成的段号，一直在跳）用 SemiBold 半粗，**分母**（/总数，基本不动）保持常规
-            // ——不动色相不动明度，纯字重分层，无头重脚轻问题（绿色反例已否）。
-            // 当前侧分子半粗；缓存侧分子同为半粗（同一信息口径，用户令两侧统一）。
-            // 用 AnnotatedString 局部加粗，不拆多 Text（保持单行居右 + Ellipsis 整体行为）。
+            // 11-18 段号突出：曾有「分子半粗、分母常规」的字重分层方案；11-19 用户令
+            // 整段统一（含分母同字重），字重分层取消。11-20 定档 500 Medium（见 boldSeg）。
+            // 当前侧与缓存侧同口径（用户令两侧统一）。
+            // 用 AnnotatedString 局部设置，不拆多 Text（保持单行居右 + Ellipsis 整体行为）。
             // 11-19 晚用户令「段数换字体，顶部播放和缓存那一行也要改」→ 同一个
-            // SegNumberFont（IBM Plex Mono SemiBold）。**只作用于 N/M 这一段**：
+            // SegNumberFont（IBM Plex Mono）。**只作用于 N/M 这一段**：
             // 参数名虽叫 numerator，实际调用方传的是整个「133/389」（含分母）——
-            // 与日志行右侧段号同口径（11-19 整段半粗）。
+            // 与日志行右侧段号同口径（11-19 起整段同字重）。
+            // 11-20 装机实拍 600「太重」→ 用户选定降一档 **500 Medium**，
+            // 与 LogScreen.kt 段号同步改；SpanStyle 必须与 Type.kt 里 Font()
+            // 的登记（Medium）对上，否则叠合成伪粗。
             // 中文「当前：」「｜缓存：」「第12章」不在这个 span 内，仍走系统字体；
             // 即便误入也不会变豆腐块——Plex 子集没有的字形会自动回落。
             fun boldSeg(numerator: String) = buildAnnotatedString {
                 withStyle(
                     SpanStyle(
                         fontFamily = SegNumberFont,
-                        fontWeight = FontWeight.SemiBold,
+                        fontWeight = FontWeight.Medium,
                     )
                 ) { append(numerator) }
             }
