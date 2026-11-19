@@ -25,6 +25,22 @@ import java.time.format.DateTimeFormatter
  * ⚠️ 只记录、不杀进程：本 APP 是常驻的系统 TTS 引擎，杀进程会打断正在朗读；
  * 「重启兜底」仍由 TtsTimeoutWatchdog 负责，两套判定互相独立、不叠加。
  * 一次卡死只写一次（心跳恢复后重置），持续卡死不会刷爆磁盘。
+ *
+ * ⚠️ 2026-11-19 补：**必须把「进程被系统冻结/整机休眠」与「主线程被代码卡住」分开**。
+ *
+ * 真机 13:22:44 报过 `主线程卡死 200518ms`，但同一份 dump 里主线程栈是
+ * `MessageQueue.nativePollOnce`（空闲等消息），而且当时朗读早已 stop、三个日志文件
+ * 同时断档 3 分钟——是 **vivo 把进程冻结了**，不是代码阻塞。根因是计时口径：
+ * `SystemClock.elapsedRealtime()` 含休眠/冻结时间，而守护线程在主线程被卡时仍在跑、
+ * 在进程被冻结时却**一起停摆**，两者表现都是「心跳差很大」，旧实现分不开。
+ *
+ * 现在两道闸：
+ * 1. **守护线程自身漂移**：本轮实际间隔比 [POLL_MS] 多出 [FREEZE_DRIFT_MS] 以上，
+ *    说明它自己也被挂起了 ⇒ 整进程/整机停摆，重置心跳基准，**不进日志页**。
+ * 2. **栈顶判空闲**：dump 时主线程栈顶是 `MessageQueue.nativePollOnce` ⇒ 主线程在等消息、
+ *    根本没被阻塞 ⇒ 同样判冻结，**不进日志页**（真卡死时栈顶必然停在业务帧上）。
+ *
+ * 两道闸任一命中都只写 stall.log 一行留痕（文件，不是日志页），日志页里只保留真卡死。
  */
 object MainThreadWatchdog {
     const val TAG = "MtWatchdog"
@@ -37,6 +53,12 @@ object MainThreadWatchdog {
 
     /** 守护线程检查间隔 */
     private const val POLL_MS = 2_000L
+
+    /** 守护线程本轮实际间隔比 [POLL_MS] 多出这么多 ⇒ 它自己也被冻结了 */
+    private const val FREEZE_DRIFT_MS = 3_000L
+
+    /** 冻结留痕只写到这个大小上限，防止一天几十次把文件撑大 */
+    private const val FREEZE_NOTE_MAX_BYTES = 128 * 1024L
 
     /** 主线程栈只留前 N 帧；其余线程全量但每线程封顶，防栈文件过大 */
     private const val MAIN_FRAMES = 24
@@ -69,6 +91,7 @@ object MainThreadWatchdog {
             }
         })
         Thread({
+            var lastPollAt = SystemClock.elapsedRealtime()
             while (true) {
                 try {
                     Thread.sleep(POLL_MS)
@@ -77,11 +100,29 @@ object MainThreadWatchdog {
                     Thread.currentThread().interrupt()
                     break
                 }
-                val stalled = SystemClock.elapsedRealtime() - lastTick
+                val now = SystemClock.elapsedRealtime()
+                val drift = now - lastPollAt - POLL_MS
+                lastPollAt = now
+
+                // 闸 1：守护线程自己也睡过头 ⇒ 整进程/整机停摆，不是主线程被阻塞
+                if (drift > FREEZE_DRIFT_MS) {
+                    val suspended = now - lastTick
+                    lastTick = now
+                    dumped = false
+                    if (suspended >= STALL_MS) noteFreeze(suspended)
+                    continue
+                }
+
+                val stalled = now - lastTick
                 if (stalled >= STALL_MS) {
                     if (!dumped) {
                         dumped = true
-                        runCatching { dump(stalled) }
+                        // 闸 2：主线程空闲等消息 ⇒ 也不是被代码阻塞
+                        if (isMainThreadIdle()) {
+                            noteFreeze(stalled)
+                        } else {
+                            runCatching { dump(stalled) }
+                        }
                     }
                 } else {
                     // 心跳恢复：允许下一次卡死再落一次栈
@@ -89,6 +130,39 @@ object MainThreadWatchdog {
                 }
             }
         }, "mt-watchdog").apply { isDaemon = true }.start()
+    }
+
+    /**
+     * 主线程是否停在「等消息」上（`MessageQueue.nativePollOnce`）。
+     *
+     * 真卡死时栈顶必然落在业务帧（`/sdcard` stat、SQLite、锁等待……），不会是这个。
+     */
+    private fun isMainThreadIdle(): Boolean {
+        val top = Looper.getMainLooper().thread.stackTrace.firstOrNull() ?: return false
+        return top.className == "android.os.MessageQueue" && top.methodName == "nativePollOnce"
+    }
+
+    /**
+     * 记录一次「被系统冻结/挂起」（非主线程卡死）。
+     *
+     * **只写 stall.log，不写 system_tts.log**——日志页不该出现这种非故障项
+     * （用户 11-19 令："如果不是出现了故障，这个就不要显示在 tts 的日志里"）。
+     * U阅 侧自带的 AppFreezeMonitor 已在阅读日志里记同一件事，不必重复上报。
+     */
+    private fun noteFreeze(suspendedMs: Long) {
+        Log.d(TAG, "进程被系统冻结 ${suspendedMs}ms（非主线程卡死，不记日志页）")
+        runCatching {
+            val stallFile = File(AppConst.logDir, "stall.log")
+            if (stallFile.exists() && stallFile.length() > FREEZE_NOTE_MAX_BYTES) return@runCatching
+            val time = LocalDateTime.now()
+                .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS"))
+            synchronized(lock) {
+                FileWriter(stallFile, true).use {
+                    it.append("=== 进程被系统冻结 ${suspendedMs}ms（非主线程卡死，未计入日志页）===\n")
+                        .append("time=").append(time).append('\n')
+                }
+            }
+        }.onFailure { Log.e(TAG, "写冻结留痕失败", it) }
     }
 
     private fun dump(stalledMs: Long) {
