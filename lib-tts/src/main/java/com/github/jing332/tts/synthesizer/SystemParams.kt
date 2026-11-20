@@ -62,6 +62,20 @@ data class RequestSnapshot(
     val paraIndex: Int = -1,
     val paraTotal: Int = 0,
     val batchSegments: List<BatchSegment>? = null,
+    /**
+     * 11-20：本笔是「后台预加载」，但要走**正常单段合成**（出真实音频）。
+     *
+     * 为什么需要（用户 11-20 口径）：预加载的语义是「和正常播放一样地把后面几章
+     * 合成好」——音频要落进调用方（U阅）自己的缓存，播放时像普通命中一样秒回、
+     * 段前标记要亮。而 batch_json 预热只回 50ms 静音、只写 UTTS 的 synth_cache，
+     * 调用方拿不到音频 ⇒ 看着「像没加载过」。
+     *
+     * 区别只在「出不出音频」：
+     *   · batchSegments != null → 批量预热，**不出音频**（回静音）；
+     *   · preloadOnly = true   → 单段预加载，**正常出音频**。
+     * 两者在服务层的待遇完全一致：不破窗、不占播放槽位、不落日志页、可被播放掐。
+     */
+    val preloadOnly: Boolean = false,
 ) {
-    val isPreload: Boolean get() = batchSegments != null
+    val isPreload: Boolean get() = batchSegments != null || preloadOnly
 }
