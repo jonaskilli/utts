@@ -157,20 +157,6 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
         const val PARAM_BATCH_JSON = "batch_json"
 
         /**
-         * 11-20：单段「后台预加载」标记（value=true）。
-         *
-         * 与 [PARAM_BATCH_JSON] 的区别只在**出不出音频**：
-         *   · batch_json → 批量预热，只回 50ms 静音、只写 UTTS 缓存；
-         *   · 本标记   → 单段预加载，正常合成并返回真实音频（调用方自己落缓存）。
-         * 其余待遇一致：不破窗、不占播放槽位（可被播放掐）、不落日志页。
-         *
-         * 为什么需要它（用户 11-20 口径）：预加载要「和正常播放一样」——音频进调用方
-         * 缓存、播放像命中一样秒回、段前标记亮。batch_json 那条路调用方拿不到音频，
-         * 于是 U阅 侧看着就是「没加载过、涨的是 TTS 缓存」。
-         */
-        const val PARAM_PRELOAD_ONLY = "preload_only"
-
-        /**
          * 更新配置
          */
         fun notifyUpdateConfig(isOnlyReplacer: Boolean = false) {
@@ -531,10 +517,7 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
         // 会回落 null（走单段路径），若这里仍按「非空=预热」判断，就会出现
         // 「跳过了破窗却走了单段路径」的不一致状态。
         val preloadBatch = parseBatchSegments(request.params.getString(PARAM_BATCH_JSON))
-        // 11-20：单段预加载（带 preload_only）也算「预加载」——不进破窗、不占播放槽位、
-        // 不落日志页；但因为它 batchSegments 为 null，合成会走正常单段路径、出真实音频。
-        val preloadOnly = request.params.getBoolean(PARAM_PRELOAD_ONLY, false)
-        val isPreloadRequest = preloadBatch != null || preloadOnly
+        val isPreloadRequest = preloadBatch != null
 
         if (!isPreloadRequest) {
             // 🛠️ 强力破窗：新请求冒头时强制注销旧任务，解决阅读APP重新点击播放没反应
@@ -590,7 +573,6 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
             paraIndex = request.params.getInt(PARAM_PARA_INDEX, -1),
             paraTotal = request.params.getInt(PARAM_PARA_TOTAL, 0),
             batchSegments = preloadBatch,
-            preloadOnly = preloadOnly,
         )
 
         runBlocking {
@@ -661,11 +643,6 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                             paraIndex = reqSnapshot.paraIndex,
                             paraTotal = reqSnapshot.paraTotal,
                             batchSegments = reqSnapshot.batchSegments,
-                            // 11-20：预加载（含单段 preload_only）不落日志页、不计命中行。
-                            // 单段预加载在这里标 true 后，RequestPayload.isPreload=true，
-                            // normalEvent 的四处跳过判据即可生效；音频仍按正常单段路径输出。
-                            emitHitLog = !reqSnapshot.isPreload,
-                            isPreload = reqSnapshot.isPreload,
                             callback = object :
                                 com.github.jing332.tts.synthesizer.SynthesisCallback {
                                 override fun onSynthesizeStart(sampleRate: Int) {

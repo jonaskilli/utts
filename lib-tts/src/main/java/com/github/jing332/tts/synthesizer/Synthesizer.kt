@@ -23,10 +23,6 @@ interface Synthesizer {
         // 为何必须是「一笔多段」而不是「多笔并发」：onSynthesizeText 开头的破窗
         // 会让新请求取消旧请求，多笔并发必互相掐断（详见 BatchSegment 注释）。
         batchSegments: List<BatchSegment>? = null,
-        // 11-20：本笔是「后台预加载」——不落日志页、不占播放槽位，但仍正常出音频。
-        // 与 batchSegments（批量预热，只回静音）的区别见 RequestSnapshot.preloadOnly。
-        emitHitLog: Boolean = true,
-        isPreload: Boolean = false,
     ): Result<Unit, SynthesisError>
 }
 
