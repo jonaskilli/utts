@@ -1396,7 +1396,12 @@ internal fun LogScreen(
                 .distinctUntilChanged()
                 .collect { if (it > 0) viewportHeightPx = it }
         }
-        LaunchedEffect(playingMatch?.listItem, playingMatch?.entryIndex, scrollMode) {
+        LaunchedEffect(playingMatch?.listItem, playingMatch?.entryIndex, scrollMode, selectionMode) {
+            // 11-20 修（用户实报「进了多选，拖动不那么顺畅」）：多选态（含拖选手势中）
+            // **暂停自动跟随**。拖选是自绘手势、在 Initial 段把事件消费掉了，列表自身的
+            // 滚动交互收不到拖拽（userDragging 恒 false、isScrollInProgress 恒 false），
+            // 于是段一切换这条温和跟随就把列表从手指底下拽回锚点——划选变成跳选。
+            if (selectionMode) return@LaunchedEffect
             // 11-16 晚三态门控：温和跟随只在「跟随朗读」态触发
             if (scrollMode != ScrollMode.FOLLOW_PLAYING) return@LaunchedEffect
             val m = playingMatch ?: return@LaunchedEffect
@@ -1431,7 +1436,10 @@ internal fun LogScreen(
             runCatching { listState.animateScrollBy(delta) }
         }
 
-        LaunchedEffect(list.size, scrollMode, userDragging, pendingJumpToBottom, currentGroups, searchQuery) {
+        LaunchedEffect(
+            list.size, scrollMode, userDragging, pendingJumpToBottom,
+            currentGroups, searchQuery, selectionMode,
+        ) {
             // 11-16 晚三态：「跟随最新」接管原 autoScrollToBottom 恒 false 的死链——
             // 新日志到达自动滚底。【11-17 放宽】跟随最新态下拖拽期间不强拉，且**松手
             // 停在原地不弹回**——只有新日志到达才滚底。参照最早「实时最新」勾选版：
@@ -1447,9 +1455,10 @@ internal fun LogScreen(
             // 搜索态豁免（11-17 用户实报）：开着「最新」搜历史时，新到的匹配日志不该把
             // 人从搜索结果里拽走——搜索=查历史，跟随最新暂停；跳匹配由上层 searchQuery
             // 的 LaunchedEffect 负责，清空搜索回到跟随语义。
-            val wantScroll = (scrollMode == ScrollMode.FOLLOW_LATEST && isNewLogArrival &&
+            val wantScroll = !selectionMode &&
+                ((scrollMode == ScrollMode.FOLLOW_LATEST && isNewLogArrival &&
                 !userDragging && searchQuery.isBlank()) ||
-                autoScrollToBottom || pendingJumpToBottom
+                autoScrollToBottom || pendingJumpToBottom)
             if (wantScroll && currentGroups.items.isNotEmpty()) {
                 runCatching { listState.animateScrollToItem(currentGroups.items.lastIndex) }
                 if (pendingJumpToBottom) pendingJumpToBottom = false
