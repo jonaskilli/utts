@@ -1872,13 +1872,8 @@ internal fun LogScreen(
                             // 修法：successMember 命中后再分一路——子行是**预合成**（旧前缀
                             // 「缓存/本地缓存/UTTS缓存」同样认）就画「预合成」丸；
                             // 其余照旧「成功」。失败/吸收分支不动。
-                            fun isPreloadMember(m: com.github.jing332.common.LogEntry): Boolean {
-                                val msg = m.message.replace(Regex("<[^>]*>"), "")
-                                return msg.contains("获取成功（预合成）") ||
-                                    msg.contains("获取成功（UTTS缓存）") ||
-                                    msg.contains("获取成功（本地缓存）") ||
-                                    msg.contains("获取成功（缓存）")
-                            }
+                            fun isPreloadMember(m: com.github.jing332.common.LogEntry): Boolean =
+                                isPreloadMessage(m.message)
                             val pill = remember(item.head, successMember, absorbed, currentGroups) {
                                 when {
                                     successMember != null && isPreloadMember(successMember) ->
@@ -2855,6 +2850,64 @@ private fun tailTextOfRow(e: LogEntry): String? {
         out.append(ch)
     }
     return if (clipped) out.toString().trimEnd() + "…" else reordered
+}
+
+/**
+ * 「预合成」成功行判据（缓存命中类的四种前缀）：**卡上的丸与复制文本共用这一份**，
+ * 别各写一套——口径一旦分叉就会出现「卡上写预合成、复制出去写成功」。
+ */
+internal fun isPreloadMessage(message: String): Boolean {
+    val msg = message.replace(Regex("<[^>]*>"), "")
+    return msg.contains("获取成功（预合成）") ||
+        msg.contains("获取成功（UTTS缓存）") ||
+        msg.contains("获取成功（本地缓存）") ||
+        msg.contains("获取成功（缓存）")
+}
+
+/**
+ * 11-20 七改（用户实报「成功卡只复制前半段，成功的结果、耗时大小也不体现了」）：
+ * 复制一张卡要像卡上第一行那样把**状态与耗时大小**带上，再跟卡片主体正文。
+ * 输出结构与裸行同一套「时间 | 元信息 | 正文」（正文自身的换行保留）：
+ *
+ *   18:46:11 | 成功 3.0s，62.2 KB | 请求音频：正文
+ *   旁白，夏舒，语速1.21，音量0.88（本悦读）
+ *
+ * 元信息口径（与卡上的丸/尾串同源，不另立一套）：
+ *   · 成功卡＝「成功」或「预合成」＋耗时大小（tailTextOfRow：耗时在前、大小在后）；
+ *   · 失败卡＝「失败」，正文换成被吸收的源错误全文（真因+正文一条说完；
+ *     10-12 用户实报「有些信息无法复制了」就是这条）——失败丸后本来就不放数字；
+ *   · 无结局卡＝「请求中」；本组重试过再缀「重试」；
+ *   · 全都没有（理论上不会出现）→ 退回级别字，与裸行同档。
+ */
+internal fun cardCopyText(g: LogGroups, item: LogGroups.Item.Group): String {
+    val head = g.entries.getOrNull(item.head) ?: return ""
+    val members = item.members.mapNotNull { g.entries.getOrNull(it) }
+    val success = members.firstOrNull {
+        it.level == LogLevel.SUCCESS &&
+            !it.message.replace(Regex("<[^>]*>"), "").startsWith(CANCEL_MARKER)
+    }
+    val absorbed = g.entries.getOrNull(item.absorbError)
+    val status = when {
+        success != null -> if (isPreloadMessage(success.message)) "预合成" else "成功"
+        absorbed != null || item.head in g.failedHeads -> "失败"
+        item.pending -> "请求中"
+        else -> ""
+    }
+    // 成功系列才带「耗时，大小」；失败卡/吸收条不放数字（10-12 用户令）
+    val tail = if (absorbed == null) tailTextOfRow(success ?: head) else null
+    val timeText = groupTimeText(
+        head,
+        success ?: absorbed,
+        keepRange = item.head in g.failedHeads ||
+            (success == null && absorbed == null && head.level == LogLevel.ERROR),
+    )
+    val meta = buildList {
+        if (status.isNotBlank()) add(status)
+        if (!tail.isNullOrBlank()) add(tail)
+        if (item.retryCount > 0) add("重试")
+    }.joinToString(" ").ifBlank { head.getLevelChar() }
+    val body = (absorbed ?: head).message.toPlainText()
+    return "$timeText | $meta | $body"
 }
 
 // 11-13：CANCELED 暂不产出——用户选定「不显示」档，取消请求整组丢弃。

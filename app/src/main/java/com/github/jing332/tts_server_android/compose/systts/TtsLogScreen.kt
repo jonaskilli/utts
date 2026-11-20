@@ -515,32 +515,35 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
     }
     // 返回键先退多选（页面级；钥匙=与密钥页同一交互口径）
     androidx.activity.compose.BackHandler(enabled = selectionMode) { exitSelection() }
-    // ===== 11-20 六改：复制口径从「条目」改成「卡片」=====
+    // ===== 11-20 六改 / 七改：复制口径从「条目」改成「卡片」，并带上卡头信息 =====
     // 用户实报：「卡片是合二为一的，为啥复制之后变两条了？不能做成一条吗？
     // 等于是卡片变成我想要的样子，但底层还是以前吗？」——**是**：卡片只是渲染层
     // 的合并（LogGroups），勾选/复制一直按**条目**走。勾一张卡 = 组头 + 成功/重试/
     // 取消等成员行，复制出去就成两条（过程行还额外占段）。
-    // 现在按卡片（=列表项）口径输出：一张卡一段文本，取卡片的**主体行**——
-    //   · 普通卡 = 组头（请求行：请求音频 + 正文 + 发音人信息）；
-    //   · 失败卡 = 被吸收的源错误条（屏幕上这张卡画的就是它：真因+正文一条说完；
-    //     10-12 用户实报「有些信息无法复制了」正是这条，必须继续带上）。
-    // 过程行只是卡上的状态丸（获取成功耗时体积/重试/取消），不进文本。
-    // 顺序沿用列表顺序。
-    fun checkedCardBodies(): List<LogEntry> {
+    // 现在按卡片（=列表项）口径输出：一张卡一段文本，顺序沿用列表顺序。
+    // 七改（用户追问「成功卡只复制前半段，耗时大小也不体现了」）：卡头信息不能丢——
+    // 由 LogScreen.cardCopyText 统一派生「状态＋耗时大小」，与卡上第一行同口径：
+    //   18:46:11 | 成功 3.0s，62.2 KB | 请求音频：正文⏎旁白，夏舒，……（本悦读）
+    // 裸行没有卡头，保持原来的「时间 | 级别字 | 正文」。
+    fun checkedCopyBlocks(): List<String> {
         val g = logGroups
-        val out = ArrayList<LogEntry>()
+        val out = ArrayList<String>()
         g.items.forEach { item ->
             val idxs = g.entriesOf(item)
             val hit = idxs.any { i ->
                 g.entries.getOrNull(i)?.let { it in checkedEntries } == true
             }
             if (!hit) return@forEach
-            val bodyIdx = when (item) {
-                is LogGroups.Item.Group ->
-                    if (item.absorbError >= 0) item.absorbError else item.head
-                else -> idxs.firstOrNull() ?: return@forEach
+            when (item) {
+                is LogGroups.Item.Group -> out.add(cardCopyText(g, item))
+                else -> {
+                    val e = idxs.firstOrNull()?.let { g.entries.getOrNull(it) }
+                        ?: return@forEach
+                    // 折叠次数写进文本（10-12 用户令）：×N 原来只体现在丸上，复制出去就丢了次数
+                    val times = if (e.repeatCount > 1) "（×${e.repeatCount}）" else ""
+                    out.add("${e.time} | ${e.getLevelChar()} | ${e.message.toPlainText()}$times")
+                }
             }
-            g.entries.getOrNull(bodyIdx)?.let(out::add)
         }
         return out
     }
@@ -554,8 +557,8 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
             }
         }
     }
-    // 复制：按列表顺序拼接「时间 | 级别 | 正文」，**一张卡一段**，段与段之间空行分隔
-    // ⚠️ 正文必须**转纯文本**再复制（10-12 用户实报）：message 是渲染用的富文本
+    // 复制：一张卡一段，段与段之间空行分隔
+    // ⚠️ 富文本必须**转纯文本**再复制（10-12 用户实报）：message 是渲染用的富文本
     //（<font color="#00FFFF"> 哨兵色 / <b> / <br>），直接复制出去粘到别处全是标签，
     // 既不好读也没法直接发给别人。转换口径见 toPlainText。
     fun copyChecked() {
@@ -563,11 +566,7 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
             context.toast(R.string.log_select_none)
             return
         }
-        val text = checkedCardBodies().joinToString(separator = "\n\n") {
-            // 折叠次数写进文本（10-12 用户令）：×N 原来只体现在丸上，复制出去就丢了次数
-            val times = if (it.repeatCount > 1) "（×${it.repeatCount}）" else ""
-            "${it.time} | ${it.getLevelChar()} | ${it.message.toPlainText()}$times"
-        }
+        val text = checkedCopyBlocks().joinToString(separator = "\n\n")
         clipboard.setText(AnnotatedString(text))
         exitSelection()
         context.toast(R.string.copied)
