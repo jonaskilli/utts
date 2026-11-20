@@ -159,14 +159,17 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
         /**
          * 11-20：单段「后台预加载」标记（value=true）。
          *
-         * 与 [PARAM_BATCH_JSON] 的区别只在**出不出音频**：
-         *   · batch_json → 批量预热，只回 50ms 静音、只写 UTTS 缓存；
-         *   · 本标记   → 单段预加载，正常合成并返回真实音频（调用方自己落缓存）。
-         * 其余待遇一致：不破窗、不占播放槽位（可被播放掐）、不落日志页。
+         * 语义**只有一条**：这笔请求不参与破窗、不占「正在播放那一笔」的槽位。
+         * 产出与日志与普通播放**完全一致**——正常合成、返回真实音频、
+         * 请求卡与命中行照常落日志页（用户原话「就当我是正在播放嘛」）。
          *
-         * 为什么需要它（用户 11-20 口径）：预加载要「和正常播放一样」——音频进调用方
-         * 缓存、播放像命中一样秒回、段前标记亮。batch_json 那条路调用方拿不到音频，
-         * 于是 U阅 侧看着就是「没加载过、涨的是 TTS 缓存」。
+         * 为什么非要有它：`onSynthesizeText` 开头是强力破窗（新请求 error 掉旧请求），
+         * 预加载若完全冒充播放请求，会不停掐断用户正在听的那一段。
+         * 只有「别破窗」需要特殊标记，其余一律照常。
+         *
+         * 与 [PARAM_BATCH_JSON] 的区别：
+         *   · batch_json → 批量预热，只回 50ms 静音、只写 UTTS 缓存、**不落日志**；
+         *   · 本标记   → 单段预加载，真实音频、**照常落日志**。
          */
         const val PARAM_PRELOAD_ONLY = "preload_only"
 
@@ -661,11 +664,11 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                             paraIndex = reqSnapshot.paraIndex,
                             paraTotal = reqSnapshot.paraTotal,
                             batchSegments = reqSnapshot.batchSegments,
-                            // 11-20：预加载（含单段 preload_only）不落日志页、不计命中行。
-                            // 单段预加载在这里标 true 后，RequestPayload.isPreload=true，
-                            // normalEvent 的四处跳过判据即可生效；音频仍按正常单段路径输出。
-                            emitHitLog = !reqSnapshot.isPreload,
-                            isPreload = reqSnapshot.isPreload,
+                            // 11-20（用户口径）：预加载的**日志待遇就是正常播放**——
+                            // 「它就是正在播放」，请求卡与命中行都照常落页，用户要能看见
+                            // 缓存了哪些段。所以这里只让**批量预热**（batch_json，只回静音、
+                            // 不是用户要听的内容）静默；单段 preload_only 照常记日志。
+                            isPreload = preloadBatch != null,
                             callback = object :
                                 com.github.jing332.tts.synthesizer.SynthesisCallback {
                                 override fun onSynthesizeStart(sampleRate: Int) {
