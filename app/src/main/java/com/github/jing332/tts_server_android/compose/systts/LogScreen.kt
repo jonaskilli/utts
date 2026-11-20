@@ -68,6 +68,7 @@ import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -89,6 +90,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
@@ -98,6 +100,9 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChangedIgnoreConsumed
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -1208,6 +1213,18 @@ internal fun LogScreen(
     val dragBase = remember { mutableStateOf<Set<LogEntry>>(emptySet()) }
     val dragLastIdx = remember { mutableStateOf(0) }
 
+    // ===== 11-20 修（用户实报「长按喇叭会触发长按日志多选」）=====
+    // 长按拖选手势挂在 LazyColumn 的 Initial 通道上（比子节点先拿到事件），
+    // 只判「按住 400ms 不动」，不看这一指按在哪个控件上——喇叭键的长按菜单
+    // 与它同时到点，家长永远先到（先进多选、再把后续事件消费掉）。Initial 是
+    // 自上而下派发的，子节点想「先吃掉」也来不及；所以反过来让家长在下指时
+    // 查表让位：喇叭键把自己的窗口矩形登记进来（离开组合即注销），命中即
+    // 整笔放行（不等待、不消费），长按菜单归喇叭自己的 combinedClickable。
+    // 用普通 HashMap 而非 SnapshotStateMap：只有手势协程读、布局回调写，
+    // 不参与组合，滚动逐帧重登记也不会引发重组。
+    val speakerHitRects = remember { HashMap<LogEntry, Rect>() }
+    val listCoordsRef = remember { mutableStateOf<LayoutCoordinates?>(null) }
+
     // ===== 11-14 晚（用户定案：「放在列表最上面，跟着列表一起滑」）=====
     //
     // 用户的三条要求同时成立：
@@ -1487,6 +1504,9 @@ internal fun LogScreen(
         LazyColumn(
             Modifier
                 .fillMaxSize()
+                // 11-20 修：记下列表自身的坐标——喇叭登记的是窗口矩形，手势里的
+                // down.position 是列表本地坐标，换算到窗口靠它。
+                .onGloballyPositioned { listCoordsRef.value = it }
                 .then(
                     if (dragSelectEnabled) Modifier.pointerInput(Unit) {
                         // 手写 awaitEachGesture。等待长按阶段：本页躺在底栏横向翻页容器里，
@@ -1500,6 +1520,15 @@ internal fun LogScreen(
                         // 超时未被取消 = 长按成立（withTimeoutOrNull null 返回值语义）
                         awaitEachGesture {
                             val down = awaitFirstDown(requireUnconsumed = false)
+                            // 11-20 修（用户实报「长按喇叭会触发长按日志多选」）：
+                            // 长按落点踩在喇叭键上 → 整笔让给喇叭（见上方 speakerHitRects
+                            // 注释），不等待、不消费，菜单由喇叭自己的 combinedClickable 弹出。
+                            val downInWindow = listCoordsRef.value?.localToWindow(down.position)
+                            if (downInWindow != null &&
+                                speakerHitRects.values.any { it.contains(downInWindow) }
+                            ) {
+                                return@awaitEachGesture
+                            }
                             val slop = viewConfiguration.touchSlop
                             val downAt = System.nanoTime()
                             val swipeGraceMs = 150L
@@ -2122,6 +2151,9 @@ internal fun LogScreen(
                                 //     单独给色会让人以为它另有含义。
                                 // 朗读行的空间由此腾出：第一行只放「正在朗读丸 + 时间 +
                                 // 成功丸 + 耗时体积」四件，段号移到右端，一行放得下。
+                                // 11-20 五改（用户令「话筒固定右边距」）：喇叭从段号左侧挪到
+                                // 段号右侧、贴内容右缘——段号不再是最右元素，但右缘依旧恒定；
+                                // 见下方「右侧操作角重排」块。
                                 val segText = if (head.paraIndex >= 0) {
                                     if (head.paraTotal > 0) "${head.paraIndex + 1}/${head.paraTotal}"
                                     else "${head.paraIndex + 1}"
@@ -2143,70 +2175,15 @@ internal fun LogScreen(
                                     val segStyled = buildAnnotatedString {
                                         withStyle(SpanStyle(fontWeight = FontWeight.Medium)) { append(segText) }
                                     }
-                                    // 11-20「日志栏喇叭」：段号左侧的喇叭键。
-                                    // 只在本卡能定位到段落时才画（书/章/段号齐全），
-                                    // 否则点了也没法重合成或定位朗读——宁缺勿错。
-                                    // 放在段号前而不是正文行尾：右上是本卡「操作角」，
-                                    // 与下方正文不抢位，且与段号同为 LOG_AUX_SIZE 档，视觉同组。
-                                    if (onSpeakerAction != null && isSpeakerEligible(head)) {
-                                        var showSpeakerMenu by remember(head) { mutableStateOf(false) }
-                                        Box {
-                                            // 11-20 三改（用户令「跟阅读一样吧」）：交互照阅读端段落喇叭——
-                                            //   单击 = 试听这一段（有缓存播成品、没缓存现合成，都**不打断**朗读）
-                                            //   长按 = 从这段开始读（接管朗读、可跨章）
-                                            // 阅读端就是这个分工（ContentTextView.checkParagraphSpeakerClick：
-                                            // 单击走独立的 paragraphPlayer 播缓存，长按 continueFromParagraph）。
-                                            // ⚠️ 不能用 IconButton + combinedClickable：IconButton 自带的
-                                            // onClick 会吃掉手势，长按收不到。这里用 Box 自己挂手势，
-                                            // 触摸区仍是 22dp（与原来一致，视觉大小不变）。
-                                            // 菜单里的「重新合成」保留成长按菜单项——它不是阅读端的功能，
-                                            // 是日志页排查用的（重做这段音频），不占主交互。
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(22.dp)
-                                                    .combinedClickable(
-                                                        onLongClick = { showSpeakerMenu = true },
-                                                        onClickLabel = "试听这一段",
-                                                        onLongClickLabel = "更多操作",
-                                                        onClick = {
-                                                            if (onAuditionSegment != null) {
-                                                                onAuditionSegment(head)
-                                                            } else {
-                                                                showSpeakerMenu = true
-                                                            }
-                                                        },
-                                                    ),
-                                                contentAlignment = Alignment.Center,
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.VolumeUp,
-                                                    contentDescription = "试听这一段（长按更多）",
-                                                    modifier = Modifier.size(15.dp),
-                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                                                .copy(alpha = 0.78f)
-                                                )
-                                            }
-                                            DropdownMenu(
-                                                expanded = showSpeakerMenu,
-                                                onDismissRequest = { showSpeakerMenu = false }
-                                            ) {
-                                                DropdownMenuItem(
-                                                    text = { Text("重新合成") },
-                                                    onClick = {
-                                                        showSpeakerMenu = false
-                                                        onSpeakerAction?.invoke(head, true)
-                                                    }
-                                                )
-                                                DropdownMenuItem(
-                                                    text = { Text("从这段开始读") },
-                                                    onClick = {
-                                                        showSpeakerMenu = false
-                                                        onSpeakerAction?.invoke(head, false)
-                                                    }
-                                                )
-                                            }
-                                        }
-                                    }
+                                    // ===== 11-20 五改：右侧操作角重排 =====
+                                    // 用户实报「话筒没有对齐，给他定一个固定的右边距」：
+                                    // 旧序 [喇叭][段号]，喇叭紧贴段号左缘——段号字数一变
+                                    //（45/46 ↔ 1/48）喇叭就跟着横移，一列喇叭是锯齿。
+                                    // 新序 [段号][喇叭]：喇叭钉死在内容右缘（固定右边距 =
+                                    // 卡片内衬 8dp），段号在它左边、右缘随之固定，与喇叭
+                                    // 间距 10dp 恒定——整组不再随段号字数漂。
+                                    // 喇叭槽 22dp 常驻占位（本卡不可试听时留空）：保证有段号
+                                    // 的行右缘全都对齐，不会因为「这张卡没有喇叭」而参差。
                                     Text(
                                         text = segStyled,
                                         style = MaterialTheme.typography.bodySmall,
@@ -2217,6 +2194,74 @@ internal fun LogScreen(
                                         softWrap = false,
                                         modifier = Modifier.padding(start = 10.dp),
                                     )
+                                    if (onSpeakerAction != null) {
+                                        Box(modifier = Modifier.padding(start = 10.dp).size(22.dp)) {
+                                            if (isSpeakerEligible(head)) {
+                                                var showSpeakerMenu by remember(head) { mutableStateOf(false) }
+                                                // 11-20 修「长按喇叭会触发长按日志多选」：
+                                                // 拖选手势挂列表 Initial 通道、先于子节点拿到事件，
+                                                // 只判「按住 400ms 不动」不看落点——喇叭长按抢不过它。
+                                                // 这里把自己的窗口矩形登记给家长（见 speakerHitRects 注释），
+                                                // 长按下指命中即整笔放行，菜单归喇叭自己弹。
+                                                DisposableEffect(head) {
+                                                    onDispose { speakerHitRects.remove(head) }
+                                                }
+                                                Box(
+                                                    modifier = Modifier
+                                                        .fillMaxSize()
+                                                        .onGloballyPositioned { c ->
+                                                            speakerHitRects[head] = Rect(
+                                                                offset = c.positionInWindow(),
+                                                                size = Size(
+                                                                    c.size.width.toFloat(),
+                                                                    c.size.height.toFloat(),
+                                                                ),
+                                                            )
+                                                        }
+                                                        .combinedClickable(
+                                                            onLongClick = { showSpeakerMenu = true },
+                                                            onClickLabel = "试听这一段",
+                                                            onLongClickLabel = "更多操作",
+                                                            onClick = {
+                                                                if (onAuditionSegment != null) {
+                                                                    onAuditionSegment(head)
+                                                                } else {
+                                                                    showSpeakerMenu = true
+                                                                }
+                                                            },
+                                                        ),
+                                                    contentAlignment = Alignment.Center,
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.VolumeUp,
+                                                        contentDescription = "试听这一段（长按更多）",
+                                                        modifier = Modifier.size(15.dp),
+                                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                                                    .copy(alpha = 0.78f)
+                                                    )
+                                                }
+                                                DropdownMenu(
+                                                    expanded = showSpeakerMenu,
+                                                    onDismissRequest = { showSpeakerMenu = false }
+                                                ) {
+                                                    DropdownMenuItem(
+                                                        text = { Text("重新合成") },
+                                                        onClick = {
+                                                            showSpeakerMenu = false
+                                                            onSpeakerAction?.invoke(head, true)
+                                                        }
+                                                    )
+                                                    DropdownMenuItem(
+                                                        text = { Text("从这段开始读") },
+                                                        onClick = {
+                                                            showSpeakerMenu = false
+                                                            onSpeakerAction?.invoke(head, false)
+                                                        }
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                                 }   // ← 关闭「左侧链 + 右侧段号」的 Row
                                 // 老版式失败条（10-11 定稿）：渲染主体换成被吸收的源错误/
