@@ -148,6 +148,8 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
         // 拼成一大段会让缓存键变化、角色识别上下文错乱。
         // 这里只负责「把 N 段的分析结果汇成一个列表」，并行发生在下游 produceSegments。
         batchSegments: List<BatchSegment>? = null,
+        // 11-20：后台预加载（单段）。规则侧按「预热」对待——不加赛，省一次请求。
+        isPreload: Boolean = false,
     ): Result<List<TextSegment>, SynthesisError> {
         val presetConfig: TtsConfiguration? = presetConfigId?.run { repo.getTts(this) }
         if (presetConfigId != null && presetConfig == null) {
@@ -201,8 +203,10 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
         textProcessor
             .process(
                 params.text, presetConfig, paraIndex, paraTotal,
-                // 11-17：单段路径 = 播放请求（预热必带 batchSegments），允许加赛
-                isPreload = false
+                // 11-17：单段路径 = 播放请求，允许加赛。
+                // 11-20：例外是「单段预加载」（preload_only）——它走单段合成但要真实音频，
+                // 语义仍是后台备货，不该加赛（加赛 = 同一段多发一次请求）。
+                isPreload = isPreload
             )
             // 11-17 用户令：同批量路径，只滤纯空白，纯符号段原样保留（正文=TTS 文本）。
             .onSuccess { list -> return Ok(list.filterNot { it.text.isBlank() }) }
@@ -597,6 +601,7 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
                     paraIndex = paraIndex, paraTotal = paraTotal,
                     // 11-16：预热的失败链也不能在日志里冒成播放卡
                     isPreload = isPreload,
+                    emitHitLog = emitHitLog,
                 )
             } else {
                 val next = retries + 1
@@ -616,6 +621,7 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
                     reqId = request.reqId,
                     paraIndex = paraIndex, paraTotal = paraTotal,
                     isPreload = isPreload,
+                    emitHitLog = emitHitLog,
                 )
             }
         }
@@ -747,6 +753,9 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
         channel: SendChannel<ChannelPayload>,
         params: SystemParams,
         list: List<TextSegment>,
+        // 11-20：后台预加载（单段预加载）——透传给 requestAndProcess，决定落不落日志页
+        emitHitLog: Boolean = true,
+        isPreload: Boolean = false,
     ) {
         val concurrency = context.cfg.prefetchConcurrency().coerceIn(1, 8)
         // 11-13：并发数落日志——用户报障时从 system_tts.log 直接确认本次配置，
@@ -763,6 +772,8 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
                     chapterTitle = segment.chapterTitle,
                     paraIndex = segment.paraIndex,
                     paraTotal = segment.paraTotal,
+                    emitHitLog = emitHitLog,
+                    isPreload = isPreload,
                 )
                 insertSegmentPause(channel, index, list.size)
             }
@@ -822,6 +833,8 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
                             chapterTitle = segment.chapterTitle,
                             paraIndex = segment.paraIndex,
                             paraTotal = segment.paraTotal,
+                            emitHitLog = emitHitLog,
+                            isPreload = isPreload,
                             // 11-16：事件进闸门，按段下标缓冲，等回填到本段再放行
                             eventGate = eventGate,
                             segmentKey = index,
@@ -917,6 +930,9 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
         paraTotal: Int = 0,
         // 11-15：批量段列表（见 textProcess 注释），null=单段路径
         batchSegments: List<BatchSegment>? = null,
+        // 11-20：后台预加载标记（单段预加载要真实音频，但要按预热待遇：不加赛/不落日志页）
+        emitHitLog: Boolean = true,
+        isPreload: Boolean = false,
     ): Result<Unit, SynthesisError> = coroutineScope {
         if (mConfigs.isEmpty()) return@coroutineScope Err(SynthesisError.ConfigEmpty)
 
@@ -924,7 +940,9 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
 
         val channel =
             produce<ChannelPayload>(CoroutineName("Synthesis producer"), PROCUDE_CAPACITY) {
-                textProcess(params, presetConfigId, paraIndex, paraTotal, batchSegments)
+                textProcess(
+                    params, presetConfigId, paraIndex, paraTotal, batchSegments, isPreload
+                )
                     .onSuccess { list ->
                         // 11-17（修「发到死通道的假成功」，11-17 00:12:18–29 实锤）：
                         // textProcess 内含规则脚本/AI 调用的 BlockingIO，协程 cancel 打不断它；
@@ -956,7 +974,7 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
                                     )
                                 )
                             } else {
-                                produceSegments(channel, params, list)
+                                produceSegments(channel, params, list, emitHitLog, isPreload)
                             }
                         } catch (e: PayloadErrorException) {
                             // 分句阶段致命错误（如文本处理器报错）：作为合成错误交给消费端
@@ -1059,6 +1077,9 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
         // 11-15（任务书-U阅批量提交多段）：一次请求内多段并行。
         // null = 原单段路径，行为不变。
         batchSegments: List<BatchSegment>?,
+        // 11-20：后台预加载（单段、要真实音频）。见 RequestSnapshot.preloadOnly。
+        emitHitLog: Boolean,
+        isPreload: Boolean,
     ): Result<Unit, SynthesisError> = mutex.withLock {
         logger.atTrace {
             message = "synthesize"
@@ -1075,7 +1096,10 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
 
         withMain { bgmPlayer.play() }
         try {
-            executeSynthesis(params, callback, forceConfigId, paraIndex, paraTotal, batchSegments)
+            executeSynthesis(
+                params, callback, forceConfigId, paraIndex, paraTotal, batchSegments,
+                emitHitLog, isPreload
+            )
         } finally {
             logger.debug { "synthesize done" }
             withContext(NonCancellable) {
