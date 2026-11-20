@@ -1212,6 +1212,8 @@ internal fun LogScreen(
     val dragAnchor = remember { mutableStateOf(0) }
     val dragBase = remember { mutableStateOf<Set<LogEntry>>(emptySet()) }
     val dragLastIdx = remember { mutableStateOf(0) }
+    // 拖动相位里出现过位移没有（见下方边缘自动滚注释）：长按不动 ≠ 拖动
+    val dragMoved = remember { mutableStateOf(false) }
 
     // ===== 11-20 修（用户实报「长按喇叭会触发长按日志多选」）=====
     // 长按拖选手势挂在 LazyColumn 的 Initial 通道上（比子节点先拿到事件），
@@ -1277,13 +1279,19 @@ internal fun LogScreen(
     }
 
     // 边缘自动滚：拖选中指尖压上下边缘时逐帧匀速滚，扫选屏外项；滚动后指尖下的项
-    // 变了，选中范围跟着延伸/缩小。收笔（dragActive=false）即卸载
+    // 变了，选中范围跟着延伸/缩小。收笔（dragActive=false）即卸载。
+    //
+    // 11-20 六改（用户实报「复制当前条会把后面正在预合成、还没成功的日志也加进来」）：
+    // 这道滚原先只要 dragActive 就无条件跑——用户只是长按一条（手指停在视口底部 48dp 内，
+    // 而预合成日志正好都在底部），列表就自己一路往下滚、勾选跟着扫，复制出来多出一截。
+    // 现在要求**先真的拖动过**（拖动相位里出现过一次位移）才允许边缘连滚：
+    // 划选到屏外照样能用（手指一动就开滚），长按不动不再自己往下扫。
     val density = LocalDensity.current
-    if (dragActive.value) {
+    if (dragActive.value && dragMoved.value) {
         LaunchedEffect(density) {
             val edgeZone = with(density) { 48.dp.toPx() }
             val frameScroll = with(density) { 14.dp.toPx() }
-            while (dragActive.value) {
+            while (dragActive.value && dragMoved.value) {
                 withFrameNanos { }
                 val end = listState.layoutInfo.viewportEndOffset
                 if (dragPointerY.value < edgeZone) listState.scrollBy(-frameScroll)
@@ -1571,6 +1579,7 @@ internal fun LogScreen(
                             dragLastIdx.value = anchor
                             dragPointerY.value = down.position.y
                             emitDragSelection()
+                            dragMoved.value = false
                             dragActive.value = true
                             try {
                                 while (true) {
@@ -1585,6 +1594,7 @@ internal fun LogScreen(
                                     }
                                     if (change.positionChangedIgnoreConsumed()) {
                                         change.consume()
+                                        dragMoved.value = true
                                         dragPointerY.value = change.position.y
                                         updateDragSelection(change.position.y)
                                     }
