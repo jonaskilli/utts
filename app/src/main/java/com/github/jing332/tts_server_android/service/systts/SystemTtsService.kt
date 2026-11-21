@@ -664,11 +664,18 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                             paraIndex = reqSnapshot.paraIndex,
                             paraTotal = reqSnapshot.paraTotal,
                             batchSegments = reqSnapshot.batchSegments,
-                            // 11-20（用户口径）：预加载的**日志待遇就是正常播放**——
-                            // 「它就是正在播放」，请求卡与命中行都照常落页，用户要能看见
-                            // 缓存了哪些段。所以这里只让**批量预热**（batch_json，只回静音、
-                            // 不是用户要听的内容）静默；单段 preload_only 照常记日志。
-                            isPreload = preloadBatch != null,
+                            // 11-21 14:4x（用户终裁「备货链不显示卡片」）：预加载的
+                            // 请求卡/成功行/命中行**一律不落日志页**——预加载与播放
+                            // 是两条时间线，出卡必然在播放卡中间锯齿交错（14:0x 真机
+                            // 实锤 245段3→244段24→245段4→244段25）；用户要日志页
+                            // 像「只有一条链」一样按朗读顺序排。进度可见由顶部
+                            // 「合成进度：第245章 n/81」承担（34888c1 起）。失败的
+                            // 预加载仍走 errorEvent 出红行（排障主线索，不在此拦）。
+                            isPreload = reqSnapshot.isPreload,
+                            // 预加载的缓存命中行（「获取成功（预合成）」）同样不落页——
+                            // 与请求卡同因：时间线交错。命中的段后续由播放链秒回，
+                            // 播放链自己会出「获取成功」卡，信息不丢。
+                            emitHitLog = !reqSnapshot.isPreload,
                             callback = object :
                                 com.github.jing332.tts.synthesizer.SynthesisCallback {
                                 override fun onSynthesizeStart(sampleRate: Int) {
