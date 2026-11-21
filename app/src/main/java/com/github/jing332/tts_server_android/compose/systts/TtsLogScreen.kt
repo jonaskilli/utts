@@ -186,13 +186,12 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
             if (e != null) viewBookChapter = e.bookName to e.chapterTitle
         }
     }
-    // 正在朗读的书章（只读）：吸顶「停底部=跟朗读章」用（11-21 20:0x 修预加载
-    // 探头跳章），也用于"筛着 A 书却在读 B"时的跳转提示。
-    // 来源=播放快照 ReadProgressReader.read()（playing=true 且 15s 内有心跳），
-    // **不是**日志尾——日志尾含预加载笔，备货探到下一章就会把它带成下一章
-    //（用户实拍 20:08：播放停 247、备货探头 248，顶部跳 248）。停读时快照为
-    // null → 空串，吸顶回落到原口径（最后一条日志的书章）。
-    // 11-21 同上改 derivedStateOf：读文件快照有 mtime 缓存，开销可忽略。
+    // 正在朗读的书章（只读）：「筛着 A 书却在读 B」跳转提示条用（吸顶书章 20:2x
+    // 终裁永远跟视线，不再消费本字段）。
+    // 来源=播放快照 ReadProgressReader.read()（playing=true 且 15s 内有心跳）。
+    // 20:0x 曾短暂用于吸顶「停底部=朗读章」，同日终裁撤回；保留快照来源——
+    // 日志尾含预加载笔，会被备货探头带成下一章（20:08 实拍），快照才是
+    // 「正在朗读」的可靠口径。停读时快照 null → 空串，提示条自然隐藏。
     val readingBookChapter by remember {
         derivedStateOf {
             val snap = ReadProgressReader.read()
@@ -1914,23 +1913,27 @@ private fun PinnedLogHeader(
             // 回落顺序都保留：主值取空时（无书章条目/筛选清空）退到另一个，
             // 避免吸顶整块空掉。
             //
-            // 11-21 20:1x（两轮实拍定稿）：
-            //   · 朗读中 + 停底部 → **跟正在朗读的章**：备货探头到下一章不跳
-            //    （20:08 实拍：播放停 247、备货 248 的章名段冒头，顶部跳 248——用户判「不对」）。
-            //     播放真正切到 248，read() 快照换章，顶部才跟过去；
-            //   · 朗读中 + 往上翻 → 跟视线（原行为）；
-            //   · **没朗读、纯翻日志** → 也跟视线：此前「停底部=最后一条日志的书章」，
-            //     但查看历史时尾部常混着备货笔（用户 20:1x 补充「我没在朗读，就在查看日志」）
-            //     ——此时没有朗读章可用，改跟视线所在章，才是「划到哪显示哪」的本意；
-            //   · 回落链不变：视线空（刚进页首帧/筛选清空）→ 最后一条日志的书章 → 空串。
+            // ===== 11-21 20:2x 用户终裁：吸顶**永远跟视线** =====
+            //
+            // 沿革：11-13「底部=最新条、翻旧=视线」→ 11-15 判据换「列表停底」
+            // → 20:0x 改三层（朗读中停底=朗读章）→ 20:2x 终裁推翻三层、回到纯视线。
+            //
+            // 终裁理由（用户选「吸顶=永远跟视线」）：分工明确、行为可预期——
+            //   · 吸顶书章 = 「我在看哪章」（划到哪显示哪，绝不自己跳）；
+            //   · 第二行进度行 = 「朗读/备货到哪」（当前：247章 62/146｜缓存：248章 3/81）。
+            // 20:08 实拍的「播放 247、备货探头 248、顶部跳 248」这类被动跳变根除：
+            // 顶部只有滚动才变。20:0x 那版「停底=朗读章」的问题同样是被动跳变
+            //（我在底部没动，播放切章时顶部自己换了）。
+            //
+            // 视线空（刚进页首帧、日志清空、筛选清空）→ 兜底「最后一条日志的书章」
+            // → 再空（列表无书章条目）→ 空串（吸顶书章块整体隐藏）。
+            // 筛选态仍显示筛选范围（scopeBook/scopeChapter），不变。
             val shownBook = when {
                 filtered -> scopeBook.orEmpty()
-                atBottom -> readingBook.ifBlank { viewBook.ifBlank { book } }
                 else -> viewBook.ifBlank { book }
             }
             val shownChapter = when {
                 filtered -> scopeChapter.orEmpty()
-                atBottom -> readingChapter.ifBlank { viewChapter.ifBlank { chapter } }
                 else -> viewChapter.ifBlank { chapter }
             }
             val chapLabel = shortChapterLabel(shownChapter).let { if (it.isBlank()) "" else " $it" }
