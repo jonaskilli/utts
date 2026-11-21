@@ -277,7 +277,15 @@ fun RoleManagementScreen(sharedVM: SharedViewModel, pagerState: PagerState) {
     ) { paddingValues ->
         // 内置原生列表（拍板清死代码：插件宿主分支与开关常量已整删，
         // 回退走 git 历史；数据文件由朗读规则运行生成，不依赖插件安装）
-        if (roleFilesReady && isPageVisible.value) {
+        // 11-21 切栏卡顿修：撤掉 isPageVisible 渲染门控，只留 roleFilesReady 首次就绪门控。
+        // 旧门控的副作用＝切走时整树卸载 RoleListScreen，切回时重建 + LaunchedEffect
+        // 重跑全量文件 IO（readRecords/getAllGroupWithTts/VoiceMarksFile/当前书）——
+        // 列表空白转圈等加载。11-19 注释里已写过「列表保持挂载，重生成完 reloadKey++
+        // 让它重读文件（不卸载重建）」，但这个门控恰恰还在卸载它，与既定设计相抵。
+        // 数据刷新本就有「切走预读（reloadKey++）+ 回来原地刷新」机制兜着（见上方
+        // LaunchedEffect(isPageVisible)），门控唯一效果就是制造重建。
+        // 撤掉后：列表常驻不重建，切回秒出；首次切到本栏时后台完成首次加载，其余不变。
+        if (roleFilesReady) {
             RoleListScreen(
                 tagRuleId = ROLE_RULE_ID,
                 reloadKey = reloadKey,

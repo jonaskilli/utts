@@ -171,15 +171,28 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
     // shownBook 那段注释）。初值 true：进页面默认就在底部，顶部显示最新那条书章，
     // 与旧行为（autoFollow 默认 false 但 book 兜底取最新）观感一致。
     var atListBottom by remember { mutableStateOf(true) }
-    var viewBookChapter by remember(vm.logs) {
-        val e = vm.logs.lastOrNull { it.bookName.isNotBlank() }
-        mutableStateOf(e?.bookName.orEmpty() to e?.chapterTitle.orEmpty())
+    // 视野书章（吸顶区「你看的是哪本哪章」）：**可写状态**——LogScreen 随滚动回传覆盖
+    //（onViewChanged，见下方参数处），初值取「全量日志最后一条带书章的条目」兜底首帧。
+    // 11-21 切栏卡顿修（②）：原初值计算挂在 remember(vm.logs) 上——key 是 2 万条的
+    // SnapshotStateList，每条日志到达整表失效、data class 逐条 equals。初值只在
+    // 「logs 从空变非空」时需要更新，改 derivedStateOf + size 门槛：只在列表首次
+    // 有内容（或清空后重新有内容）时从尾部扫一次，平时读缓存零成本。
+    var viewBookChapter by remember {
+        mutableStateOf("" to "")
     }
-    // 正在朗读的书章（与筛选无关）：用于"筛着 A 书却在读 B"时的跳转提示。
+    LaunchedEffect(vm.logs.size) {
+        if (vm.logs.isNotEmpty() && viewBookChapter.first.isEmpty()) {
+            val e = vm.logs.asReversed().firstOrNull { it.bookName.isNotBlank() }
+            if (e != null) viewBookChapter = e.bookName to e.chapterTitle
+        }
+    }
+    // 正在朗读的书章（与筛选无关，只读）：用于"筛着 A 书却在读 B"时的跳转提示。
     // 取全量日志里**最后一条**带书章的条目——它就是"最近一次请求"所属的书。
-    val readingBookChapter by remember(vm.logs) {
+    // 11-21 同上改 derivedStateOf：倒序扫描命中即停（正扫 lastOrNull 是每次全表），
+    // 且只在依赖真变化时重算，不再随每条日志整表 equals。
+    val readingBookChapter by remember {
         derivedStateOf {
-            val e = vm.logs.lastOrNull { it.bookName.isNotBlank() }
+            val e = vm.logs.asReversed().firstOrNull { it.bookName.isNotBlank() }
             (e?.bookName.orEmpty()) to (e?.chapterTitle.orEmpty())
         }
     }
@@ -397,14 +410,13 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
             searchQuery.trim().isNotEmpty() || vm.selectedLevels.isNotEmpty()
         }
     }
-    // 原文定位用的完整流：回落值同上（它本身就是全量视图，其实不会缺，保持口径一致即可）
-    val fullGroups = remember(vm.filteredLogs) {
-        LogGroups.build(
-            vm.filteredLogs,
-            fallbackBook = pinnedFallback?.bookName.orEmpty(),
-            fallbackChapter = pinnedFallback?.chapterTitle.orEmpty(),
-        )
-    }
+    // 11-21 切栏卡顿修（①）：fullGroups 整段删除——死代码。
+    // 「回原位」11-16 起改在 locateOriginal 内**就地重建**全量组（见下方 freshGroups，
+    // 不再用闭包捕获的组）；此后 fullGroups 没有任何消费者。但它挂在 remember(vm.filteredLogs)
+    // 上：filteredLogs 是 getter（每次访问都 filter/merge 新建列表），每条新日志到达都
+    // 触发一次「全量过滤 + LogGroups.build + 2 万条 data class 逐条 equals」——纯白烧，
+    // 切回日志栏那一帧把朗读期间积压的失效一次性补算，正是卡顿来源之一。
+    // 删除零功能损失；历史根因与修法见 locateOriginal 内 11-16 注释。
     var locateHighlight by remember { mutableStateOf<LogEntry?>(null) }
 
     fun locateOriginal(entry: LogEntry) {
