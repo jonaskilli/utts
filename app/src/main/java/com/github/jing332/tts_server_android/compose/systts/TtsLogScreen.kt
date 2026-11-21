@@ -194,7 +194,7 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
     // 「正在朗读」的可靠口径。停读时快照 null → 空串，提示条自然隐藏。
     val readingBookChapter by remember {
         derivedStateOf {
-            val snap = ReadProgressReader.read()
+            val snap = com.github.jing332.tts_server_android.service.systts.help.ReadProgressReader.read()
             (snap?.book.orEmpty()) to (snap?.chapterTitle.orEmpty())
         }
     }
