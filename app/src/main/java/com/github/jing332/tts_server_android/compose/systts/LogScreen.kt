@@ -2587,17 +2587,23 @@ internal fun LogScreen(
         if (bottomCacheCount.isNotBlank()) {
             // 11-22 01:0x：圆点删除后只剩一段文字，Row 容器随之撤掉（Box 即可），
             // 少一层布局节点也少一次测量。
-            val bottomLabelText = "当前：" + bottomPlayLabel + bottomPlayCount +
-                (if (bottomPlayCount.isNotBlank()) " ｜ " else "") +
-                "缓存：" + bottomCacheLabel + bottomCacheCount
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
-                    // 左右 8dp 对齐内容线；底距 8dp 贴到日志区下沿（浮钮已上移让位）
-                    .padding(start = 8.dp, end = 8.dp, bottom = 8.dp)
+                    // ===== 11-22 01:1x 用户澄清后的布局（浮钮不动，条自己缩）=====
+                    //
+                    // 用户原话：「放不下就缩字号我本来指的是那个向下箭头距离底栏比较低，
+                    // 这个可以缩字号」——即**别动浮钮，让提示条缩字号适应**。
+                    //
+                    // 所以：
+                    //   · ⇊ 浮钮回到原位 bottom=20dp（我曾误改成 48dp 给它让位，已撤回）；
+                    //   · 提示条右端让出 80dp（浮钮 72dp 触摸区 + 8dp 右边距）避开它；
+                    //   · 内衬 10 → 8dp 抠出余量；
+                    //   · 字号定 11sp（去「第」字后 251dp ≤ 252dp 可用，刚够）。
+                    .padding(start = 8.dp, end = 80.dp, bottom = 8.dp)
                     .clip(AppShapes.sm)
                     .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.92f))
-                    .padding(horizontal = 10.dp, vertical = 5.dp),
+                    .padding(horizontal = 8.dp, vertical = 5.dp),
             ) {
                 // ===== 11-22 01:0x 用户三问后定稿 =====
                 //
@@ -2644,7 +2650,10 @@ internal fun LogScreen(
                     // 12sp 与吸顶同档（默认）；文字长了降到 11sp 换回空间。
                     // 用 length 估算而非 onTextLayout 测量：这里只需一个粗判，
                     // 测量会在首帧引起一次额外布局（计数器抖动），不值得。
-                    fontSize = if (bottomLabelText.length > 34) 11.sp else 12.sp,
+                    // 11-22 01:1x：固定 11sp（原先的 12/11 两级自适应作废——
+                    // 现在可用宽度只有 252dp，12sp 无论怎么排都放不下，两级没有意义）。
+                    // 仍保留 maxLines=1 + Ellipsis：章名异常长时截断兜底。
+                    fontSize = 11.sp,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.78f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -2768,12 +2777,12 @@ internal fun LogScreen(
                 // 视觉右缘 = 8 + (72-56)/2 = 16dp，与 ⟲ 一致。旧值 16dp 使视觉右缘 24dp。
                 // 11-17 用户定稿：↓ 挪到右下角（BottomEnd，与 ⟲ 纵列对齐）。
                 //
-                // 11-22 00:5x（用户令「底部缓存提示放浮钮下方」）：**底距 20→48dp**。
-                // 底部新增的缓存提示条占了最下面一条（它 8dp 贴底、约 30dp 高），
-                // ↓ 键必须上移让位，否则会被压在提示条下面点不到。
-                // 48 = 提示条底距 8 + 条高约 30 + 间隙 10。
-                // ⟲ 键不动（104dp）——它本来就在更上一层，两键间距不变。
-                .padding(end = 8.dp, bottom = 48.dp),
+                // 11-22 01:0x 用户澄清（「我本来指的是那个向下箭头距离底栏比较低，
+                // 这个可以缩字号」）：**浮钮回原位 20dp 不动**——之前我把它上移到 48dp
+                // 给底部提示条让位，理解反了。用户的意思是底部那条自己缩字号适应，
+                // 别去动浮钮。故此处恢复 20dp；底部提示条改为缩字号 + 让出右侧宽度
+                //（见底部提示条注释里的「浮钮共存」段）。
+                .padding(end = 8.dp, bottom = 20.dp),
             visible = showArrow,
             enter = fadeIn() + expandIn(expandFrom = Alignment.BottomCenter),
             exit = shrinkOut(shrinkTowards = Alignment.BottomCenter) + fadeOut(),

@@ -1799,12 +1799,20 @@ private fun bottomCacheParts(
     val synthTotal = s.synthTotalSegs
     if (synthTotal <= 0) return listOf("", "", "", "")
 
-    val synthNameOrNum = when {
-        shortChapterLabel(s.synthChapterTitle).isNotBlank() ->
-            shortChapterLabel(s.synthChapterTitle)
-        s.synthChapterIndex >= 0 -> "第${s.synthChapterIndex + 1}章"
+    // ===== 11-22 01:1x 用户定稿「去掉第字」=====
+    //
+    // 空间核算（浮钮保持原位 20dp，底部条必须避开它的 72dp 触摸区）：
+    //   可用 = 360(屏) − 8(左) − 80(浮钮含边距) − 20(内衬) = 252dp
+    //   带「第」字 11sp ≈ 273dp ⇒ 差 21dp，放不下
+    //   去「第」字 11sp ≈ 251dp ⇒ 刚好放下（再把内衬收到 8dp 留余量）
+    // 章名本身必须保留——它是「缓存超了几章」的唯一依据；能省的只有「第」这个虚字。
+    // 显示成「254章」而非「第254章」，读起来仍完整（数字后紧跟「章」已足够表意）。
+    fun chapterLabelOf(title: String, index: Int): String = when {
+        shortChapterLabel(title).isNotBlank() -> shortChapterLabel(title)
+        index >= 0 -> "${index + 1}章"  // 底部专供：省略「第」字（见上方空间核算）
         else -> ""
     }
+    val synthNameOrNum = chapterLabelOf(s.synthChapterTitle, s.synthChapterIndex)
     // 缓存侧：前沿段号+1，与吸顶同口径
     val cacheDone = (s.synthSegIndex + 1).coerceAtLeast(0).coerceAtMost(synthTotal)
     val cacheLabel = if (synthNameOrNum.isNotBlank()) "$synthNameOrNum " else ""
@@ -1814,11 +1822,7 @@ private fun bottomCacheParts(
     // 宁可只显示缓存，也不显示「当前：0/0」这种假数据。
     val playTotal = s.totalSegs
     if (playTotal <= 0) return listOf(cacheLabel, cacheCount, "", "")
-    val playNameOrNum = when {
-        shortChapterLabel(s.chapterTitle).isNotBlank() -> shortChapterLabel(s.chapterTitle)
-        s.chapterIndex >= 0 -> "第${s.chapterIndex + 1}章"
-        else -> ""
-    }
+    val playNameOrNum = chapterLabelOf(s.chapterTitle, s.chapterIndex)
     val playDone = (s.segIndex + 1).coerceAtLeast(0).coerceAtMost(playTotal)
     val playLabel = if (playNameOrNum.isNotBlank()) "$playNameOrNum " else ""
     val playCount = "$playDone/$playTotal"
