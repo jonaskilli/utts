@@ -184,8 +184,13 @@ fun AnimatedContentScope.MainPager(sharedVM: SharedViewModel) {
                                 NavigationBarItem(
                                     selected = isSelected,
                                     onClick = {
+                                        // 11-21 用户令「点击切换为啥是左右移动」：换栏瞬切，
+                                        // 不再 animateScrollToPage 的横向过场——目标页直接出来。
+                                        // scrollToPage 同步完成、无动画，scope.launch 只为
+                                        // 在协程里安全调用挂起函数；选中态跟 currentPage 走，
+                                        // 瞬切后立即高亮。滚动位置/展开态由相邻页常驻保留，不变。
                                         scope.launch {
-                                            pagerState.animateScrollToPage(destination.index)
+                                            pagerState.scrollToPage(destination.index)
                                         }
                                     },
                                     icon = { Box(Modifier.size(24.dp)) { destination.icon() } },
