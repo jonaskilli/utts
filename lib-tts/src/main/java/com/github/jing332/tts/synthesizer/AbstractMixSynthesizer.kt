@@ -452,11 +452,28 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
 
         result.onSuccess { resp ->
             resp.onCallback { cb ->
-                // 交付动作本身发生在 playCallback 里（它把 cb 推进播放通道）——
-                // 调用前先置位：即使 playCallback 内部挂起/抛错，音频交给下游这件事
-                // 已经发生，不该再被判成「没拿到音频」的超时。
+                // 交付动作的置位时机（11-22 复核修正）：
+                //
+                // 初版写在 playCallback **之前**（理由是「即使 playCallback 挂起/抛错，
+                // 音频交给下游这件事已发生」）。复核认为这不严谨——sink.send 是 suspend，
+                // 可能因 Channel 关闭抛异常，此时音频并没有真正交付给播放链路。
+                // 但置位在**之后**也不行：playCallback 内部若在交付完成后挂起，
+                // 置位就永远等不到，超时照样误报（那正是要修的 bug）。
+                //
+                // 折中：先置位再交付，但**区分异常类型**——
+                //   · CancellationException（含 Channel 关闭）：整段合成已作废，
+                //     不报超时（报也是噪音），置位与否都不影响结果，保持置位不回滚；
+                //   · 其它异常：说明交付失败，回滚置位让上层照常判失败/重试。
                 delivered.set(true)
-                playCallback(cb)
+                try {
+                    playCallback(cb)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    // 交付真失败：撤销「已交付」，让超时/失败判定还原为真实状态
+                    delivered.set(false)
+                    throw e
+                }
                 return EmptyInputStream
             }.onStream { ins ->
                 return ins
