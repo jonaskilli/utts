@@ -904,13 +904,21 @@ class TtsLogViewModel : ViewModel() {
         val bookMarkIdx = 4
         val hasBook = parts.size > bookMarkIdx && parts[bookMarkIdx].startsWith("§")
         return if (hasBook) {
+            // 11-21 22:5x：第 7 段（0-based 6）可选为段号列——persistConsole 落盘
+            // 「…§book | chapter | para | message」。判别：纯数字即段号，message 从
+            // 第 8 段起重组；非数字（旧格式 message 直接在此）按旧口径从第 6 段起。
+            // 历史行无段号 → para=-1，渲染层按「继承前行段号」兜底，老文件照样归位。
+            val paraSeg = parts.getOrNull(6) ?: ""
+            val para = paraSeg.toIntOrNull()
             LogEntry(
                 level = level,
                 time = time,
                 bookName = parts[bookMarkIdx].removePrefix("§"),
                 chapterTitle = parts.getOrNull(5) ?: "",
-                // message 从第 6 段起，可含 " | "，全量重组
-                message = parts.drop(6).joinToString(" | "),
+                paraIndex = para ?: -1,
+                // message 从段号列之后起，可含 " | "，全量重组
+                message = if (para != null) parts.drop(7).joinToString(" | ")
+                          else parts.drop(6).joinToString(" | "),
                 isPluginLog = isPlugin,
                 isSpeechRuleLog = !isPlugin,
             )

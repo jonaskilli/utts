@@ -1060,7 +1060,12 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                     // 11-14：对齐主行新格式，尾部补 paraIndex/paraTotal 两段（子行恒空占位）——
                     // 主行 logback pattern 已加这两段，子行若不加会少两个字段位，
                     // 回读解析把 message 前两段吞掉（reqId 之后全是正文）。
-                    it.append("$time | SUCCESS |  |  | §$safeBook | $safeChapter | $reqId |  |  | $msg\n")
+                    // 11-21 22:5x 修（用户实报「重启后请求卡挂『请求中』」）：主行 pattern
+                    // 12:5x 起追加了第 10 列 isPreload（logback.xml + 解析正则都改了），
+                    // 这里漏改——子行只有 9 列，十列正则匹配失败掉老格式兜底，
+                    // reqId 被吞进正文 → 回读后成功行挂不回卡 → 卡永远「请求中」。
+                    // 补一个空列占住 isPreload 位（子行恒空，预加载卡已被过滤不再落页）。
+                    it.append("$time | SUCCESS |  |  | §$safeBook | $safeChapter | $reqId |  |  |  | $msg\n")
                 }
             }
         }.onFailure { Log.e(TAG, "logS write file: ", it) }
@@ -1326,11 +1331,12 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
         // 在多音色段（一段拆对话+旁白两笔）会按「段号+tag」各报一次，用户看到
         // 「同一片段预合成两遍」的观感；且预热进度已有 DEBUG 工程日志兜底。
         // 成功的预热一律不落页，只有失败可见。
-        // ⚠️⚠️ 11-21 14:5x 终裁撤销（用户「理想效果=备货卡也显示，全按正文顺序」）：
-        // 下面四行过滤整段废弃——预加载事件照常落页，顺序交给渲染层排序
-        //（0eb26471 + SysttsLogger 段号上下文）。保留代码仅作回退参考，永不命中
-        //（isPreload 只在渲染层消费）。失败行本就不经此处，红行照旧。
-        val preloadFilterDisabled = true
+        // ⚠️⚠️ 11-21 22:5x 终裁（用户「我只是想要个正常的日志，重复的我不要，一段一张卡」，
+        // 推翻同日 14:5x「备货卡也显示」）：预热事件一律不落日志页——
+        // 备货进度看通知栏「预加载 第N章 x/y 段」，预热失败仍走 errorEvent 红行。
+        // 播放笔到点打唯一一张卡；命中 synth_cache 时成功子行标「预合成」秒回。
+        // preloadFilterDisabled 哨兵撤除，下方过滤恢复生效。
+        val preloadFilterDisabled = false
         if (!preloadFilterDisabled) {
             if (e is NormalEvent.Request && e.request.isPreload) return
             if (e is NormalEvent.ReadAllFromStream && e.request.isPreload) return
@@ -1347,7 +1353,33 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                     // 「只有时间戳、下面空白」的一行（10-11 用户实报）。
                     // 现口径：服务端保留原文供丸解析，**渲染层对重试行不画正文**
                     //（丸已表达同一信息，见 LogScreen 裸行分支），两处不重复、也不空行。
-                    logW("开始第 ${e.retries} 次重试")
+                    //
+                    // 11-21 22:5x 修（用户「这个不知道是重试啥」）：重试行此前不打 MDC——
+                    // 落盘后 reqId/书章/段号全空成无主裸行（system_tts.log 实锤
+                    // `| § |  |  | … | 开始第 1 次重试`），既挂不到卡下也看不出在重试哪句。
+                    // 与请求行同一套 MDC（try/finally 对齐，防残留串值），重试行就能
+                    // 挂回自己那张卡、带上段号与书章。
+                    val configId = (e.request.config.tag as? SystemTtsV2)?.id ?: 0L
+                    try {
+                        org.slf4j.MDC.put("configId", configId.toString())
+                        if (e.request.roleName.isNotBlank())
+                            org.slf4j.MDC.put("roleName", e.request.roleName)
+                        if (e.request.bookName.isNotBlank())
+                            org.slf4j.MDC.put("bookName", e.request.bookName)
+                        if (e.request.chapterTitle.isNotBlank())
+                            org.slf4j.MDC.put("chapterTitle", e.request.chapterTitle)
+                        if (e.request.reqId.isNotBlank())
+                            org.slf4j.MDC.put("reqId", e.request.reqId)
+                        if (e.request.paraIndex >= 0)
+                            org.slf4j.MDC.put("paraIndex", e.request.paraIndex.toString())
+                        if (e.request.paraTotal > 0)
+                            org.slf4j.MDC.put("paraTotal", e.request.paraTotal.toString())
+                        if (e.request.isPreload)
+                            org.slf4j.MDC.put("isPreload", "true")
+                        logW("开始第 ${e.retries} 次重试")
+                    } finally {
+                        org.slf4j.MDC.clear()
+                    }
                 } else {
                     // "请求音频:"前缀走级别色(绿)普通, 正文 <b> 加粗, 次级信息哨兵色→石板灰；
                     // MDC 携带配置项 id + 实时角色名 供日志快捷面板定位（写完立即清理防串扰）

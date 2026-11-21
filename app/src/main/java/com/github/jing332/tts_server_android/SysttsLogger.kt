@@ -126,8 +126,17 @@ object SysttsLogger {
                 // 可含 " | "（解析时全量重组），保持原样。
                 val safeBook = bk.replace("§", "Ｓ").replace("|", "｜")
                 val safeChapter = ch.replace("§", "Ｓ").replace("|", "｜")
+                // ⚠️ 11-21 22:5x（用户「重启后规则日志分离到日志最后」）：落盘补段号列——
+                // console 行此前只有 书章 无段号，重启回读后 paraIndex=-1，
+                // 渲染排序键把 -1 当章尾 ⇒ 全部规则行沉到本章末尾。写入时带上
+                // SysttsLogger 内存上下文的当前段号（与书章同一生命周期），
+                // 回读即可精确归位；实时路径仍走 stampBookChapter 内存补齐，两路同源。
+                // 格式：time | LEVEL | configId | roleName | §book | chapter | paraIndex | message
+                //（旧行无此列，回读正则按可选段兼容，历史文件不丢）
+                val para = currentParaIndex()
+                val safePara = if (para >= 0) para.toString() else ""
                 FileWriter(f, true).use { w ->
-                    w.append("$time | $level |  |  | §$safeBook | $safeChapter | ${entry.message}\n")
+                    w.append("$time | $level |  |  | §$safeBook | $safeChapter | $safePara | ${entry.message}\n")
                 }
             }.onFailure { android.util.Log.w("SysttsLogger", "persistConsole: ", it) }
         }

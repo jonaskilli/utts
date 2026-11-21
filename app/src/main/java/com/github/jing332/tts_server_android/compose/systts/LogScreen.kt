@@ -498,7 +498,11 @@ internal class LogGroups(
                     if (e.bookName.isNotBlank()) {
                         ctxBook = e.bookName
                         ctxRank = orderOf[e.bookName]?.get(e.chapterTitle) ?: Int.MAX_VALUE
-                        ctxPara = e.paraIndex.takeIf { it >= 0 } ?: Int.MAX_VALUE
+                        // 11-21 22:5x（用户「重启后规则日志分离到日志最后」）：
+                        // 有书章但无段号的行（历史 speech_rule 行 paraIndex=-1）此前
+                        // 落 Int.MAX_VALUE ⇒ 沉到章尾。与无书章行同款「上下文继承」：
+                        // 继承时间轴上前一行的段号，落在它发生的位置。
+                        ctxPara = e.paraIndex.takeIf { it >= 0 } ?: ctxPara
                         sawContext = true
                         keys.add(RowKey(e.bookName, ctxRank, ctxPara))
                     } else if (sawContext) {
