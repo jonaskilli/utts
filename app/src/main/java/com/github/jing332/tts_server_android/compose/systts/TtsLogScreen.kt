@@ -1203,6 +1203,12 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                 TextButton(onClick = {
                     val c = scope.chapter
                     if (c == null) vm.clearByBook(scope.book) else vm.clearByChapter(scope.book, c)
+                    // 11-21 复核补漏：按书/章清空后，若视野书章正好是被清的范围，
+                    // 吸顶不该再挂着它——兜底逻辑会因残留非空值跳过，这里主动复位。
+                    // （复位后 LaunchedEffect(vm.logs.size) 若列表还有其他书会重新兜底。）
+                    if (viewBookChapter.first == scope.book &&
+                        (scope.chapter == null || viewBookChapter.second == scope.chapter)
+                    ) viewBookChapter = "" to ""
                     pendingClear = null
                 }) {
                     Text("清理", color = MaterialTheme.colorScheme.error)
@@ -1273,6 +1279,10 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                             .clip(RoundedCornerShape(50))
                             .clickable {
                                 vm.clear()
+                                // 11-21 复核补漏：清空后视野书章同步复位——旧实现挂在
+                                // remember(vm.logs) 上随清空自动重算回空，改成手动兜底后
+                                // 非空残留（滚动回写过）不会被清，吸顶会挂着已清空的书章。
+                                viewBookChapter = "" to ""
                                 fileCount = fileCount + 1
                             }
                             .padding(horizontal = 8.dp, vertical = 4.dp)
@@ -1465,6 +1475,8 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
             confirmButton = {
                 TextButton(onClick = {
                     vm.clear()
+                    // 11-21 复核补漏：同上，清空后视野书章复位（见长按顶栏清空处注释）
+                    viewBookChapter = "" to ""
                     showClearAllConfirm = false
                 }) {
                     Text("清空", color = MaterialTheme.colorScheme.error)
