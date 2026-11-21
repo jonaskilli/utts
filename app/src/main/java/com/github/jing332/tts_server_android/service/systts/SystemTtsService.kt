@@ -664,18 +664,15 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                             paraIndex = reqSnapshot.paraIndex,
                             paraTotal = reqSnapshot.paraTotal,
                             batchSegments = reqSnapshot.batchSegments,
-                            // 11-21 14:4x（用户终裁「备货链不显示卡片」）：预加载的
-                            // 请求卡/成功行/命中行**一律不落日志页**——预加载与播放
-                            // 是两条时间线，出卡必然在播放卡中间锯齿交错（14:0x 真机
-                            // 实锤 245段3→244段24→245段4→244段25）；用户要日志页
-                            // 像「只有一条链」一样按朗读顺序排。进度可见由顶部
-                            // 「合成进度：第245章 n/81」承担（34888c1 起）。失败的
-                            // 预加载仍走 errorEvent 出红行（排障主线索，不在此拦）。
+                            // 11-21 14:5x（用户终裁「理想效果=备货卡也显示，全按正文
+                            // 顺序 100% 不串」）：撤回 14:4x「备货不落页」口径——预加载
+                            // 的请求卡/命中行照常落页，**顺序由渲染层排序保证**
+                            //（0eb26471「书→章→段」排序 + SysttsLogger 段号上下文补齐
+                            // console 行），不再靠藏卡。isPreload 标记保留：吸顶跟随/
+                            // 朗读匹配仍跳过备货卡（那两个是「当前听到哪」的指示器，
+                            // 被备货卡带跑是另一类串位）。失败照旧红行。
                             isPreload = reqSnapshot.isPreload,
-                            // 预加载的缓存命中行（「获取成功（预合成）」）同样不落页——
-                            // 与请求卡同因：时间线交错。命中的段后续由播放链秒回，
-                            // 播放链自己会出「获取成功」卡，信息不丢。
-                            emitHitLog = !reqSnapshot.isPreload,
+                            emitHitLog = true,
                             callback = object :
                                 com.github.jing332.tts.synthesizer.SynthesisCallback {
                                 override fun onSynthesizeStart(sampleRate: Int) {
@@ -1308,10 +1305,17 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
         // 在多音色段（一段拆对话+旁白两笔）会按「段号+tag」各报一次，用户看到
         // 「同一片段预合成两遍」的观感；且预热进度已有 DEBUG 工程日志兜底。
         // 成功的预热一律不落页，只有失败可见。
-        if (e is NormalEvent.Request && e.request.isPreload) return
-        if (e is NormalEvent.ReadAllFromStream && e.request.isPreload) return
-        if (e is NormalEvent.StandbyTts && e.request.isPreload) return
-        if (e is NormalEvent.HandleStream && e.request.isPreload) return
+        // ⚠️⚠️ 11-21 14:5x 终裁撤销（用户「理想效果=备货卡也显示，全按正文顺序」）：
+        // 下面四行过滤整段废弃——预加载事件照常落页，顺序交给渲染层排序
+        //（0eb26471 + SysttsLogger 段号上下文）。保留代码仅作回退参考，永不命中
+        //（isPreload 只在渲染层消费）。失败行本就不经此处，红行照旧。
+        val preloadFilterDisabled = true
+        if (!preloadFilterDisabled) {
+            if (e is NormalEvent.Request && e.request.isPreload) return
+            if (e is NormalEvent.ReadAllFromStream && e.request.isPreload) return
+            if (e is NormalEvent.StandbyTts && e.request.isPreload) return
+            if (e is NormalEvent.HandleStream && e.request.isPreload) return
+        }
 
         when (e) {
             is NormalEvent.Request ->

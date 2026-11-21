@@ -39,15 +39,29 @@ object SysttsLogger {
     private var currentBook: String = ""
     @Volatile
     private var currentChapter: String = ""
+    // 11-21 14:5x（用户终裁「理想效果=卡片+规则+插件日志全按正文顺序 100% 不串」）：
+    // 段号也进上下文——console 日志（插件/朗读规则）本身不带段号，排序时只能堆在章尾。
+    // 主流程请求行/成功行到达时更新（它们带 paraIndex），console 日志到达时补上。
+    // 段号随书章一起换，同章内推进；与「最近一次见过的书章」同一生命周期。
+    @Volatile
+    private var currentParaIndex: Int = -1
 
     /** 供 console 日志补书章用：返回 (book, chapter)，未读到过时两项均为空串 */
     fun currentBookChapter(): Pair<String, String> = currentBook to currentChapter
 
+    /** console 日志补段号用：最近一次主流程的段号（-1=还没见过） */
+    fun currentParaIndex(): Int = currentParaIndex
+
     fun log(entry: LogEntry) {
-        // 更新书章上下文：任何带书名的条目都会刷新（主行与子行都算）
+        // 更新书章上下文：任何带书名的条目都会刷新（主行与子行都算）。
+        // 段号只认主行（indent=0 且 paraIndex>=0）：子行/插件行不带可靠段号，
+        // 拿它们更新会把 console 日志标错段。
         if (entry.bookName.isNotBlank()) {
             currentBook = entry.bookName
             currentChapter = entry.chapterTitle
+        }
+        if (entry.indent == 0 && entry.paraIndex >= 0) {
+            currentParaIndex = entry.paraIndex
         }
         // 超时看门狗监测点：所有进入日志界面的日志都经过这里，
         // 在此通知看门狗（无锁、非阻塞），用于检测"超时后卡死"并自动重启。

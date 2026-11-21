@@ -236,7 +236,11 @@ class TtsLogViewModel : ViewModel() {
         if (entry.bookName.isNotBlank()) return entry
         val (book, chapter) = SysttsLogger.currentBookChapter()
         if (book.isBlank()) return entry
-        return entry.copy(bookName = book, chapterTitle = chapter)
+        // 11-21 14:5x（用户终裁「全按正文顺序 100% 不串」）：console 日志（插件/
+        // 朗读规则）补上当前段号——排序键需要 paraIndex 才能把它插进正确段的位置，
+        // 否则只能堆章尾。段号随书章上下文同生命周期（主流程请求行推进）。
+        val para = SysttsLogger.currentParaIndex()
+        return entry.copy(bookName = book, chapterTitle = chapter, paraIndex = para)
     }
 
     @Synchronized
