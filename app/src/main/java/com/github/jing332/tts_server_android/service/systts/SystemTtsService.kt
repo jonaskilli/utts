@@ -647,9 +647,10 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
             // 覆盖两类预加载请求：合成器正忙（在途播放或备货笔在跑）就立刻让位，
             // U阅侧不计失败、下轮从同段续跑（c01290c 口径）。
             if (reqSnapshot.isPreload && mTtsManager?.isSynthesizing == true) {
-                // 11-18 用户令：人话化——让路原因与后果直说（这行走 logger.info 只进文件日志，
-                // 不落日志页，与「预合成失败」WARN 行分工：让路无失败后果，不上 UI）
-                logger.info { "预热让路：正在合成播放段，本轮预合成跳过（后续自动再排）" }
+                // 11-21 20:1x（用户令「预热让路日志直接不要」）：整行撤除。
+                // 让路是高频正常行为（单链补货密度下每几分钟一打），对用户零信息——
+                // 备货推进看日志页的预合成卡就够了。排障需要时看 logcat（Log.d）。
+                Log.d(TAG, "预热让路：合成器忙，本轮预合成跳过")
                 callback.start(16000, AudioFormat.ENCODING_PCM_16BIT, 1)
                 callback.done()
                 return@runBlocking

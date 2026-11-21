@@ -186,14 +186,17 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
             if (e != null) viewBookChapter = e.bookName to e.chapterTitle
         }
     }
-    // 正在朗读的书章（与筛选无关，只读）：用于"筛着 A 书却在读 B"时的跳转提示。
-    // 取全量日志里**最后一条**带书章的条目——它就是"最近一次请求"所属的书。
-    // 11-21 同上改 derivedStateOf：倒序扫描命中即停（正扫 lastOrNull 是每次全表），
-    // 且只在依赖真变化时重算，不再随每条日志整表 equals。
+    // 正在朗读的书章（只读）：吸顶「停底部=跟朗读章」用（11-21 20:0x 修预加载
+    // 探头跳章），也用于"筛着 A 书却在读 B"时的跳转提示。
+    // 来源=播放快照 ReadProgressReader.read()（playing=true 且 15s 内有心跳），
+    // **不是**日志尾——日志尾含预加载笔，备货探到下一章就会把它带成下一章
+    //（用户实拍 20:08：播放停 247、备货探头 248，顶部跳 248）。停读时快照为
+    // null → 空串，吸顶回落到原口径（最后一条日志的书章）。
+    // 11-21 同上改 derivedStateOf：读文件快照有 mtime 缓存，开销可忽略。
     val readingBookChapter by remember {
         derivedStateOf {
-            val e = vm.logs.asReversed().firstOrNull { it.bookName.isNotBlank() }
-            (e?.bookName.orEmpty()) to (e?.chapterTitle.orEmpty())
+            val snap = ReadProgressReader.read()
+            (snap?.book.orEmpty()) to (snap?.chapterTitle.orEmpty())
         }
     }
     val readingBook = readingBookChapter.first
@@ -1910,14 +1913,24 @@ private fun PinnedLogHeader(
             //
             // 回落顺序都保留：主值取空时（无书章条目/筛选清空）退到另一个，
             // 避免吸顶整块空掉。
+            //
+            // 11-21 20:1x（两轮实拍定稿）：
+            //   · 朗读中 + 停底部 → **跟正在朗读的章**：备货探头到下一章不跳
+            //    （20:08 实拍：播放停 247、备货 248 的章名段冒头，顶部跳 248——用户判「不对」）。
+            //     播放真正切到 248，read() 快照换章，顶部才跟过去；
+            //   · 朗读中 + 往上翻 → 跟视线（原行为）；
+            //   · **没朗读、纯翻日志** → 也跟视线：此前「停底部=最后一条日志的书章」，
+            //     但查看历史时尾部常混着备货笔（用户 20:1x 补充「我没在朗读，就在查看日志」）
+            //     ——此时没有朗读章可用，改跟视线所在章，才是「划到哪显示哪」的本意；
+            //   · 回落链不变：视线空（刚进页首帧/筛选清空）→ 最后一条日志的书章 → 空串。
             val shownBook = when {
                 filtered -> scopeBook.orEmpty()
-                atBottom -> book.ifBlank { viewBook }
+                atBottom -> readingBook.ifBlank { viewBook.ifBlank { book } }
                 else -> viewBook.ifBlank { book }
             }
             val shownChapter = when {
                 filtered -> scopeChapter.orEmpty()
-                atBottom -> chapter.ifBlank { viewChapter }
+                atBottom -> readingChapter.ifBlank { viewChapter.ifBlank { chapter } }
                 else -> viewChapter.ifBlank { chapter }
             }
             val chapLabel = shortChapterLabel(shownChapter).let { if (it.isBlank()) "" else " $it" }
