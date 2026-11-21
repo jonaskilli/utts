@@ -467,22 +467,54 @@ internal class LogGroups(
             //    章之后（与 chaptersOf 弹窗同一兜底口径）；
             //  · paraIndex 段号：同章内按段序排——预合成段 1..N 与播放段同段号相邻；
             //  · time 兜底：同章同段（重试/成功子行）保持发生时序；
-            //  · 无书章的行（插件/规则/系统）不参与排序，原样按时间夹在中间——它们
-            //    本来就不属于「正文流」。
+            //
+            // 11-21 20:0x（用户装机实报「预热让路一直在顶部，其他的也位置不对」）：
+            // 旧实现让**无书章的行**（规则日志/系统行——「预热让路」「书章就绪」等，
+            // 落盘时 MDC 无书章）也参与排序，而空书名 "" 在字符串序里排在所有书名
+            // 之前 ⇒ 这些行全部堆到日志最顶。注释曾写「不参与排序、按时间夹在中间」
+            // 但代码从未实现——如实修正为此处的新实现。
+            //
+            // 新口径 = **上下文继承**：无书章行在时间轴上紧跟哪本书哪章的正文行，
+            // 排序键就继承那个 (书, 章序, 段号)，自己的 time 作同段兜底——
+            // 效果是它落在「它发生的位置」：紧跟的正文段之后、下一段之前。
+            // 「预热让路」出现在它让路的那笔备货卡旁边，规则日志出现在它分析的那段旁。
+            // 时间轴最前面、没有任何上下文可继承的行（启动日志等）用哨兵书名
+            // 沉到列表末尾，不再霸占顶部。
             // ⚠️ 排在 regroupByReqId 之前：reqId 聚组要求同一请求的行先相邻（游程判据），
             // 排序恰好把同段同 reqId 的行聚到了一起，重排命中率反而更高。
+            // ⚠️ 继承只改排序键、不改条目本体（LogEntry 原样进出）：条目上仍是空书章，
+            // 按书筛选/渲染不受影响。
             val sortedInput = if (chapterOrder.isNullOrEmpty()) input else {
                 val orderOf = chapterOrder.mapValues { (_, chapters) ->
                     chapters.withIndex().associate { (i, name) -> name to i }
                 }
-                input.sortedWith(
+                class RowKey(val book: String, val rank: Int, val para: Int)
+                val keys = ArrayList<RowKey>(input.size)
+                var ctxBook = ""
+                var ctxRank = Int.MAX_VALUE
+                var ctxPara = Int.MAX_VALUE
+                var sawContext = false
+                input.forEach { e ->
+                    if (e.bookName.isNotBlank()) {
+                        ctxBook = e.bookName
+                        ctxRank = orderOf[e.bookName]?.get(e.chapterTitle) ?: Int.MAX_VALUE
+                        ctxPara = e.paraIndex.takeIf { it >= 0 } ?: Int.MAX_VALUE
+                        sawContext = true
+                        keys.add(RowKey(e.bookName, ctxRank, ctxPara))
+                    } else if (sawContext) {
+                        keys.add(RowKey(ctxBook, ctxRank, ctxPara))
+                    } else {
+                        keys.add(RowKey("\uFFFF", Int.MAX_VALUE, Int.MAX_VALUE))
+                    }
+                }
+                input.indices.sortedWith(
                     compareBy(
-                        { it.bookName },
-                        { e -> orderOf[e.bookName]?.get(e.chapterTitle) ?: Int.MAX_VALUE },
-                        { it.paraIndex.takeIf { p -> p >= 0 } ?: Int.MAX_VALUE },
-                        { it.time },
+                        { keys[it].book },
+                        { keys[it].rank },
+                        { keys[it].para },
+                        { input[it].time },
                     )
-                )
+                ).map { input[it] }
             }
             val list = regroupByReqId(sortedInput)
             val raw = ArrayList<Item>(list.size)
