@@ -42,6 +42,12 @@ class SnackbarController(val hostState: SnackbarHostState) {
         kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main.immediate)
             .launch { hostState.showSnackbar(message, duration = SnackbarDuration.Short) }
     }
+
+    /** 发一条长时提示（对齐 Toast.LENGTH_LONG，备份完成/授权丢失这类要看清的提示用）。 */
+    fun sendLong(message: String) {
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main.immediate)
+            .launch { hostState.showSnackbar(message, duration = SnackbarDuration.Long) }
+    }
 }
 
 val LocalAppSnackbar = compositionLocalOf<SnackbarController> {

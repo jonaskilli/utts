@@ -24,7 +24,10 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewModelScope
 import com.github.jing332.common.utils.FileUtils.readBytes
 import com.github.jing332.compose.widgets.AppDialog
+import com.github.jing332.compose.widgets.AppSnackbarHost
 import com.github.jing332.compose.widgets.LoadingDialog
+import com.github.jing332.compose.widgets.LocalAppSnackbar
+import com.github.jing332.compose.widgets.SnackbarController
 import com.github.jing332.tts_server_android.R
 import com.github.jing332.tts_server_android.compose.ComposeActivity
 import com.github.jing332.tts_server_android.compose.settings.BasePreferenceWidget
@@ -65,6 +68,11 @@ class BackupRestoreActivity : ComposeActivity() {
                 if (isLoading) LoadingDialog(onDismissRequest = { isLoading = false })
 
                 val context = LocalContext.current
+                // 11-21 Toast→Snackbar（第三批）：本 Activity 独立窗口（不在 MainPager 主窗口内），
+                // 须自建 controller + provide；Scaffold 挂 host。Dialog 层（备份/还原/WebDAV
+                // 弹窗内）的提示保留 Toast——独立 window 盖不住（见 AppSnackbar.kt 头注）。
+                val snackbar = remember { SnackbarController(SnackbarHostState()) }
+                androidx.compose.runtime.CompositionLocalProvider(LocalAppSnackbar provides snackbar) {
                 val saveFilePicker = rememberLauncherForActivityResult(
                     contract = AppActivityResultContracts.filePickerActivity(),
                 ) {}
@@ -90,11 +98,8 @@ class BackupRestoreActivity : ComposeActivity() {
                         onPickDir = { dirPicker.launch(FilePickerActivity.RequestSelectDir()) },
                         onBackupRequested = { profile, types, saveToLocal, uploadToWebDav ->
                             if (uploadToWebDav && !AppConfig.isWebDavConfigured) {
-                                Toast.makeText(
-                                    context,
-                                    context.getString(R.string.config_webdav_first),
-                                    Toast.LENGTH_SHORT,
-                                ).show()
+                                // 11-21 Toast→Snackbar（第三批）：页面层走全局桥（本 Activity 自建）
+                                snackbar.send(context.getString(R.string.config_webdav_first))
                                 return@BackupDialog
                             }
                             isLoading = true
@@ -106,11 +111,10 @@ class BackupRestoreActivity : ComposeActivity() {
                                         // 上传成功后清旧备份（10-16 参照 U阅）：超出保留数量的旧 zip 删除，
                                         // 失败静默（清理不该让备份流程报错）；keepCount=0 不清
                                         withContext(Dispatchers.IO) { vm.clearOldWebDavBackups() }
-                                        Toast.makeText(
-                                            context,
-                                            context.getString(R.string.backup_uploaded_success),
-                                            Toast.LENGTH_LONG,
-                                        ).show()
+                                        // 11-21 第三批：页面层走桥（LONG 提示对齐 SnackbarDuration.Long）
+                                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                            snackbar.sendLong(context.getString(R.string.backup_uploaded_success))
+                                        }
                                     }
                                     if (saveToLocal) {
                                         val dirUri = AppConfig.backupDirUri.value
@@ -125,11 +129,9 @@ class BackupRestoreActivity : ComposeActivity() {
                                             if (!dirValid) {
                                                 AppConfig.backupDirUri.value = ""
                                                 AppConfig.backupDirLabel.value = ""
-                                                Toast.makeText(
-                                                    context,
-                                                    context.getString(R.string.backup_dir_permission_lost),
-                                                    Toast.LENGTH_LONG,
-                                                ).show()
+                                                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                                    snackbar.sendLong(context.getString(R.string.backup_dir_permission_lost))
+                                                }
                                             }
                                         }
                                         if (dirValid) {
@@ -138,14 +140,14 @@ class BackupRestoreActivity : ComposeActivity() {
                                             withContext(Dispatchers.IO) {
                                                 writeToBackupDir(context, Uri.parse(dirUri), backupFileName(profile), data)
                                             }
-                                            Toast.makeText(
-                                                context,
-                                                context.getString(
-                                                    R.string.backup_dir_saved,
-                                                    label.ifBlank { context.getString(R.string.backup) }
-                                                ),
-                                                Toast.LENGTH_LONG,
-                                            ).show()
+                                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                                snackbar.sendLong(
+                                                    context.getString(
+                                                        R.string.backup_dir_saved,
+                                                        label.ifBlank { context.getString(R.string.backup) }
+                                                    )
+                                                )
+                                            }
                                         } else {
                                             saveFilePicker.launch(
                                                 FilePickerActivity.RequestSaveFile(
@@ -204,7 +206,7 @@ class BackupRestoreActivity : ComposeActivity() {
                                     modifier = Modifier.clickable {
                                         showRestoreMenu = false
                                         if (!AppConfig.isWebDavConfigured) {
-                                            Toast.makeText(context, context.getString(R.string.config_webdav_first), Toast.LENGTH_SHORT).show()
+                                            snackbar.send(context.getString(R.string.config_webdav_first))
                                             showWebDavSettings = true
                                         } else { showWebDavListDialog = true }
                                     },
@@ -258,7 +260,8 @@ class BackupRestoreActivity : ComposeActivity() {
                     RestoreDialog(bytes = showFromFileRestoreDialog.value!!, onDismissRequest = { showFromFileRestoreDialog.value = null })
                 }
 
-                Scaffold(topBar = {
+                Scaffold(
+                    topBar = {
                     TopAppBar(
                         title = { Text(stringResource(id = R.string.backup_restore)) },
                         navigationIcon = {
@@ -266,7 +269,10 @@ class BackupRestoreActivity : ComposeActivity() {
                                 Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(id = R.string.nav_back))
                             }
                         })
-                }) { padding ->
+                },
+                    // 11-21 Toast→Snackbar（第三批）：独立 Activity 的 host
+                    snackbarHost = { AppSnackbarHost() },
+                ) { padding ->
                     Column(Modifier.padding(padding)) {
                         BasePreferenceWidget(
                             onClick = { showBackupDialog = true },
@@ -286,6 +292,7 @@ class BackupRestoreActivity : ComposeActivity() {
                         )
                     }
                 }
+                } // CompositionLocalProvider(LocalAppSnackbar) (11-21 第三批)
             }
         }
         restoreFromIntent(intent)
