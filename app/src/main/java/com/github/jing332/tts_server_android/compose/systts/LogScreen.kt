@@ -2165,13 +2165,9 @@ internal fun LogScreen(
                                 //     单独给色会让人以为它另有含义。
                                 // 朗读行的空间由此腾出：第一行只放「正在朗读丸 + 时间 +
                                 // 成功丸 + 耗时体积」四件，段号移到右端，一行放得下。
-                                // 11-20 五改（用户令「话筒固定右边距」）：喇叭从段号左侧挪到
-                                // 段号右侧、贴内容右缘——段号不再是最右元素，但右缘依旧恒定；
-                                // 见下方「右侧操作角重排」块。
-                                val segText = if (head.paraIndex >= 0) {
-                                    if (head.paraTotal > 0) "${head.paraIndex + 1}/${head.paraTotal}"
-                                    else "${head.paraIndex + 1}"
-                                } else ""
+                                // 11-21 定稿：顺序 [喇叭][段号]，喇叭跟着段号走（固定 10dp 间距，
+                                // 段号自然宽度右对齐）。用户拍板口径见下方「右侧操作角」块。
+                                val segText = segLabelOf(head)
                                 if (segText.isNotEmpty()) {
                                     // 11-19 用户令「右上方的字号统一，都改为那个粗粗的样式」：
                                     // 整个 N/M 全部半粗（含分母）。上一版（11-18 候选2）只粗
@@ -2189,27 +2185,16 @@ internal fun LogScreen(
                                     val segStyled = buildAnnotatedString {
                                         withStyle(SpanStyle(fontWeight = FontWeight.Medium)) { append(segText) }
                                     }
-                                    // ===== 11-20 五改：右侧操作角重排 =====
-                                    // 用户实报「话筒没有对齐，给他定一个固定的右边距」：
-                                    // 旧序 [喇叭][段号]，喇叭紧贴段号左缘——段号字数一变
-                                    //（45/46 ↔ 1/48）喇叭就跟着横移，一列喇叭是锯齿。
-                                    // 新序 [段号][喇叭]：喇叭钉死在内容右缘（固定右边距 =
-                                    // 卡片内衬 8dp），段号在它左边、右缘随之固定，与喇叭
-                                    // 间距 10dp 恒定——整组不再随段号字数漂。
-                                    // 喇叭槽 22dp 常驻占位（本卡不可试听时留空）：保证有段号
-                                    // 的行右缘全都对齐，不会因为「这张卡没有喇叭」而参差。
-                                    Text(
-                                        text = segStyled,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        fontSize = LOG_AUX_SIZE,
-                                        fontFamily = SegNumberFont,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1,
-                                        softWrap = false,
-                                        modifier = Modifier.padding(start = 10.dp),
-                                    )
+                                    // ===== 11-21 定稿（用户拍板）：喇叭跟着段号走 =====
+                                    // 沿革：11-20 五改把它挪到段号右侧钉死右缘（方案A）→ 用户看装机图
+                                    // 要求回到段号左侧 → 中间试过「段号固定槽」（方案B）→ 用户最终选
+                                    // 「跟着段号长度自己变、与段号保持一个合理的固定间距」。
+                                    // 即：顺序 [喇叭][段号]，段号自然宽度、右对齐贴内容右缘，
+                                    // 喇叭紧贴其左 10dp——喇叭的 x 随段号字数左右微移（同屏最多
+                                    // 一个字宽 ≈7dp），换来「零空隙 + 不依赖最长段号宽度」。
+                                    // 这是用户明确接受的取舍：粘着段号、不用空槽、不做固定位。
                                     if (onSpeakerAction != null) {
-                                        Box(modifier = Modifier.padding(start = 10.dp).size(22.dp)) {
+                                        Box(modifier = Modifier.size(22.dp)) {
                                             if (isSpeakerEligible(head)) {
                                                 var showSpeakerMenu by remember(head) { mutableStateOf(false) }
                                                 // 11-20 修「长按喇叭会触发长按日志多选」：
@@ -2276,6 +2261,17 @@ internal fun LogScreen(
                                             }
                                         }
                                     }
+                                    Text(
+                                        text = segStyled,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontSize = LOG_AUX_SIZE,
+                                        fontFamily = SegNumberFont,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        // 与喇叭固定 10dp 间距（间距恒定，位置跟着段号宽度走）
+                                        modifier = Modifier.padding(start = 10.dp),
+                                    )
                                 }
                                 }   // ← 关闭「左侧链 + 右侧段号」的 Row
                                 // 老版式失败条（10-11 定稿）：渲染主体换成被吸收的源错误/
@@ -2733,6 +2729,15 @@ private fun requestTextOf(e: LogEntry): String =
  *
  * 找不到 `<b>`（老格式/无正文行）时返回空串，调用方据此不加底色。
  */
+/**
+ * 11-21：段号文案 **N/M**（老日志只有段号时退化为 N，无段号为空串）。
+ * 渲染与「段号固定槽」的槽宽实测共用这一份口径，别再各写一套。
+ */
+internal fun segLabelOf(e: LogEntry): String =
+    if (e.paraIndex < 0) ""
+    else if (e.paraTotal > 0) "${e.paraIndex + 1}/${e.paraTotal}"
+    else "${e.paraIndex + 1}"
+
 internal fun boldBodyOf(e: LogEntry): String {
     val m = Regex("<b>([\\s\\S]*?)</b>").find(e.message) ?: return ""
     return m.groupValues[1].replace(Regex("<[^>]*>"), "").trim()
