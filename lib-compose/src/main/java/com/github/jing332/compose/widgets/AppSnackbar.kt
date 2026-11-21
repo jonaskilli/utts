@@ -1,12 +1,19 @@
 package com.github.jing332.compose.widgets
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 
 /**
@@ -61,11 +68,26 @@ val LocalAppSnackbarHost: SnackbarHostState
 /**
  * 便捷挂载：Scaffold 的 snackbarHost 槽直接填它。
  * `snackbarHost = { AppSnackbarHost() }`
+ *
+ * 11-21 用户令（装机反馈「整条横贯太宽」）： Snackbar 宽度**跟随文字**——
+ * 官方默认 fillMaxSize 横贯改为 wrapContentWidth，不足一行时由外层 Box 居中。
+ * 颜色保持 M3 默认 inverseSurface（用户确认接受黑色）。
  */
 @Composable
 fun AppSnackbarHost(modifier: Modifier = Modifier) {
     SnackbarHost(
         hostState = LocalAppSnackbarHost,
-        modifier = modifier
-    )
+        modifier = modifier.fillMaxSize(),
+    ) { data ->
+        // 外层 Box 铺满占位（居中定位用），内层 Snackbar 只包住文字宽度
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center,
+        ) {
+            Snackbar(
+                snackbarData = data,
+                modifier = Modifier.widthIn(max = LocalConfiguration.current.screenWidthDp.dp - 20.dp),
+            )
+        }
+    }
 }
