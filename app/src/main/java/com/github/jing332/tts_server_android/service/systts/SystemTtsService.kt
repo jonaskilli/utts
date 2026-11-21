@@ -630,7 +630,13 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
             // 回一段极短静音让调用方正常收尾，这些段后续仍由播放请求现场合成。
             // 判据用「当前是否已有合成在进行」，不是严格同步的锁，但对预热这种
             // 纯优化请求来说，「偶尔白跳一次」远好于「阻塞用户点播」。
-            if (reqSnapshot.batchSegments != null && mTtsManager?.isSynthesizing == true) {
+            //
+            // 11-21 15:5x（用户终裁「播放即掐」）：判据扩到**单段 preload_only**——
+            // 单链线性补货后备货密度高了（每 1.5~2.5s 一笔），播放请求到达时
+            // 撞上在途备货笔的概率大增，播放开头等 2~3s 的抖动会频繁。跳过分支
+            // 覆盖两类预加载请求：合成器正忙（在途播放或备货笔在跑）就立刻让位，
+            // U阅侧不计失败、下轮从同段续跑（c01290c 口径）。
+            if (reqSnapshot.isPreload && mTtsManager?.isSynthesizing == true) {
                 // 11-18 用户令：人话化——让路原因与后果直说（这行走 logger.info 只进文件日志，
                 // 不落日志页，与「预合成失败」WARN 行分工：让路无失败后果，不上 UI）
                 logger.info { "预热让路：正在合成播放段，本轮预合成跳过（后续自动再排）" }
