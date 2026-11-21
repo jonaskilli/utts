@@ -897,9 +897,13 @@ internal class LogGroups(
             // 没有书章的项沿用上一个（同一本书里连续日志同书同章，不必重复取）。
             // 成本 O(n)、只建两个数组，与 entryToList 同量级；只在 build 时算一次，
             // 不进滚动热路径——滚动时只做一次下标查表。
-            // 11-21 12:5x（用户令「卡片按正文顺序出现，别加一个245章节名」）：预加载卡
-            //（跨章备货，isPreload=true）**跳过**——它们按时间插在播放卡中间，
-            // 不跳的话吸顶章名跟着备货章来回跳（用户实报 244↔245）；吸顶只跟播放/朗读卡。
+            // 11-21 17:5x（用户实报「正文全是245章，吸顶却写第244章」）：**撤销 12:5x 的
+            // isPreload 跳过**。当初跳过的理由是预加载卡按发生时间插在播放卡中间、
+            // 会带着吸顶章名来回跳（244↔245）；14:2x「书→章→段」排序上线后预加载卡
+            // 已插到正文正确位置，不再来回跳。跳过反而成了新 bug：单链线性补货后
+            // 几乎所有卡都 isPreload=true，全部跳过的结果是 itemBookArr 恒停在
+            // 「排序位置在 245 之前」的 244——用户视口里明明全是 245 的卡。
+            // 现在吸顶跟随重新覆盖全部带书章的卡（含预加载卡）。
             val itemBookArr = Array(finalItems.size) { "" }
             val itemChapterArr = Array(finalItems.size) { "" }
             run {
@@ -909,7 +913,7 @@ internal class LogGroups(
                     val ai = anchorOf(it)
                     if (ai >= 0 && ai < list.size) {
                         val e = list[ai]
-                        if (e.bookName.isNotBlank() && !e.isPreload) {
+                        if (e.bookName.isNotBlank()) {
                             cBook = e.bookName
                             cChapter = e.chapterTitle
                         }

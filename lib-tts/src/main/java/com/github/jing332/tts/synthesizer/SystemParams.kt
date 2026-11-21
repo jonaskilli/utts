@@ -62,6 +62,12 @@ data class RequestSnapshot(
     val paraIndex: Int = -1,
     val paraTotal: Int = 0,
     val batchSegments: List<BatchSegment>? = null,
+    // 11-21（书章随请求走）：调用方（U阅）随请求 Bundle 带来的书名/章名。
+    // 空串=调用方没带（旧版/第三方），全链继续用朗读规则 JS 自己定位的章名；
+    // 非空时覆盖 JS 结果——JS 定位失败「沿用上次章名」在多引擎并发下会串章
+    // （真机 17:00:50 实锤 245 章预加载段被标 244 章），请求事实优先于猜测。
+    val reqBookName: String = "",
+    val reqChapterTitle: String = "",
     /**
      * 11-20：本笔是「后台预加载」，但要走**正常单段合成**（出真实音频）。
      *

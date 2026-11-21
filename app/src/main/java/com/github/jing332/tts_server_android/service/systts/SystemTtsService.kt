@@ -145,6 +145,13 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
         const val PARAM_PARA_INDEX = "para_index"
         const val PARAM_PARA_TOTAL = "para_total"
 
+        // 11-21（书章随请求走）：U阅 每笔请求随 Bundle 带书名/章名。空串=没带，
+        // 行为与旧版一致（章名继续由朗读规则 JS 定位）；非空时覆盖 JS 结果。
+        // 根因：JS 定位失败「沿用上次章名」，多引擎并发下预加载笔串章
+        //（真机 17:00:50 实锤 245 章段 66/81 被标 244 章）。
+        const val PARAM_BOOK_NAME = "book_name"
+        const val PARAM_CHAPTER_TITLE = "chapter_title"
+
         /**
          * 11-15（任务书-U阅批量提交多段）：一次请求带多段并并行合成。
          *
@@ -594,6 +601,9 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
             paraTotal = request.params.getInt(PARAM_PARA_TOTAL, 0),
             batchSegments = preloadBatch,
             preloadOnly = preloadOnly,
+            // 11-21（书章随请求走）：随本笔快照定格，与 paraIndex 同一并发安全口径
+            reqBookName = request.params.getString(PARAM_BOOK_NAME) ?: "",
+            reqChapterTitle = request.params.getString(PARAM_CHAPTER_TITLE) ?: "",
         )
 
         runBlocking {
@@ -678,6 +688,10 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                             // 朗读匹配仍跳过备货卡（那两个是「当前听到哪」的指示器，
                             // 被备货卡带跑是另一类串位）。失败照旧红行。
                             isPreload = reqSnapshot.isPreload,
+                            // 11-21（书章随请求走）：请求级书章透传给合成器，
+                            // 非空时覆盖规则 JS 的章名（防预加载笔串章）
+                            bookName = reqSnapshot.reqBookName,
+                            chapterTitle = reqSnapshot.reqChapterTitle,
                             emitHitLog = true,
                             callback = object :
                                 com.github.jing332.tts.synthesizer.SynthesisCallback {

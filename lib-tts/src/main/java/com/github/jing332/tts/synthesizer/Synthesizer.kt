@@ -27,6 +27,14 @@ interface Synthesizer {
         // 与 batchSegments（批量预热，只回静音）的区别见 RequestSnapshot.preloadOnly。
         emitHitLog: Boolean = true,
         isPreload: Boolean = false,
+        // 11-21（书章随请求走）：调用方（U阅）随请求带来的书名/章名，**优先于**
+        // 朗读规则 JS 自己定位的结果。根因：JS 的 resolveBookChapter 定位失败时
+        // 「沿用上次章名」，多引擎线程并发下预加载笔会串章（真机 17:00:50 实锤：
+        // 245 章的段 66/81 被标成 244 章）。请求级值非空时直接覆盖 TextSegment，
+        // 日志/排序/吸顶全部跟着请求事实走。空串=调用方没带（旧版/第三方），
+        // 行为与以前完全一致（继续用 JS 的值）。
+        bookName: String = "",
+        chapterTitle: String = "",
     ): Result<Unit, SynthesisError>
 }
 

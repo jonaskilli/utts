@@ -933,6 +933,11 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
         // 11-20：后台预加载标记（单段预加载要真实音频，但要按预热待遇：不加赛/不落日志页）
         emitHitLog: Boolean = true,
         isPreload: Boolean = false,
+        // 11-21（书章随请求走）：调用方带来的书名/章名。非空时**覆盖** textProcess
+        // 产出的每个 TextSegment 的书章（规则 JS 定位失败「沿用上次章名」会串章，
+        // 真机 17:00:50 实锤 245 章段被标 244）。空串=调用方没带，行为与以前一致。
+        reqBookName: String = "",
+        reqChapterTitle: String = "",
     ): Result<Unit, SynthesisError> = coroutineScope {
         if (mConfigs.isEmpty()) return@coroutineScope Err(SynthesisError.ConfigEmpty)
 
@@ -944,6 +949,17 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
                     params, presetConfigId, paraIndex, paraTotal, batchSegments, isPreload
                 )
                     .onSuccess { list ->
+                        // 11-21（书章随请求走）：请求级书章非空时覆盖全部片段——
+                        // 放在 onSuccess 末端、进 produceSegments 前，一次覆盖全列表，
+                        // 不碰 textProcess 内部（规则 JS/角色分析不受影响，只改归属标签）。
+                        val covered = if (reqBookName.isNotBlank() || reqChapterTitle.isNotBlank()) {
+                            list.map { seg ->
+                                seg.copy(
+                                    bookName = reqBookName.ifBlank { seg.bookName },
+                                    chapterTitle = reqChapterTitle.ifBlank { seg.chapterTitle },
+                                )
+                            }
+                        } else list
                         // 11-17（修「发到死通道的假成功」，11-17 00:12:18–29 实锤）：
                         // textProcess 内含规则脚本/AI 调用的 BlockingIO，协程 cancel 打不断它；
                         // 真机路径：U阅 TTL 重建连接 → synthesize 协程被 cancel，但拆段 11s 里
@@ -953,7 +969,7 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
                         // 不发请求、不进假成功。纯守卫，正常路径零影响。
                         if (!isActive) {
                             logger.info {
-                                "synthesis cancelled during textProcess — skip ${list.size} segment(s), no dead-channel request"
+                                "synthesis cancelled during textProcess — skip ${covered.size} segment(s), no dead-channel request"
                             }
                             return@onSuccess
                         }
@@ -964,9 +980,9 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
                             // 为什么不能回传真实音频：系统 TTS 一次只产出一个文件，
                             // N 段音频拼成连续流后调用方无法按段切分落盘。
                             if (batchSegments != null) {
-                                val ok = preloadSegments(list, params)
+                                val ok = preloadSegments(covered, params)
                                 logger.info {
-                                    "preload done: ok=$ok/${list.size}, cache=${SynthesizedAudioCache.stats()}"
+                                    "preload done: ok=$ok/${covered.size}, cache=${SynthesizedAudioCache.stats()}"
                                 }
                                 channel.trySendBlocking(
                                     ChannelPayload.Bytes(
@@ -974,7 +990,7 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
                                     )
                                 )
                             } else {
-                                produceSegments(channel, params, list, emitHitLog, isPreload)
+                                produceSegments(channel, params, covered, emitHitLog, isPreload)
                             }
                         } catch (e: PayloadErrorException) {
                             // 分句阶段致命错误（如文本处理器报错）：作为合成错误交给消费端
@@ -1080,6 +1096,9 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
         // 11-20：后台预加载（单段、要真实音频）。见 RequestSnapshot.preloadOnly。
         emitHitLog: Boolean,
         isPreload: Boolean,
+        // 11-21（书章随请求走）：调用方带来的书名/章名，见 Synthesizer 接口注释。
+        bookName: String,
+        chapterTitle: String,
     ): Result<Unit, SynthesisError> = mutex.withLock {
         logger.atTrace {
             message = "synthesize"
@@ -1098,7 +1117,7 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
         try {
             executeSynthesis(
                 params, callback, forceConfigId, paraIndex, paraTotal, batchSegments,
-                emitHitLog, isPreload
+                emitHitLog, isPreload, bookName, chapterTitle
             )
         } finally {
             logger.debug { "synthesize done" }
