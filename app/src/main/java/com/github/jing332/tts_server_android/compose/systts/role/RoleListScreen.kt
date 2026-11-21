@@ -86,6 +86,7 @@ import com.github.jing332.common.ACCENT_GREEN
 import com.github.jing332.tts_server_android.compose.theme.AppShapes
 import com.github.jing332.tts_server_android.compose.systts.common.PreviewIconButton
 import com.github.jing332.compose.widgets.ControlBottomBarVisibility
+import com.github.jing332.compose.widgets.LocalAppSnackbar
 import com.github.jing332.database.dbm
 import com.github.jing332.database.entities.systts.SystemTtsV2
 import com.github.jing332.database.entities.systts.TtsConfigurationDTO
@@ -279,6 +280,8 @@ fun RoleListScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    // 11-21 Toast→Snackbar（第一批）：组合期捕获全局桥 controller（current 不能在回调/局部函数读）
+    val snackbar = LocalAppSnackbar.current
 
     // ===== 数据 =====
     var version by remember { mutableIntStateOf(0) }
@@ -401,10 +404,12 @@ fun RoleListScreen(
         }
     }
 
+    // 11-21 Toast→Snackbar（第一批）：页面层提示改走全局 Snackbar 桥。
+    // host 挂在 MainPager 顶层 Scaffold，CompositionLocal 下发 controller（见 AppSnackbar.kt 头注）。
+    // 无参不过 format（原注释约束保留）：串里留 %1$s 而调用点漏参数会崩。
     fun toast(resId: Int, vararg args: Any) {
-        // 无参不过 format（见 lib-common ToastUtils.getStringSafe）：否则串里留 %1$s 就崩
         val msg = if (args.isEmpty()) context.getString(resId) else context.getString(resId, *args)
-        android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+        snackbar.send(msg)
     }
 
     // ===== 底栏回显钩子（10-14 用户实报「滑动时有时候底栏出不来」，老大难收口）=====
