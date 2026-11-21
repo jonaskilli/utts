@@ -117,7 +117,7 @@ import com.drake.net.utils.withIO
 import org.json.JSONArray
 import org.json.JSONObject
 import com.github.jing332.tts_server_android.compose.theme.AppTypeScale
-import com.github.jing332.compose.widgets.LocalAppSnackbar
+import com.github.jing332.tts_server_android.compose.MultiLineToast
 import com.github.jing332.tts_server_android.compose.theme.AppShapes
 import com.github.jing332.tts_server_android.compose.theme.neutralCardColor
 import com.github.jing332.common.ACCENT_GREEN
@@ -296,8 +296,6 @@ private fun KeyEntryRow(
     onDelete: () -> Unit,
 ) {
     val context = LocalContext.current
-    // 11-21 Toast→Snackbar（第二批）：本组件独立于 KeyManagerScreen 作用域，自行捕获全局桥
-    val snackbar = LocalAppSnackbar.current
     // 卡片底色两态：多选/组内删除勾中=12% 浅红 > 默认卡面白。
     // 启用态不再染底/描边（10-03 对勾方案：启用视觉全归行首对勾，0920 描边口径一并退役）
     // compositeOver：近似半透明色叠在卡面上，避免半透明直接给 ElevatedCard 透出页面底色
@@ -555,8 +553,8 @@ private fun KeyEntryRow(
                                             KeyListFile.displayName(entry) + "：" + testOutcome.message
                                         )
                                     )
-                                    // 11-21 Toast→Snackbar（第二批）：页面层「已复制」走全局桥
-                                    snackbar.send(context.getString(R.string.copied))
+                                    // 11-21 二次回退：恢复 Toast（多行升级版）
+                                    MultiLineToast.show(context, context.getString(R.string.copied))
                                 }
                                 .padding(horizontal = 8.dp, vertical = 6.dp)
                         )
@@ -1036,10 +1034,6 @@ private fun GroupHeaderBlock(
 fun KeyManagerScreen(tagRuleId: String, onBack: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    // 11-21 Toast→Snackbar（第二批）：页面层提示走全局桥；组合期捕获（current 不能在回调读）。
-    // 本文件的 Dialog 层提示（接口表单/拉取模型/备份中心/书籍管理/键编辑弹窗内）保留 Toast——
-    // Dialog 是独立 window，主窗口 Snackbar 盖不住（见 AppSnackbar.kt 头注）。
-    val snackbar = LocalAppSnackbar.current
     // 列表行 📋 复制模型名用
     val clipboard = LocalClipboardManager.current
     var version by remember { mutableIntStateOf(0) }
@@ -1119,8 +1113,8 @@ fun KeyManagerScreen(tagRuleId: String, onBack: () -> Unit) {
             KeyListFile.writeFolderGuide(tagRuleId) // 文件说明.txt（幂等，内容没变不重写）
         }
         if (mergedDup > 0) {
-            // 11-21 Toast→Snackbar（第二批）：页面层提示走全局桥（snackbar 捕获在函数顶部）。
-            snackbar.send(context.getString(R.string.role_key_dup_merged, mergedDup))
+            // 11-21 二次回退：恢复 Toast（多行升级版）
+            MultiLineToast.show(context, context.getString(R.string.role_key_dup_merged, mergedDup))
         }
         val loaded = withIO {
             Triple(
@@ -1149,11 +1143,10 @@ fun KeyManagerScreen(tagRuleId: String, onBack: () -> Unit) {
         }
     }
 
-    // 11-21 Toast→Snackbar（第二批）：主页面层助手改走全局桥。
-    // 无参不过 format（原注释约束保留）：串里留 %1$s 而调用点漏参数会崩。
+    // 11-21 二次回退：恢复 Toast（多行升级版）。无参不过 format：串里留 %1$s 漏参会崩。
     fun toast(resId: Int, vararg args: Any) {
         val msg = if (args.isEmpty()) context.getString(resId) else context.getString(resId, *args)
-        snackbar.send(msg)
+        MultiLineToast.show(context, msg)
     }
     fun save(list: List<KeyListFile.KeyEntry>) {
         scope.launch {

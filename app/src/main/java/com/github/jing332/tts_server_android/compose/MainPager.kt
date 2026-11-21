@@ -37,8 +37,6 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -49,10 +47,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
-import com.github.jing332.compose.widgets.AppSnackbarHost
 import com.github.jing332.compose.widgets.ControlBottomBarVisibility
-import com.github.jing332.compose.widgets.LocalAppSnackbar
-import com.github.jing332.compose.widgets.SnackbarController
 import com.github.jing332.compose.widgets.rememberA11TouchEnabled
 import com.github.jing332.tts_server_android.compose.settings.SettingsScreen
 import com.github.jing332.tts_server_android.compose.systts.MigrationTips
@@ -130,15 +125,9 @@ fun AnimatedContentScope.MainPager(sharedVM: SharedViewModel) {
 
     val overlayController = rememberOverlayController()
 
-    // 11-21 Toast→Snackbar 替换的基础设施：App 主窗口唯一一份 Snackbar 状态，
-    // 四栏页面（Scaffold）挂 AppSnackbarHost 呈现；嵌套层用 LocalAppSnackbar.current.send() 发。
-    // 窗口层级约束见 AppSnackbar.kt 头注：Dialog 是独立 window，Dialog 内的提示仍走 Toast。
-    val snackbarController = remember { SnackbarController(SnackbarHostState()) }
-
     CompositionLocalProvider(
         LocalBottomBarBehavior provides scrollBehavior,
         LocalOverlayController provides overlayController,
-        LocalAppSnackbar provides snackbarController,
     ) {
         Box(Modifier.fillMaxSize()) {
             val backgroundColor by animateColorAsState(
@@ -170,9 +159,6 @@ fun AnimatedContentScope.MainPager(sharedVM: SharedViewModel) {
 
             Scaffold(
                 modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-                // 11-21 Toast→Snackbar：App 主窗口唯一 host。M3 Snackbar 会自动浮在
-                // bottomBar 之上（Scaffold 内部布局保证），不会被底栏遮挡。
-                snackbarHost = { AppSnackbarHost() },
                 bottomBar = {
                     // 10-10 用户拍板「回 M3 官方 NavigationBar」：自绘微信式 60dp 退役——
                     // 反正滚动时底栏会藏起来（浏览态不占屏），展开态用官方 80dp 胶囊式

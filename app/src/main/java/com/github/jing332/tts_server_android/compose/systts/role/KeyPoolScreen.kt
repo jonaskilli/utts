@@ -66,7 +66,7 @@ import com.github.jing332.tts_server_android.compose.theme.AppTypeScale
 import com.github.jing332.tts_server_android.compose.theme.AppShapes
 import com.github.jing332.tts_server_android.R
 import com.github.jing332.tts_server_android.compose.nav.NavTopAppBar
-import com.github.jing332.compose.widgets.LocalAppSnackbar
+import com.github.jing332.tts_server_android.compose.MultiLineToast
 import com.github.jing332.tts_server_android.compose.systts.OrderBadge
 import com.github.jing332.tts_server_android.service.systts.help.KeyListFile
 import org.burnoutcrew.reorderable.detectReorderAfterLongPress
@@ -171,8 +171,6 @@ internal fun KeyPoolScreen(
         titles to ifcMap
     }
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
-    // 11-21 Toast→Snackbar（第一批）：组合期捕获全局桥 controller，回调里用（current 不能在回调读）
-    val snackbar = LocalAppSnackbar.current
     Scaffold(
         modifier = Modifier.fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
@@ -484,9 +482,6 @@ private fun PoolTestResultBar(
     testOutcome: KeyListFile.TestOutcome,
     onEditThinking: () -> Unit,
 ) {
-    // 11-21 Toast→Snackbar（第一批）：组合期捕获全局桥 controller（本组件在 KeyPoolScreen 之外，
-    // 不能直接用外层的 snackbar 变量，须自己取一次）
-    val snackbar = LocalAppSnackbar.current
     val isWarn = testOutcome.verdict == KeyListFile.TestVerdict.PASS_THINKING
     val isPass = testOutcome.verdict == KeyListFile.TestVerdict.PASS
     val barColor = when {
@@ -527,10 +522,8 @@ private fun PoolTestResultBar(
                         .clip(AppShapes.sm)
                         .clickable {
                             clipboard.setText(AnnotatedString(testOutcome.message))
-                            // 11-21 Toast→Snackbar（第一批）：页面层提示改走全局桥（AppSnackbar.kt）。
-                            // controller 在组合期捕获（current 只能在 Composable 上下文读），
-                            // 回调里只调普通函数 send。
-                            snackbar.send(context.getString(R.string.copied))
+                            // 11-21 二次回退：恢复 Toast（多行升级版），Snackbar 整链撤销
+                            MultiLineToast.show(context, context.getString(R.string.copied))
                         }
                         .padding(horizontal = 8.dp, vertical = 6.dp)
                 )
