@@ -1,100 +1,70 @@
 package com.github.jing332.tts_server_android.compose
 
 import android.content.Context
-import android.content.res.Configuration
-import android.graphics.drawable.GradientDrawable
-import android.text.TextPaint
-import android.view.Gravity
-import android.widget.ImageView
-import android.widget.LinearLayout
+import android.content.res.Resources
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
 import android.widget.TextView
 import android.widget.Toast
 import androidx.annotation.StringRes
-import androidx.core.content.ContextCompat
 
 /**
- * 提示条（11-21 终稿二改：短文案回原生 Toast，长文案才用自定义胶囊）。
+ * 提示条（11-21 终稿三改：直接复用 ROM 的 Toast 布局，只解除单行限制）。
  *
- * 背景：第一版 MultiLineToast 无条件替换成自定义 view，但 GradientDrawable 只设了
- * 圆角没设颜色（透明底）、没有应用图标、文字左对齐——用户实机截图指出「根本不是
- * 原来的格式」（原格式=ROM 文本 Toast：白胶囊底 + 左侧应用图标 + 居中文字）。
+ * 沿革：11-21 上午 Toast→Snackbar 三批被逐项否掉 → a8395ef6 换回 Toast + 自定义
+ * MultiLineToast（自绘胶囊）→ 用户实机指出「根本不是原来的格式」：胶囊没设底色
+ * （透明）、缺应用图标、文字左对齐、文字颜色也不对（v1 TextView 无颜色设置，
+ * 用了 App 主题默认值，与 ROM Toast 的原色不符）。
  *
- * 现规则：
- * - 短文案（单行放得下）：直接 Toast.makeText，样式与位置完全由 ROM 决定，
- *   与改动前逐像素一致 = 「原来的格式」。
- * - 长文案（ROM 文本 Toast 单行截断，唯一真问题）：自定义胶囊 view，仿照原样式
- *   （胶囊底色 + 应用图标 + 居中、可换行），固定屏幕底部居中。
- * - 自定义 view 在个别 ROM 受限时兜底回系统 Toast。
+ * 教训：自绘仿 ROM 样式永远仿不精确（底色/图标/文字颜色/字号全是猜），改用
+ * ROM 自带的 transient_notification 布局 inflate——胶囊底、图标、颜色、字号
+ * 全部原样，唯一改动是 TextView 解除单行限制，长文案换行显示全部。
+ *
+ * 兜底链：ROM 布局 inflate 失败（ROM 改名/资源受限）→ 直接 Toast.makeText
+ * （格式正确，仅长文案可能单行截断，宁缺多行不失格式）。
  */
 object MultiLineToast {
 
     fun show(context: Context, message: CharSequence, long: Boolean = false) {
         val duration = if (long) Toast.LENGTH_LONG else Toast.LENGTH_SHORT
-        if (fitsOneLine(context, message)) {
-            runCatching { Toast.makeText(context, message, duration).show() }
-            return
-        }
-        runCatching { showPillToast(context, message, duration) }
-            .onFailure {
-                runCatching { Toast.makeText(context, message, duration).show() }
-            }
+        if (showWithRomLayout(context, message, duration)) return
+        runCatching { Toast.makeText(context, message, duration).show() }
     }
 
     fun show(@StringRes resId: Int, context: Context, vararg args: Any) {
         show(context, context.getString(resId, *args))
     }
 
-    private fun dp(context: Context, v: Int): Int =
-        (v * context.resources.displayMetrics.density).toInt()
+    /**
+     * 用 ROM 自己的 Toast 布局弹提示。不设 Gravity——用系统默认位置，
+     * 与文本 Toast 完全一致。
+     */
+    private fun showWithRomLayout(context: Context, message: CharSequence, duration: Int): Boolean =
+        runCatching {
+            val layId = Resources.getSystem()
+                .getIdentifier("transient_notification", "layout", "android")
+            if (layId == 0) return false
+            val root = LayoutInflater.from(context).inflate(layId, null)
+            val tv = findTextView(root) ?: return false
+            tv.text = message
+            tv.isSingleLine = false
+            tv.maxLines = Int.MAX_VALUE
+            tv.ellipsize = null
+            val toast = Toast.makeText(context, "", duration)
+            toast.view = root
+            toast.show()
+            true
+        }.getOrDefault(false)
 
-    /** 短文案判定：无换行符，且按 16sp 量宽放得进「屏宽 - 胶囊内边距/图标/边距(留足余量)」 */
-    private fun fitsOneLine(context: Context, message: CharSequence): Boolean {
-        if (message.contains('\n')) return false
-        val dm = context.resources.displayMetrics
-        val paint = TextPaint().apply { textSize = 16 * dm.scaledDensity }
-        val available = dm.widthPixels - dp(context, 140)
-        return paint.measureText(message.toString()) <= available
-    }
-
-    /** 仿 ROM 文本 Toast 样式：胶囊底 + 应用图标 + 居中文字（可换行），跟随深浅色 */
-    private fun showPillToast(context: Context, message: CharSequence, duration: Int) {
-        val dm = context.resources.displayMetrics
-        val dark = (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
-            Configuration.UI_MODE_NIGHT_YES
-        val container = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(context, 24), dp(context, 14), dp(context, 24), dp(context, 14))
-            background = GradientDrawable().apply {
-                cornerRadius = 100f * dm.density // 远超半高 → 渲染为胶囊
-                setColor(if (dark) 0xFF2C2C2E.toInt() else 0xFFFFFFFF.toInt())
+    private fun findTextView(v: View?): TextView? = when {
+        v is TextView -> v
+        v is ViewGroup -> {
+            for (i in 0 until v.childCount) {
+                findTextView(v.getChildAt(i))?.let { return it }
             }
+            null
         }
-        val icon = ImageView(context).apply {
-            // ROM 文本 Toast 左侧就是应用图标，保持一致
-            setImageDrawable(ContextCompat.getDrawable(context, context.applicationInfo.icon))
-        }
-        val tv = TextView(context).apply {
-            text = message
-            textSize = 16f
-            // 关键：不设 singleLine / maxLines —— 长文案自动换行显示全部
-            setTextColor(if (dark) 0xFFFFFFFF.toInt() else 0xFF222222.toInt())
-            gravity = Gravity.CENTER
-        }
-        container.addView(
-            icon,
-            LinearLayout.LayoutParams(dp(context, 22), dp(context, 22)).apply {
-                marginEnd = dp(context, 9)
-            },
-        )
-        container.addView(tv)
-        val toast = Toast.makeText(context, "", duration)
-        toast.view = container
-        toast.setGravity(
-            Gravity.CENTER_HORIZONTAL or Gravity.BOTTOM,
-            0,
-            dp(context, 140),
-        )
-        toast.show()
+        else -> null
     }
 }
