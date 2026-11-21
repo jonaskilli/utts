@@ -141,6 +141,23 @@ class TtsLogViewModel : ViewModel() {
         }
     }
 
+    /**
+     * 「按正文顺序排」（11-21 14:2x 用户拍板）用的章序数据：书名 → 章名列表（书内真实序）。
+     * 与 chaptersOf 同源（ChapterOrderFile/data.json），供 LogGroups.build 的排序键用。
+     * 只在朗读规则可用时返回单书映射；规则/文件不可用返回 null → build 退回时间原序。
+     */
+    fun chapterOrderMap(): Map<String, List<String>>? {
+        val ruleId = runCatching {
+            dbm.speechRuleDao.getAllEnabledWithoutCode().firstOrNull()?.ruleId
+        }.getOrNull().orEmpty()
+        if (ruleId.isBlank()) return null
+        val order = runCatching { ChapterOrderFile.readChapterOrder(ruleId) }
+            .getOrDefault(emptyList())
+        if (order.isEmpty()) return null
+        val book = runCatching { ChapterOrderFile.readBookName(ruleId) }.getOrDefault("")
+        return if (book.isBlank()) null else mapOf(book to order)
+    }
+
     /** 清掉书章范围（筛选弹窗「全部书籍」/ 切书后回到不限） */
     fun clearScope() {
         scopeBook.value = null

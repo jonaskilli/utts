@@ -394,6 +394,10 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
             fallbackBook = pinnedFallback?.bookName.orEmpty(),
             fallbackChapter = pinnedFallback?.chapterTitle.orEmpty(),
             markPending = !logNarrowed,
+            // 11-21 14:2x（用户拍板「卡片按正文的顺序出现」）：日志流按
+            // 「书→章→段」排序，预合成卡插到正文的正确位置，不再锯齿交错。
+            // 排序键随 displayLogs 变化在 build 内重算，这里只取一次章序数据。
+            chapterOrder = vm.chapterOrderMap(),
         )
     }
 

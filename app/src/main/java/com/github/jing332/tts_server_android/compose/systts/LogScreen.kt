@@ -442,6 +442,10 @@ internal class LogGroups(
          *   （11-11：由调用方传"全量日志里最近一条带书章的条目"）。
          *   用户实报「切换章节时有时无」——因为吸顶区只看**过滤后**的列表，
          *   选单本书/切书时主行被滤掉，吸顶区就空掉。加回落可保证只要读过这本书就仍显示。
+         * @param chapterOrder 书名 → 该书章名的**书内真实章序**（与「切换章」弹窗同源，
+         *   ChapterOrderFile）。非空时日志流按「书→章→段」排序（用户 11-21 14:2x 拍板
+         *   「卡片按正文的顺序出现」）：预合成卡（跨章备货）按自己的章/段插到正确位置，
+         *   不再按发生时间在播放卡中间锯齿交错。null/空 = 按时间原序（旧行为）。
          */
         fun build(
             input: List<LogEntry>,
@@ -454,8 +458,33 @@ internal class LogGroups(
              *（被筛掉的失败卡会显示成没结果），比不标更糟。
              */
             markPending: Boolean = true,
+            chapterOrder: Map<String, List<String>>? = null,
         ): LogGroups {
-            val list = regroupByReqId(input)
+            // ===== 11-21 14:2x：按「书→章→段」排序（正文阅读顺序）=====
+            // 用户拍板：日志页要像翻书——244章 1..64 连续、接 245章 1..81 连续。
+            // 排序键 (book, chapterRank, paraIndex, time)：
+            //  · chapterRank=书内章序（data.json 同源），查不到的章保序追在该书已排名
+            //    章之后（与 chaptersOf 弹窗同一兜底口径）；
+            //  · paraIndex 段号：同章内按段序排——预合成段 1..N 与播放段同段号相邻；
+            //  · time 兜底：同章同段（重试/成功子行）保持发生时序；
+            //  · 无书章的行（插件/规则/系统）不参与排序，原样按时间夹在中间——它们
+            //    本来就不属于「正文流」。
+            // ⚠️ 排在 regroupByReqId 之前：reqId 聚组要求同一请求的行先相邻（游程判据），
+            // 排序恰好把同段同 reqId 的行聚到了一起，重排命中率反而更高。
+            val sortedInput = if (chapterOrder.isNullOrEmpty()) input else {
+                val orderOf = chapterOrder.mapValues { (_, chapters) ->
+                    chapters.withIndex().associate { (i, name) -> name to i }
+                }
+                input.sortedWith(
+                    compareBy(
+                        { it.bookName },
+                        { e -> orderOf[e.bookName]?.get(e.chapterTitle) ?: Int.MAX_VALUE },
+                        { it.paraIndex.takeIf { p -> p >= 0 } ?: Int.MAX_VALUE },
+                        { it.time },
+                    )
+                )
+            }
+            val list = regroupByReqId(sortedInput)
             val raw = ArrayList<Item>(list.size)
             var head = -1
             var members = ArrayList<Int>()
