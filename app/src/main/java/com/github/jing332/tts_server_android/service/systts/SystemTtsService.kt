@@ -1396,6 +1396,14 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                         org.slf4j.MDC.remove("bookName")
                         org.slf4j.MDC.remove("chapterTitle")
                         org.slf4j.MDC.remove("reqId")
+                        // 11-21 14:1x（真机实锤「244 章段卡标 4/81」）：paraIndex/paraTotal/
+                        // isPreload 也必须清——MDC 是线程级 ThreadLocal，本笔没写就是**上
+                        // 一笔的残留值**（同一 worker 线程先后跑 245 章预加载与 244 章滚动
+                        // 预热，前者 paraTotal=81 残留到后者落盘）。清理面必须与 put 面
+                        // 完全对齐，漏一个就是跨请求串值。
+                        org.slf4j.MDC.remove("paraIndex")
+                        org.slf4j.MDC.remove("paraTotal")
+                        org.slf4j.MDC.remove("isPreload")
                     }
                 }
 
