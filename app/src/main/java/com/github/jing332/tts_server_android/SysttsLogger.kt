@@ -57,8 +57,26 @@ object SysttsLogger {
         // 段号只认主行（indent=0 且 paraIndex>=0）：子行/插件行不带可靠段号，
         // 拿它们更新会把 console 日志标错段。
         if (entry.bookName.isNotBlank()) {
+            // 11-21 23:5x（用户实报「姓名分析日志跑到上一章末尾」）：**跨章时把段号作废**。
+            //
+            // 现象：23:53 读到 255 章 106/108 段，255 章读完进 256 章；
+            // 256 章开头触发的「姓名分析开始/成功」两条规则日志，段号列是空的，
+            // 排序时继承了 currentParaIndex=106（255 章的段号）⇒ 被排进 255 章末尾。
+            // 而它分析的明明是 256 章，应排在 256 章开头。
+            //
+            // 根因：currentParaIndex 是「最近一次播放请求的段号」，**跨章后它必然属于旧章**。
+            // 规则日志本身不带段号，只能继承它；继承一个跨章的段号就是错位。
+            // 修法：书章一旦变化（这里因任何带书名的条目触发），先重置为 -1（=未知），
+            // 让规则行继承不到旧段号；渲染层随后用「继承前行/回填后文」把它放到
+            // 正确位置（该兜底 22:5x 已实现，见 LogScreen.LogGroups.build）。
+            // 同章内段号照常推进，不受影响。
+            val bookChanged = currentBook.isNotBlank() &&
+                (currentBook != entry.bookName || currentChapter != entry.chapterTitle)
             currentBook = entry.bookName
             currentChapter = entry.chapterTitle
+            if (bookChanged) {
+                currentParaIndex = -1
+            }
         }
         if (entry.indent == 0 && entry.paraIndex >= 0) {
             currentParaIndex = entry.paraIndex

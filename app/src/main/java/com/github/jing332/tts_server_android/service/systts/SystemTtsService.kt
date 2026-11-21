@@ -1295,6 +1295,21 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
             return getString(R.string.systts_log_cause_no_network)
         if (chain.any { it is java.net.ConnectException || it is javax.net.ssl.SSLException })
             return getString(R.string.systts_log_cause_connect)
+        // 11-22 00:1x（用户实报两条预合成失败格式不一致）：补 SocketException 归因。
+        //
+        // 现场：同一段（第 60 段）连出两行，格式却完全不同——
+        //   00:05:11 预合成失败（第 60 段）：WrappedException：Wrapped java.net.SocketException:
+        //            Software caused connection abort (nami.ai…#132)
+        //   00:05:42 预合成失败（第 60 段）：超时
+        // 前者走 ErrorEvent.Request 的 friendlyCause，而链里没有 SocketException 一项
+        // ⇒ 掉到 ⑤ 兜底直接吐 Java 类名+原始消息；后者走 ErrorEvent.RequestTimeout 的
+        // 硬编码「超时」。两条并排看像两个系统输出的，用户无从判断严重程度。
+        //
+        // SocketException = 连接被对端/本地网络中断（连接 abort、broken pipe、
+        // connection reset），与 ConnectException（连不上）同属网络层可归因故障，
+        // 归到「连接失败」即可——底层原文仍是排查线索，DEBUG 日志里有完整的。
+        if (chain.any { it is java.net.SocketException })
+            return getString(R.string.systts_log_cause_connect)
 
         // ④ 消息关键词
         if (Regex("(?i)timed?\\s?out").containsMatchIn(msg))
@@ -1305,8 +1320,26 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
         // ⑤ 归不到已知类型时带出异常原文：只报类名（如 IllegalStateException）无法定位，
         // 09-17 实报「获取失败：IllegalStateException」看不出是引擎没找到还是别的
         // 限 120 字：足够露出 PluginTtsSource 的 pluginId（前缀引擎查找失败时靠它定位）
-        return if (msg.isBlank()) t.javaClass.simpleName
-        else t.javaClass.simpleName + "：" + msg.take(120)
+        //
+        // 11-22 00:1x（用户实报格式不一致）：兜底输出也做清洗——
+        // ① 去掉脚本引擎的包装层类名（WrappedException / ScriptException 等），它们
+        //    对用户零信息，还挤占 120 字额度：现场「WrappedException：Wrapped java.net.
+        //    SocketException: …」里两个 Wrapped 都是包装产物，真实类型藏在第三层；
+        // ② 消息里的全限定类名去掉包名（java.net.SocketException → SocketException），
+        //    保持与其它归因同一「短语」气质，不至于一眼就是 Java 堆栈。
+        val cleanType = t.javaClass.simpleName
+            .takeIf { it.isNotBlank() && !it.contains("Wrapped", ignoreCase = true) }
+            ?: chain.firstOrNull { c ->
+                val n = c.javaClass.simpleName
+                n.isNotBlank() && !n.contains("Wrapped", ignoreCase = true)
+            }?.javaClass?.simpleName
+            ?: "未知错误"
+        val cleanMsg = msg
+            .replace(Regex("Wrapped\\s+"), "")
+            .replace(Regex("\\b(?:java|javax|kotlin|android)\\.[a-zA-Z0-9_.]+\\."), "")
+            .trim()
+        return if (cleanMsg.isBlank()) cleanType
+        else cleanType + "：" + cleanMsg.take(120)
     }
 
     private fun normalEvent(e: NormalEvent) {

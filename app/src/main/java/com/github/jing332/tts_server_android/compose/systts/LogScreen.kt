@@ -478,8 +478,12 @@ internal class LogGroups(
             // 排序键就继承那个 (书, 章序, 段号)，自己的 time 作同段兜底——
             // 效果是它落在「它发生的位置」：紧跟的正文段之后、下一段之前。
             // 「预热让路」出现在它让路的那笔备货卡旁边，规则日志出现在它分析的那段旁。
-            // 时间轴最前面、没有任何上下文可继承的行（启动日志等）用哨兵书名
-            // 沉到列表末尾，不再霸占顶部。
+            // 时间轴最前面、没有任何上下文可继承的行（启动日志等）**回填后文**：
+            // 11-21 23:4x 用户实报「【书章就绪】一直出现在日志最底部」——那条行落盘时
+            // 书名为空（`| § |  |  | [SpeechRule]`：规则打就绪行那一刻 MDC 还没书章），
+            // 又恰好是本次回读的**第一条**（比第一条请求行只早 10ms）⇒ 前向无上下文，
+            // 旧实现落哨兵 \uFFFF 直接沉底。规则行讲的正是「接下来读哪本书哪章」，
+            // 放在它后面那批正文之前才对。细节见 sortedInput 里的 headBook 回填。
             // ⚠️ 排在 regroupByReqId 之前：reqId 聚组要求同一请求的行先相邻（游程判据），
             // 排序恰好把同段同 reqId 的行聚到了一起，重排命中率反而更高。
             // ⚠️ 继承只改排序键、不改条目本体（LogEntry 原样进出）：条目上仍是空书章，
@@ -494,6 +498,17 @@ internal class LogGroups(
                 var ctxRank = Int.MAX_VALUE
                 var ctxPara = Int.MAX_VALUE
                 var sawContext = false
+                // 11-21 23:4x：时间轴最前面无前向上下文的行，**回填后文**的键。
+                // 用户实报「【书章就绪】一直在日志最底部」：那条行落盘书名为空
+                //（规则打就绪行时 MDC 还没书章），又恰好是回读的第一条 ⇒ 前向无上下文，
+                // 旧实现落哨兵 \uFFFF 直接沉底。它宣告的正是「接下来读哪本书哪章」，
+                // 应落在后面那批正文之前。段号用后文首行的；无段号就 -1（章首位置）。
+                val headFirst = input.firstOrNull { it.bookName.isNotBlank() }
+                val headBook = headFirst?.bookName ?: ""
+                val headRank = headBook.takeIf { it.isNotBlank() }
+                    ?.let { orderOf[it]?.get(headFirst?.chapterTitle) ?: Int.MAX_VALUE }
+                    ?: Int.MAX_VALUE
+                val headPara = headFirst?.paraIndex?.takeIf { it >= 0 } ?: -1
                 input.forEach { e ->
                     if (e.bookName.isNotBlank()) {
                         ctxBook = e.bookName
@@ -507,6 +522,10 @@ internal class LogGroups(
                         keys.add(RowKey(e.bookName, ctxRank, ctxPara))
                     } else if (sawContext) {
                         keys.add(RowKey(ctxBook, ctxRank, ctxPara))
+                    } else if (headBook.isNotBlank()) {
+                        // 前向无上下文但后文有书章：回填后文（见上方 headBook 注释），
+                        // 让「书章就绪」这类开篇规则行落在它宣告的那一章**之前**。
+                        keys.add(RowKey(headBook, headRank, headPara))
                     } else {
                         keys.add(RowKey("\uFFFF", Int.MAX_VALUE, Int.MAX_VALUE))
                     }
@@ -1022,6 +1041,26 @@ internal fun LogScreen(
     // 非空且 playing=true 时：①头部进度行显示 ②复位浮钮启用 ③匹配卡加描边。
     // null = 没在朗读（U阅 停止/文件过期），全部相关 UI 隐藏，浮钮退回 ⇊ 跳底部。
     playingSnapshot: com.github.jing332.tts_server_android.service.systts.help.ReadProgressReader.Snapshot? = null,
+    // ===== 11-22 00:3x 用户令「日志最底部也要缓存提示」=====
+    //
+    // 为什么固定在屏幕底部（用户拍板 甲 案）：吸顶的「缓存：107/110」在**页面顶部**，
+    // 而翻日志时视线在列表末端——想确认「备货到哪了」得往上看一眼再滑回来。
+    // 底部这条钉在日志区下沿，翻到哪儿都能就地看到同一个读数。
+    //
+    // 数据与吸顶**同源**（同一个快照、缓存侧同一算法），不另算一份：
+    // 两处口径必须永远一致，否则一处说 107 一处说 105，比不显示更糟。
+    // 缓存数字为空 = 整条不渲染（没在朗读 / 合成侧还没上报），与吸顶进度行同门控。
+    //
+    // 11-22 00:4x 用户追加：「底部还得带当前进度吧，不然缓存超了几章也不知道」——
+    // 只有缓存读数看不出**领先多少**，而"领先几章"正是预加载唯一的价值。
+    // 故四段并排：缓存（章 107/110）· 当前（章 95/110），缓存 ≠ 当前章时一眼看出跨章备货。
+    // 用户同时拍板「纯文字不加图形」（问「会不会花里胡哨」）：底部常驻，
+    // 进度条会长期亮着抢眼；图形留给偶尔打开的面板才划算。
+    // 拆四段是因为缓存数字要染主题绿加粗（与吸顶同视觉语言），其余保持灰。
+    bottomCacheLabel: String = "",
+    bottomCacheCount: String = "",
+    bottomPlayLabel: String = "",
+    bottomPlayCount: String = "",
     // 「原文」定位键（用户 10-08 午后 甲方案）：非空=true=当前处于筛选/搜索态，
     // 卡右上角显示小键；点击回调把该条目交回上层（清筛选+跳完整流原位）
     showLocateKey: Boolean = false,
@@ -1420,6 +1459,30 @@ internal fun LogScreen(
         }
         val hasNewBelow = list.size > lastSeenSizeAtBottom && !isAtBottom
         val showJumpToBottom = isFarFromBottom || hasNewBelow
+        // ===== 11-21 23:4x 用户实报「选『最新』且在最下方时 ↓ 一会儿出现一会儿消失」=====
+        //
+        // 根因：显隐条件当时写成 `!isAtBottom || showJumpToBottom`——**只要这一帧不在最底
+        // 就显示**。这正是 10-10 装机时用户否掉的旧逻辑（「只要不在最底就常驻，出现太勤，
+        // 时机该改改」），拍板口径是 A+B（A=离底 >15 条、B=不在底且有新日志）。
+        // 箭头闪的机制：跟随最新态下每条新日志追加，LazyColumn 的那一帧还没按瞬时钉底
+        // 补齐（且尾部 Spacer 被顶出视口），isAtBottom 瞬时为 false ⇒ 箭头闪现，
+        // 下一帧滚底后 isAtBottom=true ⇒ 又消失。朗读时每段两条日志，就是「一会儿出现
+        // 一会儿消失」。
+        //
+        // 两步修（缺一不可）：
+        //  ① 判据回到 A+B：`isFarFromBottom || hasNewBelow`，删掉 `!isAtBottom` 短路；
+        //  ② 显示加 250ms 稳压：追加帧这类瞬时抖动（几十毫秒即自愈）不再点亮箭头；
+        //     真·离底/真·有新日志是持续状态，250ms 后照常出现，不误伤 B 语义。
+        // 隐藏不延迟：回到最底就立刻消失，不给「已到底还挂个箭头」的错位感。
+        var showArrow by remember { mutableStateOf(false) }
+        LaunchedEffect(showJumpToBottom) {
+            if (showJumpToBottom) {
+                delay(250)
+                showArrow = true
+            } else {
+                showArrow = false
+            }
+        }
         // ===== 自动滚底 =====
         // 两条来源必须分开，因为语义完全不同（11-11 用户纠正）：
         //
@@ -2505,6 +2568,90 @@ internal fun LogScreen(
                 }
             }
 
+        // ===== 11-22 00:3x 底部固定缓存提示（用户拍板：钉在最底部）=====
+        //
+        // 位置（11-22 00:5x 用户定稿：「浮钮上方太高了，浮钮下方还行」）：
+        //   **屏幕最底部、浮钮下方**，左右各 8dp 贴内容线。浮钮相应上移让位（见下）。
+        //
+        // 为什么曾经考虑过其他位置、又都否掉了：
+        //   · 贴右让出 88dp 给浮钮 → 可用宽度只剩 244dp，而「缓存：第254章 107/110 ｜
+        //     当前：第254章 95/110」约 282dp，会被省略号截断；
+        //   · 浮钮上方整行通栏 → 宽度够（334dp），但用户明确「太高了，不合适」——
+        //     它会把列表底部顶起一条，视觉上像页面多了一行；
+        //   · 现在贴屏底 → 可用约 344dp，文案完整放下，且与浮钮不抢位置。
+        //
+        // 为什么用「半透明底色 + 圆角」而不是纯文字：它浮在列表上，下面压着日志正文，
+        // 纯文字会与正文混读；给一层 92% surface 底形成独立信息带。
+        //
+        // 空串时不进组合（省一次布局），与吸顶进度行同门控。
+        if (bottomCacheCount.isNotBlank()) {
+            // 11-22 01:0x：圆点删除后只剩一段文字，Row 容器随之撤掉（Box 即可），
+            // 少一层布局节点也少一次测量。
+            val bottomLabelText = "当前：" + bottomPlayLabel + bottomPlayCount +
+                (if (bottomPlayCount.isNotBlank()) " ｜ " else "") +
+                "缓存：" + bottomCacheLabel + bottomCacheCount
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    // 左右 8dp 对齐内容线；底距 8dp 贴到日志区下沿（浮钮已上移让位）
+                    .padding(start = 8.dp, end = 8.dp, bottom = 8.dp)
+                    .clip(AppShapes.sm)
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.92f))
+                    .padding(horizontal = 10.dp, vertical = 5.dp),
+            ) {
+                // ===== 11-22 01:0x 用户三问后定稿 =====
+                //
+                // ① 「跟吸顶区一样吗？只是顺序变了下」——**对，就该一样**。
+                //    此前我多写了「缓存在前、当前在后」，而吸顶是「当前在前、缓存在后」，
+                //    同一份数据在两个地方顺序相反，纯属我自找的不一致。已改为与吸顶同序：
+                //    「当前：… ｜ 缓存：…」。
+                //
+                // ② 「缓存前面还加圆点表示啥」——**啥也不表示，是废的**，已删。
+                //    吸顶那枚点有明确语义（呼吸绿=合成流水线活着，15s 活跃门），
+                //    而底部这条是常驻静态提示，复制一枚静止灰点纯属装饰，还会让用户
+                //    以为它跟吸顶的点有某种联动。删掉后文字直接起头，更干净。
+                //
+                // ③ 「放不下可以字号小一点」——采用两级自适应（见下方 fontSize）：
+                //    默认 12sp 与吸顶同档；章名特别长时自动降到 11sp，尽可能保住完整读数。
+                val cacheColor = MaterialTheme.colorScheme.primary
+                Text(
+                    text = buildAnnotatedString {
+                        // 顺序与吸顶完全一致：当前在前、缓存在后（用户 01:0x 令）
+                        if (bottomPlayCount.isNotBlank()) {
+                            append("当前：") // 灰色常规
+                            append(bottomPlayLabel) // 「第254章 」，灰色常规
+                            withStyle(
+                                SpanStyle(
+                                    fontFamily = SegNumberFont,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                            ) { append(bottomPlayCount) } // 当前侧灰常规加粗（非完成态，不染绿）
+                            append(" ｜ ")
+                        }
+                        // 缓存：唯一染绿的段——绿在此页语义=「已完成可用」
+                        append("缓存：")
+                        append(bottomCacheLabel)
+                        withStyle(
+                            SpanStyle(
+                                fontFamily = SegNumberFont,
+                                fontWeight = FontWeight.SemiBold,
+                                color = cacheColor,
+                            )
+                        ) { append(bottomCacheCount) }
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    // 11-22 01:0x 用户令「放不下可以字号变小一点」：两级自适应。
+                    // 12sp 与吸顶同档（默认）；文字长了降到 11sp 换回空间。
+                    // 用 length 估算而非 onTextLayout 测量：这里只需一个粗判，
+                    // 测量会在首帧引起一次额外布局（计数器抖动），不值得。
+                    fontSize = if (bottomLabelText.length > 34) 11.sp else 12.sp,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.78f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+
         // ===== 11-14「正在朗读」吸顶条（用户第二次纠正，最终定稿）=====
         //
         // 用户原话：「图2，这个正在朗读依然无法吸顶，我希望直接能看到正在朗读的日志，
@@ -2619,10 +2766,15 @@ internal fun LogScreen(
                 .align(Alignment.BottomEnd)
                 // 11-17 对齐修正：↓ 的 padding 也收 8dp——它也套 72dp 触摸 Box（见下），
                 // 视觉右缘 = 8 + (72-56)/2 = 16dp，与 ⟲ 一致。旧值 16dp 使视觉右缘 24dp。
-                // 11-17 用户定稿：↓ 挪到右下角（BottomEnd，与 ⟲ 纵列对齐），
-                // 底距 20dp 不变（不压底栏）。原 BottomCenter 口径退役。
-                .padding(end = 8.dp, bottom = 20.dp),
-            visible = !isAtBottom || showJumpToBottom,
+                // 11-17 用户定稿：↓ 挪到右下角（BottomEnd，与 ⟲ 纵列对齐）。
+                //
+                // 11-22 00:5x（用户令「底部缓存提示放浮钮下方」）：**底距 20→48dp**。
+                // 底部新增的缓存提示条占了最下面一条（它 8dp 贴底、约 30dp 高），
+                // ↓ 键必须上移让位，否则会被压在提示条下面点不到。
+                // 48 = 提示条底距 8 + 条高约 30 + 间隙 10。
+                // ⟲ 键不动（104dp）——它本来就在更上一层，两键间距不变。
+                .padding(end = 8.dp, bottom = 48.dp),
+            visible = showArrow,
             enter = fadeIn() + expandIn(expandFrom = Alignment.BottomCenter),
             exit = shrinkOut(shrinkTowards = Alignment.BottomCenter) + fadeOut(),
         ) {

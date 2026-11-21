@@ -413,20 +413,50 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
         request: RequestPayload,
         playCallback: suspend (ITtsRequester.ISyncPlayCallback) -> Unit,
     ): InputStream? {
+        // 11-22 00:2x（用户实报：同一段先「获取成功 243.0 KB · 12.5s」、2 秒后又「超时：30秒」）：
+        // 超时事件必须**先确认这笔请求还没成功**，否则会出现两个互相矛盾的结局。
+        //
+        // 现象（system_tts.log 23:50，reqId r1uooilvz5j50，第 90/108 段）：
+        //   23:50:24.331  SUCCESS 获取成功：243.0 KB · 12.5s   ← 音频已经交付、也要播了
+        //   23:50:26.660  INFO    请求音频（同 reqId 第二次派发）
+        //   23:50:26.671  ERROR   超时：30秒（同一句）        ← 同一请求被判失败
+        //
+        // 根因：下面 withTimeout 只包住「发出请求」，而**成功的判定在它外面**——
+        // 本机/同步回调型插件（onCallback）会把 request() 挂到 30s 超时抛
+        // TimeoutCancellationException，可这期间音频早已通过 playCallback 交出并被记成功。
+        // 于是同一个 request 先成功、再报超时，日志页同时出现绿卡与红卡，
+        // 用户看到「读出来了却说失败」，且这条 ERROR 走 logE 不带 MDC，成了无主裸行。
+        //
+        // 修法（用户 11-22 拍板方案 B：超时派发前先查是否已成功）：
+        // 用一个按 request 实例的原子标记 delivered，**音频交付路径**一触发就置 true；
+        // 超时分支只在「确实还没交付」时才派发 RequestTimeout。
+        //
+        // ⚠️ 标记必须包在 playCallback 外层，不能只看 onCallback 是否存在：
+        // `Response.onCallback { }` 只是「callback 字段非空就执行 block」的语法糖，
+        // 真正的播放是 playCallback 内部把 callback 交给消费端后由对方调 play()。
+        // 若把 set 写在 onCallback 的分支里，它只能证明「有回调可用」，证明不了
+        // 「音频已经交付」——而这正是要判断的事。
+        val delivered = java.util.concurrent.atomic.AtomicBoolean(false)
         val result = try {
             withTimeout(context.cfg.requestTimeout()) {
                 ttsRequester.request(request.params, request.config)
             }
         } catch (e: TimeoutCancellationException) {
-            event(ErrorEvent.RequestTimeout(request), request)
+            // 已经交付过音频 ⇒ 这不是真超时，只是同步回调型请求的挂起被窗口砍断，
+            // 报超时反而制造矛盾结局。静默返回（该段音频已在播放通道里）。
+            if (!delivered.get()) event(ErrorEvent.RequestTimeout(request), request)
             return null
         } catch (e: CancellationException) {
             throw e
         }
 
         result.onSuccess { resp ->
-            resp.onCallback {
-                playCallback(it)
+            resp.onCallback { cb ->
+                // 交付动作本身发生在 playCallback 里（它把 cb 推进播放通道）——
+                // 调用前先置位：即使 playCallback 内部挂起/抛错，音频交给下游这件事
+                // 已经发生，不该再被判成「没拿到音频」的超时。
+                delivered.set(true)
+                playCallback(cb)
                 return EmptyInputStream
             }.onStream { ins ->
                 return ins

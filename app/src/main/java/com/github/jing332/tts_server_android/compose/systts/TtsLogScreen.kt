@@ -368,6 +368,13 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
             }
         }
     )
+    // 11-22 00:3x 底部固定缓存提示（用户拍板 甲 案）：用 **progressSnap**（含停止态）
+    // 而不是 playingSnap——用户令「停止朗读时合成进度行照样显示」，底部这条同理：
+    // 停读之后备货仍在进行，此时更需要看到缓存备到哪了。
+    // 11-22 00:4x 用户令「底部还得带当前进度，不然缓存超了几章也不知道」：
+    // 缓存侧数字口径与吸顶完全一致（同一个快照字段、同一种算法），当前侧取播放位置。
+    // 四段 = (缓存标签, 缓存数字, 当前标签, 当前数字)，空串表示该段不显示。
+    val bottomParts = bottomCacheParts(progressSnap)
     val synthesizedChapter = playingSnap?.synthChapterTitle.orEmpty()
     val synthesizedAhead = playingSnap?.let { snap ->
         if (snap.synthChapterIndex == snap.chapterIndex &&
@@ -942,6 +949,13 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                 .padding(bottom = paddingValues.calculateBottomPadding()),
             // 11-14「正在朗读」：快照（卡片描边/复位浮钮/段号丸）；进度行在 PinnedLogHeader
             playingSnapshot = playingSnap,
+            // 11-22 00:3x 用户令「日志最底部也要缓存提示」：与吸顶**同源同口径**
+            //（缓存侧同源同算法）。当前侧用户 00:4x 追加：不给当前就不知道领先几章。
+            // 缓存数字为空=整条不渲染（LogScreen 内部按它判门控）。
+            bottomCacheLabel = bottomParts[0],
+            bottomCacheCount = bottomParts[1],
+            bottomPlayLabel = bottomParts[2],
+            bottomPlayCount = bottomParts[3],
             list = displayLogs,
             listState = listState,
             // 11-15：「实时跟随」整条链路随胶囊一起撤（见 PinnedLogHeader 里「最新日志」
@@ -1757,6 +1771,60 @@ private fun hasSynthLine(
     return s.synthChapterIndex >= 0
 }
 
+/**
+ * 底部固定缓存提示的文本分段（11-22 00:3x 用户令「日志最底部也要缓存提示」，
+ * 00:4x 追加「底部还得带当前进度吧，不然缓存超了几章也不知道」）。
+ *
+ * 返回四段：(缓存标签, 缓存数字, 当前标签, 当前数字)——空串表示该段不显示。
+ *
+ * ## 为什么要带「当前」
+ * 只有缓存读数时，用户看不出**备货领先多少**：看到「缓存：107/110」不知道播放读到哪，
+ * 就不知道"够不够用、还能不能快进"。而"领先几章"正是预加载唯一的价值所在。
+ * 两个读数并排，「缓存章 ≠ 当前章」时一眼就知道已经跨章备货了。
+ *
+ * ## 为什么不用图形（用户 00:4x 问「会不会花里胡哨」，拍板纯文字）
+ * 底部是**常驻**元素。进度条/环会长亮在屏幕上，每天看几十次；而这条的信息量
+ * 只是「两个分数」，文字足够表达。图形留给"偶尔打开看一眼"的面板才划算。
+ *
+ * ## 口径
+ * 与吸顶共用同一份快照字段，缓存侧数字口径与吸顶完全一致（synthSegIndex+1）；
+ * 当前侧取播放段（segIndex+1 / totalSegs）。**两处数字不会漂移**。
+ * 章名一律带上（底部无"正在播"语境，裸数字会让人猜是哪一章）。
+ */
+private fun bottomCacheParts(
+    snap: com.github.jing332.tts_server_android.service.systts.help.ReadProgressReader.Snapshot?
+): List<String> {
+    val s = snap ?: return listOf("", "", "", "")
+    if (!hasSynthLine(s)) return listOf("", "", "", "")
+    val synthTotal = s.synthTotalSegs
+    if (synthTotal <= 0) return listOf("", "", "", "")
+
+    val synthNameOrNum = when {
+        shortChapterLabel(s.synthChapterTitle).isNotBlank() ->
+            shortChapterLabel(s.synthChapterTitle)
+        s.synthChapterIndex >= 0 -> "第${s.synthChapterIndex + 1}章"
+        else -> ""
+    }
+    // 缓存侧：前沿段号+1，与吸顶同口径
+    val cacheDone = (s.synthSegIndex + 1).coerceAtLeast(0).coerceAtMost(synthTotal)
+    val cacheLabel = if (synthNameOrNum.isNotBlank()) "$synthNameOrNum " else ""
+    val cacheCount = "$cacheDone/$synthTotal"
+
+    // 当前侧：播放位置。totalSegs 为 0 时（旧快照/未上报）这一段整段不显示——
+    // 宁可只显示缓存，也不显示「当前：0/0」这种假数据。
+    val playTotal = s.totalSegs
+    if (playTotal <= 0) return listOf(cacheLabel, cacheCount, "", "")
+    val playNameOrNum = when {
+        shortChapterLabel(s.chapterTitle).isNotBlank() -> shortChapterLabel(s.chapterTitle)
+        s.chapterIndex >= 0 -> "第${s.chapterIndex + 1}章"
+        else -> ""
+    }
+    val playDone = (s.segIndex + 1).coerceAtLeast(0).coerceAtMost(playTotal)
+    val playLabel = if (playNameOrNum.isNotBlank()) "$playNameOrNum " else ""
+    val playCount = "$playDone/$playTotal"
+    return listOf(cacheLabel, cacheCount, playLabel, playCount)
+}
+
 // ===================== 日志吸顶区（11-11 用户令「书名和章节名一直置顶」）=====================
 // 三行结构，从上到下（11-16 用户令「把筛选调到书章下面」后的行序）：
 //   ① 书/章行（书名点=切书弹窗，章名点=跳章弹窗）
@@ -2533,6 +2601,31 @@ private fun PinnedLogHeader(
                     )
                 ) { append(numerator) }
             }
+            // ===== 11-22 00:3x 用户令「把缓存进度弄到明显一点」=====
+            //
+            // 旧口径：缓存进度与播放进度挤在同一行（「当前：95/110｜缓存：107/110」），
+            // 两者字号、颜色、字重完全同档，只靠一个「｜」分隔。用户反馈"不明显"——
+            // 确实如此：这行里真正回答"我接下来能不能秒播"的是**缓存**那一半，
+            // 播放进度只是"我听到哪了"，而旧版把二者做成同权重。
+            //
+            // 新口径（只加重、不换行、不改数据源）：
+            //   ① 缓存那一半整体**提一档字重**（Medium）并换成主题绿 primary——
+            //      绿色在这一页的语义就是「已完成/可用」（成功丸、胶囊选中同色系），
+            //      "已缓存"正是这个语义，用它做区分既醒目又不引入新颜色；
+            //   ② 缓存侧数字用 SegNumberFont + 加粗，与段号同口径（用户 11-19 定的
+            //      「段数换字体」在两步之内的延续）；
+            //   ③ 播放侧（「当前」）保持原来的灰 + 常规字重——它不需要抢眼。
+            // 不改行高、不改对齐、不改 Ellipsis 行为：单行 AnnotatedString 局部加样式。
+            val cacheColor = MaterialTheme.colorScheme.primary
+            fun cacheSeg(numerator: String) = buildAnnotatedString {
+                withStyle(
+                    SpanStyle(
+                        fontFamily = SegNumberFont,
+                        fontWeight = FontWeight.SemiBold,
+                        color = cacheColor,
+                    )
+                ) { append(numerator) }
+            }
             val text = if (playingNow && playHead.isNotBlank()) {
                 buildAnnotatedString {
                     append("当前：")
@@ -2544,24 +2637,31 @@ private fun PinnedLogHeader(
                     } else {
                         append(boldSeg(playHead))
                     }
-                    append("｜缓存：")
+                    append("｜")
+                    // 11-22：「缓存」标签本身也染绿加粗，让右半边整块跳出来
+                    withStyle(
+                        SpanStyle(fontWeight = FontWeight.Medium, color = cacheColor)
+                    ) { append("缓存：") }
                     val spS = synthHead.indexOf(' ')
                     if (spS > 0) {
                         append(synthHead.substring(0, spS + 1))
-                        append(boldSeg(synthHead.substring(spS + 1)))
+                        append(cacheSeg(synthHead.substring(spS + 1)))
                     } else {
-                        append(boldSeg(synthHead))
+                        append(cacheSeg(synthHead))
                     }
                 }
             } else {
                 buildAnnotatedString {
+                    // 不在朗读时整行只剩缓存——此时它是唯一信息，同样染绿加粗
+                    withStyle(
+                        SpanStyle(fontWeight = FontWeight.Medium, color = cacheColor)
+                    ) { append("缓存：") }
                     val spS = synthHead.indexOf(' ')
                     if (spS > 0) {
-                        append("缓存：" + synthHead.substring(0, spS + 1))
-                        append(boldSeg(synthHead.substring(spS + 1)))
+                        append(synthHead.substring(0, spS + 1))
+                        append(cacheSeg(synthHead.substring(spS + 1)))
                     } else {
-                        append("缓存：")
-                        append(boldSeg(synthHead))
+                        append(cacheSeg(synthHead))
                     }
                 }
             }
