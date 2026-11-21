@@ -72,6 +72,8 @@ class SysttsFilter : Filter<ILoggingEvent>() {
                     // 无值（旧版 U阅/子行）时 MDC 无该键 → 默认 -1/0，渲染不标。
                     paraIndex = event.mdcPropertyMap["paraIndex"]?.toIntOrNull() ?: -1,
                     paraTotal = event.mdcPropertyMap["paraTotal"]?.toIntOrNull() ?: 0,
+                    // 11-21：预加载标记同走 MDC（渲染层吸顶跟随/朗读匹配要跳过它）
+                    isPreload = event.mdcPropertyMap["isPreload"] == "true",
                 )
             )
 

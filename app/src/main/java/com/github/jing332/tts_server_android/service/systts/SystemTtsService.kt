@@ -1342,6 +1342,13 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                             org.slf4j.MDC.put("paraIndex", e.request.paraIndex.toString())
                         if (e.request.paraTotal > 0)
                             org.slf4j.MDC.put("paraTotal", e.request.paraTotal.toString())
+                        // 11-21 12:5x（用户令「卡片按正文顺序出现，别让吸顶章名来回跳」）：
+                        // 预加载标记随行落盘。跨章备货的卡与播放卡同流按时间排，吸顶
+                        // 「跟随滚动」和「正在朗读」匹配此前不区分二者，245 章预合成卡
+                        // 每 2s 一张插进 244 播放卡中间 → 吸顶章名 244↔245 来回跳。
+                        // 渲染层据此字段跳过预加载卡（吸顶跟随/朗读匹配），卡本身照常显示。
+                        if (e.request.isPreload)
+                            org.slf4j.MDC.put("isPreload", "true")
                         // 11-13：登记在途请求 id —— 被打断时（破窗/onStop）据此补「已取消」子行
                         if (e.request.reqId.isNotBlank()) {
                             currentReqId = e.request.reqId

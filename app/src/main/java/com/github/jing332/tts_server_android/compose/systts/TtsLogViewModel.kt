@@ -617,12 +617,12 @@ class TtsLogViewModel : ViewModel() {
         // 「 | 数字 | 数字 | 正文」；为兼容 reqId 老格式（reqId 后直接是正文），
         // para 两段整体可选：先试八段新式，不中再落回六段老式。
         Regex(
-            "^(\\d{4}-\\d\\d-\\d\\d \\d\\d:\\d\\d:\\d\\d\\.\\d{3}) \\|\\s*([A-Z]+)\\s*\\|\\s*(\\d*)\\s*\\|\\s*(.*?)\\s*\\|\\s*§(.*?)\\s*\\|\\s*(.*?)\\s*\\|\\s*(r[0-9a-z]{2,23}|)\\s*\\|\\s*(\\d*)\\s*\\|\\s*(\\d*)\\s*\\|\\s*(.*)$"
+            "^(\\d{4}-\\d\\d-\\d\\d \\d\\d:\\d\\d:\\d\\d\\.\\d{3}) \\|\\s*([A-Z]+)\\s*\\|\\s*(\\d*)\\s*\\|\\s*(.*?)\\s*\\|\\s*§(.*?)\\s*\\|\\s*(.*?)\\s*\\|\\s*(r[0-9a-z]{2,23}|)\\s*\\|\\s*(\\d*)\\s*\\|\\s*(\\d*)\\s*\\|\\s*(true|)\\s*\\|\\s*(.*)$"
         ).find(line)?.let { m ->
             return LogEntry(
                 level = m.groupValues[2].toLogLevel(),
                 time = m.groupValues[1],
-                message = m.groupValues[10],
+                message = m.groupValues[11],
                 configId = m.groupValues[3].toLongOrNull() ?: 0L,
                 roleName = m.groupValues[4],
                 bookName = m.groupValues[5],
@@ -630,6 +630,9 @@ class TtsLogViewModel : ViewModel() {
                 reqId = m.groupValues[7],
                 paraIndex = m.groupValues[8].toIntOrNull() ?: -1,
                 paraTotal = m.groupValues[9].toIntOrNull() ?: 0,
+                // 11-21：预加载标记（第 10 段）。九段式（paraTotal 止）的旧日志行
+                // 不会命中本正则（段数不足），继续走下方老格式兜底，历史文件不丢。
+                isPreload = m.groupValues[10] == "true",
                 indent = if (isAcquiredSuffix) 1 else 0,
             )
         }

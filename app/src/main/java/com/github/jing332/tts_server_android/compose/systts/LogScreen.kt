@@ -868,6 +868,9 @@ internal class LogGroups(
             // 没有书章的项沿用上一个（同一本书里连续日志同书同章，不必重复取）。
             // 成本 O(n)、只建两个数组，与 entryToList 同量级；只在 build 时算一次，
             // 不进滚动热路径——滚动时只做一次下标查表。
+            // 11-21 12:5x（用户令「卡片按正文顺序出现，别加一个245章节名」）：预加载卡
+            //（跨章备货，isPreload=true）**跳过**——它们按时间插在播放卡中间，
+            // 不跳的话吸顶章名跟着备货章来回跳（用户实报 244↔245）；吸顶只跟播放/朗读卡。
             val itemBookArr = Array(finalItems.size) { "" }
             val itemChapterArr = Array(finalItems.size) { "" }
             run {
@@ -877,7 +880,7 @@ internal class LogGroups(
                     val ai = anchorOf(it)
                     if (ai >= 0 && ai < list.size) {
                         val e = list[ai]
-                        if (e.bookName.isNotBlank()) {
+                        if (e.bookName.isNotBlank() && !e.isPreload) {
                             cBook = e.bookName
                             cChapter = e.chapterTitle
                         }
@@ -1065,7 +1068,10 @@ internal fun LogScreen(
             val segKey = snap.segText.trim().take(12)
             fun matchesSeg(i: Int): Boolean {
                 val e = renderList[i]
-                return e.paraIndex == snap.segIndex &&
+                // 11-21 12:5x：预加载卡**永不**当「正在朗读」——跨章备货同段号/同章名
+                // 的卡会在备货时提前点亮朗读高亮、抢滚动锚点。
+                return !e.isPreload &&
+                    e.paraIndex == snap.segIndex &&
                     e.chapterTitle == snap.chapterTitle &&
                     boldBodyOf(e).isNotEmpty()
             }
@@ -1103,7 +1109,8 @@ internal fun LogScreen(
                 else {
                     val last = (renderList.lastIndex downTo 0).firstOrNull { i ->
                         val e = renderList[i]
-                        e.chapterTitle == snap.chapterTitle &&
+                        !e.isPreload &&
+                            e.chapterTitle == snap.chapterTitle &&
                             boldBodyOf(e).startsWith(segKey)
                     }
                     if (last == null) emptyList() else listOf(last)

@@ -41,6 +41,11 @@ data class LogEntry(
     // paraIndex 0-based；paraIndex<0 = 没带（旧格式行/子行占位），渲染不标。
     val paraIndex: Int = -1,
     val paraTotal: Int = 0,
+    // 11-21：本笔是后台预加载（跨章备货/单段 preload_only）。落盘侧 MDC 带入，
+    // 渲染层据此让预加载卡**不参与**吸顶「跟随滚动」与「正在朗读」匹配——
+    // 卡本身照常显示（用户要看到正文），只是不让它把吸顶章名/朗读高亮带跑。
+    // 旧格式行/子行无此段 → false，行为与改动前一致。
+    val isPreload: Boolean = false,
 ) :
     Parcelable {
     fun getLevelChar(): String = level.toLogLevelChar()
