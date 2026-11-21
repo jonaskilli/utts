@@ -1475,7 +1475,23 @@ internal fun LogScreen(
                 !userDragging && searchQuery.isBlank()) ||
                 autoScrollToBottom || pendingJumpToBottom)
             if (wantScroll && currentGroups.items.isNotEmpty()) {
-                runCatching { listState.animateScrollToItem(currentGroups.items.lastIndex) }
+                // 11-21 13:4x（用户报「选最新后日志一跳一跳，才多一条就跳」）：
+                // 分两种滚法——
+                //  · **已在底部附近**（新日志只是追加到末尾）：用 scrollToItem **瞬时**
+                //    钉底，无动画。此前恒走 animateScrollToItem，每条新日志都启停一次
+                //    动画周期，哪怕只差 80px 也「拖」一下 = 跳卡感。钉底语义下瞬时补齐
+                //    人眼无感（内容向上推一行，视口原地不动）。
+                //  · 距底部远（一次性跳底 pendingJumpToBottom / autoScrollToBottom
+                //    从历史区拉回）：保留 animateScrollToItem，长距离动画是需要的。
+                // 判据 = 最后一个可见项下标距 lastIndex ≤2（底部常有半行裁切，放宽一档）。
+                val lastIdx = currentGroups.items.lastIndex
+                val nearBottom = listState.layoutInfo.visibleItemsInfo
+                    .any { it.index >= lastIdx - 2 }
+                if (nearBottom) {
+                    runCatching { listState.scrollToItem(lastIdx) }
+                } else {
+                    runCatching { listState.animateScrollToItem(lastIdx) }
+                }
                 if (pendingJumpToBottom) pendingJumpToBottom = false
             }
         }
@@ -1647,7 +1663,19 @@ internal fun LogScreen(
                 }
             )
         ) {
-                itemsIndexed(currentGroups.items, key = { index, _ -> index }) { index, item ->
+                itemsIndexed(
+                    currentGroups.items,
+                    // 11-21 13:4x（用户报「跳卡感」）：key 从纯下标改为**下标+末项身份**
+                    // 混合键。纯下标键下，头部组一变（成功行挂回前面的卡）后面所有 item
+                    // 的 key 不变但内容移位，Compose 仍要整屏重组；列表**追加**（最常见，
+                    // 新日志到末尾）时下标全稳定，天然增量复用。末项 key 带上时间+消息
+                    // 前缀：尾部替换型变化（请求中→成功）能精确失效那一个 item，
+                    // 其余不受牵连。
+                    key = { index, item ->
+                        if (index == currentGroups.items.lastIndex)
+                            "tail-$index-${item.hashCode()}" else "idx-$index"
+                    },
+                ) { index, item ->
                     // 11-19 用户令：末条后面不再画条目分隔线。分隔线的职责是分开「相邻两条」，
                     // 末条下面没有下一条——留着它只会和底栏顶缘线（MainPager overlay）夹出
                     // 一条 8dp 白缝，装机截图里的「日志下方与底栏之间小空隙」即此。
