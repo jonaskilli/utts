@@ -631,7 +631,38 @@ internal class LogGroups(
                         closeCard()
                         // 有卡=已被组吸收（absorbError 渲染），不再落裸行避免双显；
                         // 无卡=请求头被筛掉的孤儿，照旧裸行兜底
-                        if (!hadHead && !isDup) raw.add(Item.Bare(i))
+                        if (!hadHead && !isDup) {
+                            // ===== 22:5x（重试 ×2/×3）：第二次及以后的失败要**挂回那张失败卡** =====
+                            //
+                            // 重试链的形状（闸门修好后）：
+                            //   请求音频 → 失败 → 第1次重试 → 失败 → 第2次重试 → … → 获取成功
+                            // 第一次失败时上面 closeCard() 已把「请求+失败」收成一张**失败卡**；
+                            // 第二次失败到达时 head=-1（卡已关），旧代码直接落成一条裸行 ——
+                            // 于是「重试 2」的失败跑出卡外，用户看到卡上一颗「重试2」丸、
+                            // 卡外却还漂着一条红色失败行，卡不成一体（用户：「卡也不标准」）。
+                            //
+                            // 现在：按 **reqId 找回那张失败组**，把新失败吸收进去（absorbError 换成
+                            // 最新这条，正文随最新失败原因更新），不再落裸行。只认
+                            // failedHeads 记过的失败组 + 同 reqId + 60 秒内，防跨句错挂。
+                            val gIdx = raw.indexOfLast { it is Item.Group }.let { k ->
+                                if (k < 0) -1 else {
+                                    val g = raw[k] as Item.Group
+                                    val ok = failedHeads.contains(g.head) &&
+                                        list[g.head].reqId.isNotEmpty() &&
+                                        list[g.head].reqId == e.reqId &&
+                                        withinSeconds(list[g.head].time, e.time, 60)
+                                    if (ok) k else -1
+                                }
+                            }
+                            if (gIdx >= 0) {
+                                val g = raw[gIdx] as Item.Group
+                                raw[gIdx] = Item.Group(
+                                    g.head, g.members, absorbError = i, g.retryCount, g.pending
+                                )
+                            } else {
+                                raw.add(Item.Bare(i))
+                            }
+                        }
                     }
                     // 结果/子行：有卡归卡（SUCCESS 顺带收卡）；无卡=头部被筛掉的孤儿 → 裸行
                     e.indent > 0 -> {
@@ -685,17 +716,28 @@ internal class LogGroups(
                             // failedHeads 记过的失败组，且与它最后一条相隔不超过 60 秒——
                             // 否则请求行被筛选掉时，重试会挂到上一张不相干的组上（跨句错挂）。
                             // 两条都不满足就退回裸行，宁可多一行也别错挂。
-                            val last = raw.lastOrNull()
-                            val lastIdx = (last as? Item.Group)?.let { g ->
-                                if (failedHeads.contains(g.head)) {
+                            // ===== 22:5x（重试 ×2）：按 **reqId 找回那张失败卡**，不只认 lastOrNull =====
+                            //
+                            // 旧代码只查 raw 的最后一项是不是失败组。×2 时中间会夹着
+                            // 「第二次失败行」甚至其他请求，lastOrNull 就不再是目标卡 ⇒ 重试
+                            // 认不出自己家、退回裸行（用户看到的「重试变成黑字独立行」）。
+                            // 现在从后往前按 reqId 精确找：同 reqId + failedHeads + 60 秒内。
+                            val gIdx = raw.indexOfLast { it is Item.Group }.let { k ->
+                                if (k < 0) -1 else {
+                                    val g = raw[k] as Item.Group
                                     val tailIdx = if (g.absorbError >= 0) g.absorbError
                                     else g.members.lastOrNull() ?: g.head
-                                    list[tailIdx].time
-                                } else null
+                                    val ok = failedHeads.contains(g.head) &&
+                                        list[g.head].reqId.isNotEmpty() &&
+                                        list[g.head].reqId == e.reqId &&
+                                        withinSeconds(list[tailIdx].time, e.time, 60)
+                                    if (ok) k else -1
+                                }
                             }
-                            if (last is Item.Group && lastIdx != null && withinSeconds(lastIdx, e.time, 60)) {
-                                raw[raw.size - 1] = Item.Group(
-                                    last.head, last.members, last.absorbError, last.retryCount + 1
+                            if (gIdx >= 0) {
+                                val g = raw[gIdx] as Item.Group
+                                raw[gIdx] = Item.Group(
+                                    g.head, g.members, g.absorbError, g.retryCount + 1, g.pending
                                 )
                             } else {
                                 raw.add(Item.Bare(i))
