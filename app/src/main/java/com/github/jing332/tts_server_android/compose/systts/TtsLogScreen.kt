@@ -909,6 +909,7 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                     viewChapter = viewBookChapter.second,
                     atBottom = atListBottom,
                     onClearScope = { vm.clearScope() },
+                    onClearChapterScope = { vm.scopeChapter.value = null },
                     // 切过去（用户定案 A）：回到全部日志 + 实时最新。
                     // 滚到底由 LogScreen 内部 autoScrollToBottom 的 LaunchedEffect 完成
                     // ——打开实时最新后 list.size 变化就会自动 animateScrollToItem(lastIndex)。
@@ -1816,6 +1817,12 @@ private fun PinnedLogHeader(
     // 在底部=你在看最新，吸顶显示最新那条的书章；往回翻=跟随视线。
     atBottom: Boolean = true,
     onClearScope: () -> Unit = {},
+    /**
+     * 11-22 22:1x：只清**章**筛选、保留书筛选（章菜单里「全部章节」那一项）。
+     * 与 [onClearScope]（书+章一起清，书菜单「全部书籍」用）分开——
+     * 同一件事在两条菜单里语义不同，混用一个回调就会误删另一层的筛选。
+     */
+    onClearChapterScope: () -> Unit = {},
     // 11-15 晚：书框/章框右端小红叉的落地动作（清了要确认，所以这里只上报范围）
     onClearBook: (String) -> Unit = { _ -> },
     onClearChapter: (String, String) -> Unit = { _, _ -> },
@@ -2018,6 +2025,23 @@ private fun PinnedLogHeader(
                 if (shownBook.isNotBlank()) {
                     if (filtered) {
                         // ---- 已筛选：淡绿胶囊 + 取消 ----
+                        // ===== 11-22 22:1x（用户实报「我在顶部筛选书的时候为什么出来这个窗，
+                        // 挡着我筛选章节了。是因为没有全部这一项，让能退出吗？」）=====
+                        //
+                        // ## 现场
+                        // 胶囊左端是书名框、挨着章名框，两者都带 ▾。章名框在行内只剩几十 dp，
+                        // 手指一偏就落到**书名框**上 → 弹出「选择书籍」菜单；而此时 `knownBooks`
+                        // 往往只有 1~2 本，菜单里没有「全部」这一项 ⇒ 看着像被一个窗卡住、
+                        // 退不回不限书籍，把下面的章节框也挡住了。
+                        //
+                        // ## 修法：**菜单里补「全部」项**（见 BookChapterPickerMenu 的
+                        // allItemLabel 注释）。书菜单那颗叫「全部书籍」、章菜单叫「全部章节」，
+                        // 置顶、当前项打勾；点了就退出这一层筛选。
+                        //
+                        // ⚠️ 没做「返回键/Esc 退回全部」：Compose 的 key 事件只送给**有焦点**
+                        // 的节点，给这条胶囊挂 onKeyEvent 收不到任何键，写了也是假功能
+                        //（想走返回键得挂 Activity 级 BackHandler，那会把"退出日志页"的
+                        // 返回键抢走，代价比收益大）。菜单里的「全部」是无副作用的真出口。
                         Row(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(50))
@@ -2110,6 +2134,12 @@ private fun PinnedLogHeader(
                                         bookMenu = false
                                         onClearBook(b)
                                     },
+                                    // 11-22 22:1x：补「全部书籍」出口（见 BookChapterPickerMenu 签名注释）
+                                    allItemLabel = "全部书籍",
+                                    onPickAll = {
+                                        bookMenu = false
+                                        onClearScope()
+                                    },
                                 )
                             }
                             if (chapLabel.isNotBlank()) {
@@ -2157,6 +2187,15 @@ private fun PinnedLogHeader(
                                         onClearItem = { name ->
                                             chapMenu = false
                                             onClearChapter(shownBook, name)
+                                        },
+                                        // 11-22 22:1x：章菜单补「全部章节」出口
+                                        // ⚠️ 只清章、**不碰书**：章的菜单出口是「本章不限」，
+                                        // 不是「全部日志」。清书是书菜单那颗「全部书籍」的事，
+                                        // 两者混用会让用户点章菜单把书筛选也丢了。
+                                        allItemLabel = "全部章节",
+                                        onPickAll = {
+                                            chapMenu = false
+                                            onClearChapterScope()
                                         },
                                     )
                                 }
@@ -2248,6 +2287,10 @@ private fun PinnedLogHeader(
                                     bookMenu2 = false
                                     onClearBook(b)
                                 },
+                                // 11-22 22:1x：没有筛选时这一项只是入口说明其存在，
+                                // 点了不产生任何变化（已经=全部），所以只关菜单。
+                                allItemLabel = "全部书籍",
+                                onPickAll = { bookMenu2 = false },
                             )
                             }
                             if (chapLabel.isNotBlank()) {
@@ -2293,6 +2336,9 @@ private fun PinnedLogHeader(
                                         chapMenu2 = false
                                         onClearChapter(shownBook, name)
                                     },
+                                    // 11-22 22:1x：无筛选时点「全部章节」= 只关菜单（已在全部）
+                                    allItemLabel = "全部章节",
+                                    onPickAll = { chapMenu2 = false },
                                 )
                                 }
                             }
@@ -2881,6 +2927,15 @@ private fun BookChapterPickerMenu(
     // 11-16 用户定稿：红叉挂在**弹窗里每一行的最右侧**（每本书/每一章各一个），
     // 不是挂在吸顶的书框/章框上（那里一屏只有两个框，且更容易误触）。
     onClearItem: ((String) -> Unit)? = null,
+    // ===== 11-22 22:1x（用户：「是因为没有全部这一项，让能退出吗？」）=====
+    //
+    // 菜单里补一行「全部」置顶：点了就退出这一项筛选（书→全部书；章→本章不限）。
+    // 为什么必须有：书框和章框在吸顶行里挨着，手指一偏就落到书框上，
+    // 而日志里常常只有一本书 ⇒ 列表只有那一条，看起来"弹窗没有出口"。
+    // 「全部」是**任何**筛选菜单都该有的兜底项，跟「取消」胶囊是两条独立退路。
+    // 文案由调用方给（书=「全部书籍」、章=「全部章节」，不写死免得章菜单显示「全部书籍」）。
+    allItemLabel: String? = null,
+    onPickAll: (() -> Unit)? = null,
 ) {
     if (!expanded) return
     androidx.compose.material3.DropdownMenu(
@@ -2928,6 +2983,44 @@ private fun BookChapterPickerMenu(
                 .verticalScroll(rememberScrollState())
                 .padding(vertical = 4.dp)
         ) {
+            // 「全部」置顶（见签名处注释）：当前项打勾，点它=退出这项筛选
+            if (allItemLabel != null && onPickAll != null) {
+                // 判据只用「没有任何条目处于当前项」——此时说明筛选未生效（=全部）。
+                // 不靠调用方再传一次 scope 状态，避免两处状态打架。
+                val isAllCurrent = items.none { it.third }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(AppShapes.sm)
+                        .clickable { onPickAll() }
+                        .padding(horizontal = 5.dp, vertical = 9.dp),
+                ) {
+                    Box(Modifier.width(18.dp)) {
+                        if (isAllCurrent) {
+                            Icon(
+                                imageVector = Icons.Default.Check,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(14.dp),
+                            )
+                        }
+                    }
+                    Text(
+                        text = allItemLabel,
+                        fontSize = 12.sp,
+                        color = if (isAllCurrent) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurface,
+                        fontWeight = if (isAllCurrent) FontWeight.Medium else FontWeight.Normal,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                HorizontalDivider(
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
+                )
+            }
             items.forEach { (name, count, isCurrent) ->
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
