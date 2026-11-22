@@ -1011,6 +1011,14 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
         // 等于修复无效。事件自身带 request（含 bookName/chapterTitle），那才是可靠来源。
         bookName: String = "",
         chapterTitle: String = "",
+        // ===== 11-22 14:1x：子行也带 isPreload =====
+        // 预热卡放出后（见 dispatch 开头的口径变更），子行必须与主行同标记，
+        // 否则落盘后预加载卡的成功行 isPreload=false ⇒
+        //   · 日志页折叠判据（「整章都是备货卡」）判不出它是备货卡；
+        //   · 吸顶跟随/朗读匹配会把它的子行当播放行处理。
+        // 与上面 bookName/chapterTitle 同理：**必须由调用方从 event.request 传**，
+        // 不能在这里读 MDC（logS 的调用点在请求处理完之后，MDC 已被 finally 清掉）。
+        isPreload: Boolean = false,
     ) {
         val time = LocalDateTimeUtil.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS"))
         // 本行原来**不带书章字段**，于是
@@ -1028,6 +1036,7 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                 bookName = mdcBook,
                 chapterTitle = mdcChapter,
                 reqId = reqId,
+                isPreload = isPreload,
             )
         )
         // 持久化到**主日志** system_tts.log（11-11 用户定案：合并回去，删掉 child 文件）。
@@ -1064,8 +1073,15 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                     // 12:5x 起追加了第 10 列 isPreload（logback.xml + 解析正则都改了），
                     // 这里漏改——子行只有 9 列，十列正则匹配失败掉老格式兜底，
                     // reqId 被吞进正文 → 回读后成功行挂不回卡 → 卡永远「请求中」。
-                    // 补一个空列占住 isPreload 位（子行恒空，预加载卡已被过滤不再落页）。
-                    it.append("$time | SUCCESS |  |  | §$safeBook | $safeChapter | $reqId |  |  |  | $msg\n")
+                    //
+                    // 11-22 14:1x：这一列从「恒空占位」改为**写真值**。
+                    // 预热卡放出后（dispatch 开头口径变更），若子行仍写空，
+                    // 落盘回读的预加载卡 isPreload=false ⇒ 日志页折叠判据
+                    //（「整章都是备货卡」）会把它们当播放卡，永远折不了。
+                    // 用与 MDC 同款字符串（"true"/""）——解析正则认的是 (true|)，
+                    // 空串对非预热行是合法值（旧行为不变）。
+                    val safePreload = if (isPreload) "true" else ""
+                    it.append("$time | SUCCESS |  |  | §$safeBook | $safeChapter | $reqId |  |  | $safePreload | $msg\n")
                 }
             }
         }.onFailure { Log.e(TAG, "logS write file: ", it) }
@@ -1482,10 +1498,36 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
         // 备货进度看通知栏「预加载 第N章 x/y 段」，预热失败仍走 errorEvent 红行。
         // 播放笔到点打唯一一张卡；命中 synth_cache 时成功子行标「预合成」秒回。
         // preloadFilterDisabled 哨兵撤除，下方过滤恢复生效。
+        // ===== 11-22 14:1x（用户令「把预合成卡片放出来吧，我喜欢放出来」）=====
+        //
+        // 口径变更：预热卡从「一律不落页」改为「放出来，但只放有真实产出的」。
+        //
+        // ## 为什么改（用户原话，且给了历史依据）
+        // 「在我没做 U阅 的时候 z阅读时代一直这样，合成到哪里就显示哪里，
+        //   只是他没有阅读的 UTTS 预合成5+tts并发2 这个设置，这是咱们新加的。」
+        // 用户要的正是那个体感：后台合成推进到哪，日志页就能看到哪。
+        //
+        // ## 为什么现在敢放（11-21 那次不放的理由已经消失）
+        // 11-21 22:5x 终裁「预热事件一律不落页」的理由是
+        // 「我只是想要个正常的日志，重复的我不要，一段一张卡」——
+        // 而当时那段重复的**真正根源**是「预加载直提引擎、绕过了播放路径的
+        // inFlightSyntheses 在途去重」，导致同一段被播放笔和预加载笔各合成一遍、
+        // 出两张卡。该根因已在 U阅 侧 39526e6 修掉（预加载提交前先查在途表），
+        // 重复不会再成对出现，所以「放出来」不再必然导致刷屏。
+        //
+        // ## 「只放有产出的」怎么落地
+        // 放行 Request（开卡）+ ReadAllFromStream（成功子行，带真实音频大小）这一对；
+        // 继续拦 StandbyTts / HandleStream 这两类中间过程行——
+        // 它们没有对应的开卡行，放出来只会变成一堆无主的灰字裸行，
+        // 正是用户讨厌的「刷屏」。这样一开一收成对，卡片才有头有尾。
+        //
+        // ## 吸顶不受影响
+        // 预加载卡的 isPreload 标记照常随 MDC 落盘（见下方 put），
+        // 吸顶「跟随滚动」与「正在朗读」匹配依旧跳过预热卡（那两处是
+        // 「当前听到哪」的指示器，被后台备货带跑是另一类串位）；
+        // 卡本身正常显示——用户要的是「看得到合成到哪」，不是「吸顶跟着跑」。
         val preloadFilterDisabled = false
         if (!preloadFilterDisabled) {
-            if (e is NormalEvent.Request && e.request.isPreload) return
-            if (e is NormalEvent.ReadAllFromStream && e.request.isPreload) return
             if (e is NormalEvent.StandbyTts && e.request.isPreload) return
             if (e is NormalEvent.HandleStream && e.request.isPreload) return
         }
@@ -1696,6 +1738,8 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                         chapterTitle = e.request.chapterTitle,
                         // 11-13：同一请求实例 id → 并发交错时子行仍能挂回自己的卡
                         reqId = e.request.reqId,
+                        // 11-22 14:1x：与主行同标记（取事件自带 request，MDC 已清）
+                        isPreload = e.request.isPreload,
                     )
                     // 11-13：成功收尾即清在途标记，否则下一笔请求破窗时会把这条
                     // 已经成功的请求误标成「已取消」（灰丸错挂）
