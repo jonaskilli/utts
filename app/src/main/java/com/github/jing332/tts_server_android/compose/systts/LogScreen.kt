@@ -955,7 +955,34 @@ internal class LogGroups(
                         // 装不下 Boolean；只在 build 内活几行，不做类型暴露，可接受）
                         mutableListOf(0, 0, false, ri, item.head)
                     }
-                    if (e.isPreload) {
+                    // ===== 11-22 13:0x（用户报「我也没看到日志折叠功能，没出现过」）=====
+                    // 判据从 `e.isPreload` 改为「这张卡是缓存命中（success 行带预合成丸）」。
+                    //
+                    // 为什么旧判据恒为假：`preload_only` 的请求卡在 SystemTtsService.dispatch
+                    // 开头就被 `if (e is NormalEvent.Request && e.request.isPreload) return`
+                    // 丢了（11-21 22:5x 终裁「预热事件一律不落日志页」）⇒ 列表里根本没有
+                    // isPreload=true 的组 ⇒ slot[0] 恒 0 ⇒ `count > 0` 恒不成立 ⇒ 从不折叠。
+                    // 真机 system_tts.log 393 行第 10 列 isPreload 全空的实锤就在这里。
+                    //
+                    // 现口径：一个「组」若所有成功子行都是缓存命中（isPreloadMessage），
+                    // 视作备货卡；整章都是备货卡 ⇒ 该章还没真读过 ⇒ 折叠。
+                    // 只要有一张是现场合成（真播放过）⇒ 整章展开，正在读的章永不折叠。
+                    val cardIsCached = run {
+                        val members = item.members
+                        val hits = members.count { mi ->
+                            val me = list[mi]
+                            me.indent > 0 && me.level == LogLevel.SUCCESS &&
+                                isPreloadMessage(me.message)
+                        }
+                        val oks = members.count { mi ->
+                            val me = list[mi]
+                            me.indent > 0 && me.level == LogLevel.SUCCESS &&
+                                !me.message.replace(Regex("<[^>]*>"), "")
+                                    .startsWith(CANCEL_MARKER)
+                        }
+                        oks > 0 && hits == oks
+                    }
+                    if (cardIsCached || e.isPreload) {
                         slot[0] = (slot[0] as Int) + 1
                     } else {
                         slot[2] = true
