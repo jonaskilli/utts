@@ -393,14 +393,7 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                 !vm.scopeChapter.value.isNullOrBlank()
         }
     }
-    // ===== 11-22（用户令「可以折叠」）：纯备货章折叠的展开态 =====
-    //
-    // 为什么放这里而不是 VM：它是**纯视图状态**——展开/收起不影响任何数据、
-    // 不该跨会话持久化，也不该进 ViewModel 让 2 万条日志的重组耦合它。
-    // key=章名（同一章名在同一本书内唯一；跨书同名章极少，且折叠判据本身按
-    // (书,章) 分组，这里用章名做 key 是权衡后的简化，可接受）。
-    var expandedRollups by remember { mutableStateOf<Set<String>>(emptySet()) }
-    val logGroups = remember(displayLogs, pinnedFallback, logNarrowed, expandedRollups) {
+    val logGroups = remember(displayLogs, pinnedFallback, logNarrowed) {
         LogGroups.build(
             displayLogs,
             fallbackBook = pinnedFallback?.bookName.orEmpty(),
@@ -412,8 +405,6 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
             // ⚠️ 11-22 11:0x 用户定稿「日志一律按时间顺序」后，该参数**不再参与
             // 日志列表排序**（改为纯时间序），仅保留形参以免改调用方签名。
             chapterOrder = vm.chapterOrderMap(),
-            // 11-22：已展开的备货章不折叠（点了「展开」就要看到原始卡片）
-            expandedRollups = expandedRollups,
         )
     }
 
@@ -476,11 +467,6 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                 fullList,
                 fallbackBook = pinnedFallback?.bookName.orEmpty(),
                 fallbackChapter = pinnedFallback?.chapterTitle.orEmpty(),
-                // ⚠️ 11-22 折叠上线后必须与主列表（上面 logGroups）传**同一套**折叠参数：
-                // 这里算出来的 listItemFor 下标要拿去 animateScrollToItem 滚主列表，
-                // 两份分组只要折叠判据不同、items 数量就不同，下标整体错位 ⇒ 定位偏。
-                // （这个坑和 11-15「二合一」那次同源：两处 build 参数必须一致。）
-                expandedRollups = expandedRollups,
             )
             // 状态更新后重组出完整列表再滚：等一帧让 displayLogs 生效
             withFrameNanos { }
@@ -965,17 +951,6 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
             // bottom* 四个参数同步删除（读数仍见吸顶进度行）。
             list = displayLogs,
             listState = listState,
-            // 11-22（用户令「可以折叠」）：纯备货章摘要行的展开态与切换回调。
-            // key 是 `书 + "\u0001" + 章`（rollupKey）——**不能用裸章名**，
-            // 两本书同号章是常态，裸章名会让"展开A书第2章"连带展开B书第2章。
-            // 渲染层收 Map<rollupKey, Boolean>（只关心「这章展开了没」），
-            // build 侧收 Set<String>（只关心「哪些 key 不要再折叠」）。
-            expandedRollups = expandedRollups.associateWith { true },
-            onToggleRollup = { chapter ->
-                expandedRollups =
-                    if (chapter in expandedRollups) expandedRollups - chapter
-                    else expandedRollups + chapter
-            },
             // 11-15：「实时跟随」整条链路随胶囊一起撤（见 PinnedLogHeader 里「最新日志」
             // 胶囊的注释）。列表不再自己滚底，回最新统一走右下角 ⇊ 浮钮。
             // 搜索定位/跳章那些**一次性**滚动仍由各自的回调驱动，不受影响。
