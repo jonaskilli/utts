@@ -442,6 +442,16 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
     // 11-13：在途请求的实例 id（取消时用它把「已取消」标回对应请求行）。
     // 由 normalEvent 在请求行落盘时登记，合成结束时清空。
     internal var currentReqId: String = ""
+
+    /**
+     * 22:5x：**最近一次播放请求的章名**（预加载请求不改它）。
+     *
+     * 用途：判断一笔预加载卡是不是「跨章备货卡」——跨章的那些会在播放本章时
+     * 插进日志流、把吸顶章节带跑（用户实报「正在播放第4章，顶上却显示第5章」）。
+     * 与 currentReqChapter 分开：那个在成功行落地后会被清空（服务在途登记用），
+     * 而这里要的是「播放章是谁」这个**长期事实**。
+     */
+    private var lastPlayChapter: String = ""
     // 同上：取消子行要用**被打断那一笔**自己的书章。破窗点处 MDC 已被上一笔的
     // finally 清空（见 normalEvent 的 finally），所以必须在这里另存一份。
     private var currentReqBook: String = ""
@@ -1551,22 +1561,37 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
         //     跳到别的章——用户看到的就是「正在播放第4章，顶上却显示第5章」。
         //     而这张卡本身**不发声音、不产生可听结果**，占流只有一个害处。
         //
-        // ## 现在的口径
-        //   · 预加载的 Request / ReadAllFromStream / StandbyTts / HandleStream **全部 return**；
-        //   · **失败照旧保留**：预加载失败走 errorEvent 的 `预合成失败（第 N 段）` 那条 WARN
-        //     （用户明确「另一个保留」——备货坏了得看得见，否则不知道它卡在哪）；
-        //   · 「合成到哪」改由**吸顶进度行的合成前沿**承担（那是它本职），不再靠日志流。
+        // ## 现在的口径（23:2x 收窄——用户「我说的只有第五章那一条」）
+        // 上版把**所有**预加载卡都拦了，改过了头。用户实指的只有**跨章**那一类：
+        // 播第4章时冒出「第5章 戒指」，卡片本身没错（真合成），**位置**错了。
+        // 所以只拦「预加载 + 章名 ≠ 正在播放的章」，同章备货卡照旧显示：
+        //   · 跨章预加载（本章在播、备的是别的章）→ Request/ReadAllFromStream/中间行**全 return**；
+        //   · 同章预加载（滚动补货，备的就是正在听的这章）→ **照旧出卡**，不影响吸顶；
+        //   · **失败照旧保留**：走 errorEvent 的 `预合成失败（第 N 段）` WARN（用户「另一个保留」）。
         //
-        // ⚠️ 别再按 11-22 14:1x 那条「放出来」改回去：那次验证过，代价是吸顶章节串位。
-        // 若以后又想要备货可视化，正确落点是吸顶进度行（它本来就报合成前沿），不是日志流。
+        // 「到合成章节的时候再出现」也就自动成立：播放进入第5章后 lastPlayChapter 变成
+        // 第5章，第5章的备货卡不再算跨章、重新可见。
+        //
+        // ⚠️ 别再把口径放宽成「所有预加载卡全拦」：会把同章滚动补货的可见性一起干掉，
+        // 而用户明确只嫌那一张跨章卡。
+        // ⚠️ 也别整体改回 11-22 14:1x 的「全放」：跨章卡插流会带跑吸顶章节。
         val preloadFilterDisabled = false
         if (!preloadFilterDisabled) {
-            // 预加载笔：一律不进日志页（整卡静默，见上方沿革）
-            if (e is NormalEvent.Request && e.request.isPreload) return
-            if (e is NormalEvent.ReadAllFromStream && e.request.isPreload) return
-            // 中间过程行：本来就没有开卡行，放出来只会是无主裸行
-            if (e is NormalEvent.StandbyTts && e.request.isPreload) return
-            if (e is NormalEvent.HandleStream && e.request.isPreload) return
+            val req = when (e) {
+                is NormalEvent.Request -> e.request
+                is NormalEvent.ReadAllFromStream -> e.request
+                is NormalEvent.StandbyTts -> e.request
+                is NormalEvent.HandleStream -> e.request
+                else -> null
+            }
+            if (req != null && req.isPreload) {
+                // 跨章 = 这张备货卡属于「不是当前正在播放的那一章」。
+                // lastPlayChapter 为空（还没播过）时无法判断，按不跨章处理（保守放行）。
+                val crossChapter = lastPlayChapter.isNotBlank() &&
+                    req.chapterTitle.isNotBlank() &&
+                    req.chapterTitle != lastPlayChapter
+                if (crossChapter) return
+            }
         }
 
         when (e) {
@@ -1638,6 +1663,12 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                         // 渲染层据此字段跳过预加载卡（吸顶跟随/朗读匹配），卡本身照常显示。
                         if (e.request.isPreload)
                             org.slf4j.MDC.put("isPreload", "true")
+                        // 22:5x：记下「正在播放的是哪一章」——跨章预加载卡的过滤判据（见 dispatch 开头）。
+                        // 只由**播放笔**（isPreload=false）更新；上面的跨章过滤已把跨章备货卡
+                        // 提前 return 了，能走到这里的预加载卡都是同章货，不会污染这个值。
+                        if (!e.request.isPreload && e.request.chapterTitle.isNotBlank()) {
+                            lastPlayChapter = e.request.chapterTitle
+                        }
                         // 11-13：登记在途请求 id —— 被打断时（破窗/onStop）据此补「已取消」子行
                         if (e.request.reqId.isNotBlank()) {
                             currentReqId = e.request.reqId
