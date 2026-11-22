@@ -54,7 +54,8 @@ object SynthesizedAudioCache {
      */
     /**
      * 缓存根目录（11-15 晚二改，用户提的思路）：从 App 私有 `cacheDir/synth_cache`
-     * 挪到**公共存储** `/storage/emulated/0/Download/chajian/utts_synth_cache`。
+     * 挪到**公共存储** `/storage/emulated/0/Download/chajian/uyue-utts/synth-cache`
+     * （11-23 与 U阅 日志一起归拢到 chajian/uyue-utts 共享根）。
      *
      * 为什么挪：U阅 的「清音频缓存」（长按朗读引擎键 / 换引擎界面右上角清理键）
      * 删不到本 App 的私有目录，只能靠 `.clear_synth_cache` 握手文件——绕。
@@ -67,19 +68,46 @@ object SynthesizedAudioCache {
      *  3. 文件管理器可见、可能被别的 App 动——写入已是 tmp+rename，坏文件顶多 miss。
      * 私有目录仍作兜底：公共目录不可写（无权限/存储缺失）时回落 cacheDir。
      */
-    private const val SHARED_ROOT = "/storage/emulated/0/Download/chajian/utts_synth_cache"
+    private const val SHARED_ROOT = "/storage/emulated/0/Download/chajian/uyue-utts/synth-cache"
+
+    /** 11-23 搬迁前的旧缓存根：首次 init 时若新根为空则整体挪过来，免得重合成 268 个段。 */
+    private const val LEGACY_SHARED_ROOT = "/storage/emulated/0/Download/chajian/utts_synth_cache"
 
     fun init(context: Context) {
         if (dir != null) return
         runCatching {
             val shared = File(SHARED_ROOT)
             if (!shared.exists()) shared.mkdirs()
+            migrateLegacyRoot(shared)
             val d = if (shared.isDirectory && shared.canWrite()) shared
             else File(context.cacheDir, "synth_cache").also { if (!it.exists()) it.mkdirs() }
             dir = d
             enabled = d.isDirectory && d.canWrite()
             Log.d(TAG, "init: ${d.absolutePath}, enabled=$enabled")
         }.onFailure { Log.w(TAG, "init failed: $it") }
+    }
+
+    /**
+     * 旧缓存目录搬家（11-23）：`chajian/utts_synth_cache` → `chajian/uyue-utts/synth-cache`。
+     *
+     * 只在新根还没有任何 .pcm 时执行一次：文件名是内容哈希，整体挪过去缓存照常命中，
+     * 不触发重新合成（268 个段约 69MB）。挪不动就静默放弃——缓存是可以再生成的，
+     * 绝不能因为搬家失败影响启动或合成。
+     */
+    private fun migrateLegacyRoot(target: File) {
+        runCatching {
+            val legacy = File(LEGACY_SHARED_ROOT)
+            if (!legacy.isDirectory) return
+            if (target.listFiles()?.any { it.isFile && it.name.endsWith(".pcm") } == true) return
+            legacy.listFiles()?.forEach { f ->
+                if (!f.isFile) return@forEach
+                val dst = File(target, f.name)
+                if (dst.exists()) return@forEach
+                // 同分区优先 rename（瞬时、省 69MB 拷贝）：Volume 外置存储上 rename 可能失败，回落 copy
+                runCatching { if (!f.renameTo(dst)) f.copyTo(dst, overwrite = false) }
+            }
+            Log.d(TAG, "migrateLegacyRoot: ${legacy.absolutePath} -> ${target.absolutePath}")
+        }
     }
 
     /**

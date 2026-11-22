@@ -13,7 +13,7 @@ import java.time.format.DateTimeFormatter
  * 背景：[CrashCapture] 把上次闪退写进私有 filesDir/crash_last.txt，靠「下次进主页弹窗」才能看到；
  * 如果用户没进主页、弹窗被跳过，或者想直接从文件管理器取，就抓不到。
  * 这里在每次启动（App.onCreate）时把 crash_last.txt 的内容追加一份到
- * [AppConst.logDir]/crash_forward.log（Download/chajian/log 下，文件管理器直接可见）。
+ * [AppConst.logDir]/crash_forward.log（Download/chajian/uyue-utts/logs/utts 下，文件管理器直接可见）。
  *
  * 幂等：用 SHA-256 记下已转发的内容，内容没变就不重复追加——
  * crash_last.txt 要等弹窗读取后才清，期间多次冷启动不会产生重复记录。

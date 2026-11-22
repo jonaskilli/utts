@@ -1311,7 +1311,7 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                         .verticalScroll(rememberScrollState())
                 ) {
                     // 11-11 用户令「提示一下当前所在的位置，就写一个 log 文件夹在的位置就行」：
-                    // 日志目录现在在公共存储下（Download/chajian/log），用户可能想自己去
+                    // 日志目录现在在公共存储下（Download/chajian/uyue-utts/logs/utts），用户可能想自己去
                     // 文件管理器翻，或想知道"到底存哪了"。这里直接把绝对路径写出来，
                     // 长按可复制——路径很长，点名拷比手抄靠谱。
                     // ⚠️ 用 vm.logDir() 而不是写死字符串：权限不足时它会自动回退到私有目录，
@@ -1460,7 +1460,7 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                 }
             },
             // 「打开整个目录」已删（11-11 用户令「这个选项感觉没啥用」）：
-            // 日志目录现在就在 Download/chajian/log，文件管理器里能直接进，
+            // 日志目录现在就在 Download/chajian/uyue-utts/logs/utts，文件管理器里能直接进，
             // 再给一个"用外部应用打开目录"的键属于重复入口，且很多文件管理器并不支持。
             dismissButton = {
                 TextButton(onClick = {

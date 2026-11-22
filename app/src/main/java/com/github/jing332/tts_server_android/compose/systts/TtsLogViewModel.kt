@@ -61,7 +61,7 @@ class TtsLogViewModel : ViewModel() {
             LogLevel.TRACE
         )
 
-        // 11-11 用户令：日志目录搬到 Download/chajian/log（文件管理器直接可见）。
+        // 11-11 用户令：日志目录搬到 Download/chajian/log（文件管理器直接可见）；11-23 归拢到 chajian/uyue-utts/logs/utts。
         // 统一取 AppConst.logDir——它内部带可写探测，权限没给时自动退回旧私有目录。
         // ⚠️ 别在这里再写死 "cache/log"：那样会和 logback、子行、console 四处分叉。
         val file = File(AppConst.logDir, "system_tts.log")
@@ -727,7 +727,7 @@ class TtsLogViewModel : ViewModel() {
     // 上游此处直接返回 file.absolutePath，导致调用方 File(logDir()).listFiles() 恒为 null
     // （listFiles 对非目录返回 null）→ 日志文件列表永远显示"日志目录为空"（用户 09-13 报）
     //
-    // 11-11 用户令：目录改由 AppConst.logDir 决定（Download/chajian/log，权限不足自动回退），
+    // 11-11 用户令：目录改由 AppConst.logDir 决定（现为 Download/chajian/uyue-utts/logs/utts，权限不足自动回退），
     // 这里不再从 file 反推——反推在"目录被判定不可写"时会指到兜底目录之外。
     fun logDir(): String = AppConst.logDir.absolutePath
 

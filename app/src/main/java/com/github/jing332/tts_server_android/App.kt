@@ -51,7 +51,7 @@ class App : Application() {
     override fun attachBaseContext(base: Context) {
         instance = this
         super.attachBaseContext(base.apply { AppLocale.setLocale(base) })
-        // 11-11 用户令「日志搬到 Download/chajian/log」：logback 的 logback.xml 里
+        // 11-11 用户令「日志搬到 Download/chajian/log」（11-23 再归拢到 chajian/uyue-utts/logs/utts）：logback 的 logback.xml 里
         // LOG_DIR 取 ${DSH_LOG_DIR}，这里在**任何 logger 初始化之前**把它定下来。
         // 必须放在 attachBaseContext 而不是 onCreate：logback-android 在首个 logger
         // 被取用时就会解析 xml，onCreate 里更早的代码（看门狗、CrashCapture）已经会打日志。
@@ -68,7 +68,7 @@ class App : Application() {
     override fun onCreate() {
         super.onCreate()
 
-        // 11-11 用户令：日志目录换到 Download/chajian/log，把旧私有目录里的日志复制过去
+        // 11-11 用户令：日志目录换到 Download/chajian/log（11-23 搬去 chajian/uyue-utts/logs/utts），把旧私有目录里的日志复制过去
         // （目标已存在就跳过，不覆盖新日志；失败静默，迁移不该影响启动）
         AppConst.migrateOldLogs()
         // 11-11 用户令「日志的定期清理再看一下」：启动时清一次——
@@ -99,7 +99,7 @@ class App : Application() {
 
         // 11-13 排障基础设施（第二轮，对照参考版 TTS Server 移植）：
         // ① 崩溃记录增量转发：把上次闪退的 crash_last.txt 追加到 logDir/crash_forward.log
-        //    （Download/chajian/log 下文件管理器直接可见；SHA-256 幂等，不重复追加）
+        //    （Download/chajian/uyue-utts/logs/utts 下文件管理器直接可见；SHA-256 幂等，不重复追加）
         CrashForwarder.forward()
         // ② 主线程卡死看门狗：心跳停 8s 判定卡死，把全线程栈写进 logDir/stall.log（只记录不杀进程，
         //    重启兜底仍归 TtsTimeoutWatchdog，两套判定独立不叠加）
