@@ -630,6 +630,30 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                 // 与下面 catch 分支同一口径——两处都补，否则取消仍可能从这里漏一次 -3。
                 if (!(isCancel && isPreloadRequest)) {
                     callback.error(TextToSpeech.ERROR_SYNTHESIS)
+                } else {
+                    // ===== 11-22 14:4x：预热卡放出后必须补收口行 =====
+                    //
+                    // 背景：11-22 把预热卡放回日志页（dispatch 开头口径变更），
+                    // 每张卡由「请求音频」主行开卡、靠成功子行收口。
+                    // 但预热被播放掐掉这条路径**既不 error 也不打成功行**
+                    // （上面 if 明确跳过 error，只为不让 U阅 判失败重试），
+                    // 于是日志页那张卡永远挂在「请求中」——
+                    // 正是用户 11-15 反复投诉过的那个毛病，放出卡片后会重新出现。
+                    //
+                    // ⚠️ 必须用 logS 而不是 logW：此时 MDC 已在 finally 里清掉，
+                    // logW/logI 走 logger 取 MDC 会得到空书章+空 reqId ⇒ 这行变成
+                    // 挂不回任何卡片的孤立裸行，收口等于没做。
+                    // logS 的书章/reqId 由调用方显式传入（事件自带 request），才是可靠来源。
+                    runCatching {
+                        logS(
+                            "获取成功（预合成）：让路——播放优先，该段播放时现场合成",
+                            indent = 1,
+                            reqId = currentReqId,
+                            bookName = currentReqBook,
+                            chapterTitle = currentReqChapter,
+                            isPreload = true,
+                        )
+                    }
                 }
                 callback.done()
             }
@@ -745,6 +769,21 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                     // 真正的失败（网络/插件错）仍走下面那一行照常上报。
                     if (!(isCancel && isPreloadRequest)) {
                         callback.error(TextToSpeech.ERROR_SYNTHESIS)
+                    } else {
+                        // 11-22 14:4x：预热卡放出后的收口行（同上面那个取消分支，
+                        // 两处必须成对补齐，否则从任一处漏过来都会留下「请求中」的卡）。
+                        // 用 logS 而不是 logW：MDC 已清，只有显式传入书章/reqId
+                        // 才能把这行挂回它自己那张卡（详见上一个分支的注释）。
+                        runCatching {
+                            logS(
+                                "获取成功（预合成）：让路——播放优先，该段播放时现场合成",
+                                indent = 1,
+                                reqId = currentReqId,
+                                bookName = currentReqBook,
+                                chapterTitle = currentReqChapter,
+                                isPreload = true,
+                            )
+                        }
                     }
                 } finally {
                     // 🛠️ 结案铁律：确保必须调用 done()，防止队列挂起
