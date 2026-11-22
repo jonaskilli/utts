@@ -351,6 +351,49 @@ internal class LogGroups(
              */
             val pending: Boolean = false,
         ) : Item()
+
+        /**
+         * 11-22（用户令「可以折叠」）：**非当前章的后台备货卡折叠成一行摘要**。
+         *
+         * ## 为什么需要
+         * 真机实测（用户读第2章、第3章在后台备货）：
+         *   第2章 = 真成功 53 + 预合成 23（正常混排）
+         *   第3章 = 真成功 **0** + 预合成 **52**（清一色预合成）
+         * 第3章还没开始读，只有备货请求、没有播放请求 ⇒ 全章 100% 是预合成卡。
+         * 这 52 张卡会整块排在当前章之后：既不知道它们是"同一章的备货"，
+         * 又把真正的播放卡挤到很远，滚起来像一堆没头没尾的条目。
+         *
+         * ## 折叠口径
+         * 只折叠「**整章都还没有播放请求**」的章（即该章所有带 reqId 的组都是预加载）。
+         * 一旦该章出现任何一笔真播放请求，就整章正常展开——**正在读的章永不折叠**。
+         * 所以折叠只在"纯备货章"上生效，读起来和以前完全一致。
+         *
+         * ## 保留了什么（不丢信息）
+         * 摘要行写明章名 + 已备段数/总段数，点一下可展开原始卡片。
+         * 折叠 ≠ 隐藏：数据仍在 items 里，展开后逐张可见。
+         */
+        class PreloadRollup(
+            /** 该章名（来自卡片自身的 chapterTitle） */
+            val chapter: String,
+            /** 本章备货卡数量（= 摘要行显示的"N 段"） */
+            val count: Int,
+            /** 本章总段数（0=未知，摘要省略分母） */
+            val total: Int,
+            /**
+             * 展开状态键 = 书 + "\u0001" + 章。**必须带书名**：两本书同号章是常态，
+             * 只用章名会让展开一本连带展开另一本（跨书串态）。
+             */
+            val rollupKey: String,
+            /**
+             * 该章第一条的条目下标。吸收跟随/搜索跳转/展开定位都用它。
+             *
+             * ⚠️ 11-22 自查：曾设计 fromItem/toItem「记录被折叠的 raw 区间供展开还原」，
+             * 但实现后确认**展开根本不是靠区间还原**——展开是让 build 重新跑一遍
+             * （expandedRollups 进 remember key ⇒ 该章不再折叠 ⇒ 原始卡片自然铺出）。
+             * 区间字段没有任何读者，属死代码，已删。写注释必须与实现一致。
+             */
+            val anchorEntry: Int,
+        ) : Item()
     }
 
     // 条目下标 → 列表项下标（搜索跳转/滚动定位用）；越界或未入组时兜底直用条目下标
@@ -363,6 +406,9 @@ internal class LogGroups(
         // 书条/章节签是纯装饰性分隔头，不带可复制条目（多选/复制不把它们算进去）
         is Item.BookBar -> emptyList()
         is Item.ChapterBar -> emptyList()
+        // 11-22 折叠摘要：它只是个「展开/收起」开关，本身不代表任何日志条目，
+        // 多选/复制都不该把它算进去（否则复制会混进一行"第N章已备货"的假条目）。
+        is Item.PreloadRollup -> emptyList()
         is Item.Bare -> listOf(item.index)
         // ⚠️ 吸收条必须算进本组（10-12 用户实报「有些信息无法复制了」）：absorbError 是
         // 失败全文条（真因 + 正文 + 发音人信息），10-11 起由组头代画、**不进 members**——
@@ -442,10 +488,11 @@ internal class LogGroups(
          *   （11-11：由调用方传"全量日志里最近一条带书章的条目"）。
          *   用户实报「切换章节时有时无」——因为吸顶区只看**过滤后**的列表，
          *   选单本书/切书时主行被滤掉，吸顶区就空掉。加回落可保证只要读过这本书就仍显示。
-         * @param chapterOrder 书名 → 该书章名的**书内真实章序**（与「切换章」弹窗同源，
-         *   ChapterOrderFile）。非空时日志流按「书→章→段」排序（用户 11-21 14:2x 拍板
-         *   「卡片按正文的顺序出现」）：预合成卡（跨章备货）按自己的章/段插到正确位置，
-         *   不再按发生时间在播放卡中间锯齿交错。null/空 = 按时间原序（旧行为）。
+         * @param chapterOrder **已不参与日志列表排序**（11-22 11:0x 用户定稿「日志一律按
+         *   时间顺序」后保留形参以免改调用方签名；章节下拉框等处仍用同一份章序数据）。
+         *   历史：11-21 14:2x 曾据此把日志重排成「书→章→段」像翻书，但真机暴露三个
+         *   前提全不成立（章序只有当前书 / rank 相同时段号交错 / 书名字符串分块把新书
+         *   顶到顶部），详见 build 内部 11-22 11:0x 的注释块。
          */
         fun build(
             input: List<LogEntry>,
@@ -459,102 +506,56 @@ internal class LogGroups(
              */
             markPending: Boolean = true,
             chapterOrder: Map<String, List<String>>? = null,
+            /**
+             * 11-22（用户令「可以折叠」）：**已手动展开**的备货章名集合。
+             * 折叠判据本身只看「该章有没有真播放请求」；本集合是用户在摘要行点了
+             * 「展开」之后的覆盖——展开过的章不再折叠，原始卡片照常铺出。
+             *
+             * 为什么是参数而不是 build 内部状态：折叠/展开要能触发列表重建
+             *（卡片要真出现），所以由上层把状态传下来；build 保持纯函数，
+             * 同样的入参永远得到同样的分组结果，便于测试与排查。
+             */
+            expandedRollups: Set<String> = emptySet(),
         ): LogGroups {
-            // ===== 11-21 14:2x：按「书→章→段」排序（正文阅读顺序）=====
-            // 用户拍板：日志页要像翻书——244章 1..64 连续、接 245章 1..81 连续。
-            // 排序键 (book, chapterRank, paraIndex, time)：
-            //  · chapterRank=书内章序（data.json 同源），查不到的章保序追在该书已排名
-            //    章之后（与 chaptersOf 弹窗同一兜底口径）；
-            //  · paraIndex 段号：同章内按段序排——预合成段 1..N 与播放段同段号相邻；
-            //  · time 兜底：同章同段（重试/成功子行）保持发生时序；
+            // ===== 11-22 11:0x（用户定稿：**日志一律按时间顺序**）=====
             //
-            // 11-21 20:0x（用户装机实报「预热让路一直在顶部，其他的也位置不对」）：
-            // 旧实现让**无书章的行**（规则日志/系统行——「预热让路」「书章就绪」等，
-            // 落盘时 MDC 无书章）也参与排序，而空书名 "" 在字符串序里排在所有书名
-            // 之前 ⇒ 这些行全部堆到日志最顶。注释曾写「不参与排序、按时间夹在中间」
-            // 但代码从未实现——如实修正为此处的新实现。
+            // ## 用户的四条要求，其实是一个决定
+            //   「日志先读的第几章就是第几章」「看的哪本书就是哪本书」
+            //   「日志最新也就是底部永远是最新的」「上方显示当前日志的书名和真实章节名」
+            // ⇒ 全部指向同一件事：**按事件发生的先后排，不要二次重排。**
             //
-            // 新口径 = **上下文继承**：无书章行在时间轴上紧跟哪本书哪章的正文行，
-            // 排序键就继承那个 (书, 章序, 段号)，自己的 time 作同段兜底——
-            // 效果是它落在「它发生的位置」：紧跟的正文段之后、下一段之前。
-            // 「预热让路」出现在它让路的那笔备货卡旁边，规则日志出现在它分析的那段旁。
-            // 时间轴最前面、没有任何上下文可继承的行（启动日志等）**回填后文**：
-            // 11-21 23:4x 用户实报「【书章就绪】一直出现在日志最底部」——那条行落盘时
-            // 书名为空（`| § |  |  | [SpeechRule]`：规则打就绪行那一刻 MDC 还没书章），
-            // 又恰好是本次回读的**第一条**（比第一条请求行只早 10ms）⇒ 前向无上下文，
-            // 旧实现落哨兵 \uFFFF 直接沉底。规则行讲的正是「接下来读哪本书哪章」，
-            // 放在它后面那批正文之前才对。细节见 sortedInput 里的 headBook 回填。
-            // ⚠️ 排在 regroupByReqId 之前：reqId 聚组要求同一请求的行先相邻（游程判据），
-            // 排序恰好把同段同 reqId 的行聚到了一起，重排命中率反而更高。
-            // ⚠️ 继承只改排序键、不改条目本体（LogEntry 原样进出）：条目上仍是空书章，
-            // 按书筛选/渲染不受影响。
-            val sortedInput = if (chapterOrder.isNullOrEmpty()) input else {
-                val orderOf = chapterOrder.mapValues { (_, chapters) ->
-                    chapters.withIndex().associate { (i, name) -> name to i }
-                }
-                class RowKey(val book: String, val rank: Int, val para: Int)
-                val keys = ArrayList<RowKey>(input.size)
-                var ctxBook = ""
-                var ctxChapter = ""
-                var ctxRank = Int.MAX_VALUE
-                var ctxPara = Int.MAX_VALUE
-                var sawContext = false
-                // 11-21 23:4x：时间轴最前面无前向上下文的行，**回填后文**的键。
-                // 用户实报「【书章就绪】一直在日志最底部」：那条行落盘书名为空
-                //（规则打就绪行时 MDC 还没书章），又恰好是回读的第一条 ⇒ 前向无上下文，
-                // 旧实现落哨兵 \uFFFF 直接沉底。它宣告的正是「接下来读哪本书哪章」，
-                // 应落在后面那批正文之前。段号用后文首行的；无段号就 -1（章首位置）。
-                val headFirst = input.firstOrNull { it.bookName.isNotBlank() }
-                val headBook = headFirst?.bookName ?: ""
-                val headRank = headBook.takeIf { it.isNotBlank() }
-                    ?.let { orderOf[it]?.get(headFirst?.chapterTitle) ?: Int.MAX_VALUE }
-                    ?: Int.MAX_VALUE
-                val headPara = headFirst?.paraIndex?.takeIf { it >= 0 } ?: -1
-                input.forEach { e ->
-                    if (e.bookName.isNotBlank()) {
-                        // 11-22 02:4x（用户实报「书章就绪那行位置不对」）：**跨章不得继承段号**。
-                        //
-                        // 现象：第1章读到段102 时，规则打出一条宣告**第2章**的章首行
-                        // （落盘书章已被 SysttsLogger 修正为第2章、段号空=-1）。
-                        // 旧代码 `ctxPara = e.paraIndex.takeIf { it >= 0 } ?: ctxPara` 在
-                        // 段号为 -1 时**沿用上一章的 102** ⇒ 排序键 (第2章, rank, 102)，
-                        // 比第2章全部正文（0..71）都大 ⇒ 章首行沉到第2章**末尾**，
-                        // 仍然违反 V5「出现在它宣告那一章正文之前」。
-                        // 根因是「继承前行段号」这条兜底只在**同章内**成立；跨章时它继承的
-                        // 是旧章序号，语义上根本不对应。故：章一变（或书变）段号就作废，
-                        // 取本行自己的（-1 = 章首），同章内才继续继承。
-                        val chapterChanged = ctxBook != e.bookName || ctxChapter != e.chapterTitle
-                        ctxBook = e.bookName
-                        ctxChapter = e.chapterTitle
-                        ctxRank = orderOf[e.bookName]?.get(e.chapterTitle) ?: Int.MAX_VALUE
-                        // 11-21 22:5x（用户「重启后规则日志分离到日志最后」）：
-                        // 有书章但无段号的行（历史 speech_rule 行 paraIndex=-1）此前
-                        // 落 Int.MAX_VALUE ⇒ 沉到章尾。与无书章行同款「上下文继承」：
-                        // 继承时间轴上前一行的段号，落在它发生的位置。
-                        // 11-22 02:4x：仅**同章内**继承（见上方跨章说明）。
-                        ctxPara = if (chapterChanged) e.paraIndex.takeIf { it >= 0 } ?: -1
-                        else e.paraIndex.takeIf { it >= 0 } ?: ctxPara
-                        sawContext = true
-                        keys.add(RowKey(e.bookName, ctxRank, ctxPara))
-                    } else if (sawContext) {
-                        keys.add(RowKey(ctxBook, ctxRank, ctxPara))
-                    } else if (headBook.isNotBlank()) {
-                        // 前向无上下文但后文有书章：回填后文（见上方 headBook 注释），
-                        // 让「书章就绪」这类开篇规则行落在它宣告的那一章**之前**。
-                        keys.add(RowKey(headBook, headRank, headPara))
-                    } else {
-                        keys.add(RowKey("\uFFFF", Int.MAX_VALUE, Int.MAX_VALUE))
-                    }
-                }
-                input.indices.sortedWith(
-                    compareBy(
-                        { keys[it].book },
-                        { keys[it].rank },
-                        { keys[it].para },
-                        { input[it].time },
-                    )
-                ).map { input[it] }
-            }
+            // ## 为什么改为纯时间序（推翻 11-21「按正文顺序排」）
+            // 11-21 那版把日志重排成「书→章→段」，本意是让阅读顺序像翻书。
+            // 但它建立在三个脆弱前提上，真机上全炸了（用户 10:3x / 10:4x 连续两报）：
+            //   ① **章序数据只有当前一本书**（ChapterOrderFile 读 data.json，换书即失效）
+            //      ⇒ 旧书的章查不到 rank，全部塌缩成 Int.MAX_VALUE；
+            //   ② rank 相同时排序键只剩段号，而每章段号都从 0 开始
+            //      ⇒ 两章的段**按段号逐个交错**：22/81 → 23/71 → 23/81 → 24/71…
+            //      用户截图里顶部「第2章-第3章-第2章」来回跳就是这个；
+            //   ③ 书名字符串当第一排序键 ⇒ 按 Unicode 码点大小分块：
+            //      「乖」U+4E56 < 「穿」U+7A7F ⇒ 刚换的新书整块跳到**顶部**，
+            //      用户原话「日志不显示在页面最后，反而在顶部」。
+            //
+            // 这三点都不是「调一下参数」能修好的——共同病根是
+            // **用「重建的阅读顺序」覆盖「真实的到达顺序」**。日志的本质是事件流水，
+            // 追加顺序就是唯一真相；任何重排都在拿推断替换事实。
+            //
+            // ## 时间序为什么天然满足全部四条
+            //   · 「先读的章在前」：日志按时间追加，先读的先写 ✅
+            //   · 「看的哪本书就是哪本书」：每条日志自带书章（SysttsLogger 落盘时写入），
+            //     不跨书改动，天然各归各 ✅
+            //   · 「最新在底部」：时间递增 ⇒ 最新的一定在最后 ✅
+            //   · 「显示真实章节名」：章名取自日志行自身的 chapterTitle（请求级事实，
+            //     与 U阅 传的 book_name/chapter_title 同源），不经过章序表猜 ✅
+            //
+            // ## 保留的东西
+            // · `chapterOrder` 参数保留（调用方签名不动）：章节下拉框排序等别处仍在用，
+            //   只是日志列表**不再**拿它重排。
+            // · `regroupByReqId` 保留：它把同一次请求的多行聚成一张卡，是本页核心版式，
+            //   与排序无关；时间序下同 reqId 的行本就相邻，聚组命中率不降。
+            // · 输入 `input` 由 TtsLogViewModel.filteredLogs 给出，已是 sortedBy { time }。
+            val sortedInput = input
+
             val list = regroupByReqId(sortedInput)
             val raw = ArrayList<Item>(list.size)
             var head = -1
@@ -908,15 +909,116 @@ internal class LogGroups(
             // 同一天不重复画日期签——所以正常阅读时一屏最多各一条，不会顶掉正文。
             // ⚠️ 书/章取的是**锚点条目**（组头或裸行）自身的字段：请求行才带书章，
             // 结果子行/插件行没有，用它们判断会漏。
+            // ===== 11-22（用户令「可以折叠」）：纯备货章折叠成一行摘要 =====
+            //
+            // ## 现场（真机实测，用户读第2章、第3章后台备货）
+            //   第2章 = 真成功 53 + 预合成 23   ← 正常混排，读起来没问题
+            //   第3章 = 真成功  0 + 预合成 52   ← 清一色预合成卡
+            // 第3章还没开始读，只有备货请求、没有播放请求 ⇒ 全章 100% 预合成卡。
+            // 这 52 张卡会紧跟在当前章之后，既看不出"它们是同一章的备货"，
+            // 又把列表撑得很长——用户原话「第三章的全显示预合成卡，而不是像第二章
+            // 一样正常卡+预合成卡」。
+            //
+            // ## 折叠判据（保守，只动纯备货章）
+            // 按 (书, 章) 分组统计该章的 Group：
+            //   · 该章**所有** Group 的组头条目都是 isPreload=true  ⇒ 纯备货章 → 折叠；
+            //   · 只要有一笔非预加载（真播放）请求                ⇒ 正常展开（正在读的章永不折叠）。
+            // 这条判据保证：你正在听的那一章，卡片永远和以前完全一样。
+            //
+            // ## 折叠 ≠ 隐藏
+            // 生成 PreloadRollup 摘要项，记录被折叠 Group 在 raw 里的下标区间。
+            // 摘要行显示「第N章 · 已备货 x/y 段」，点一下展开原始卡片（渲染层持有展开态）。
+            // 数据全在 raw 里，展开是纯视图操作，不重算。
+            // 先算「每个(书,章)的备货组数 / 是否含真播放 / 总段数 / 首个组的 raw 下标」
+            // 只保留真正被读的字段。曾有的 hasRealPlay 从没被读过（判据在登记前已用
+            // 局部数组 v[2] 判完），属死字段，已删。
+            class RollupStat(
+                val chapter: String,
+                val preloadCount: Int,
+                val total: Int,
+                val firstRaw: Int,
+                val anchorEntry: Int,
+                val rollupKey: String,
+            )
+            val rollupOf = LinkedHashMap<Pair<String, String>, RollupStat>()
+            run {
+                // 一次扫描：按章聚合
+                val acc = LinkedHashMap<Pair<String, String>, MutableList<Any>>()
+                raw.forEachIndexed { ri, item ->
+                    if (item !is Item.Group) return@forEachIndexed
+                    val e = list[item.head]
+                    if (e.bookName.isBlank() || e.chapterTitle.isBlank()) return@forEachIndexed
+                    val k = e.bookName to e.chapterTitle
+                    val slot = acc.getOrPut(k) {
+                        // [0]=备货组数 [1]=本章总段数 [2]=是否含真播放 [3]=首个组 raw 下标
+                        // [4]=锚点条目下标（用 MutableList<Any> 是因为局部 MutableList<Int>
+                        // 装不下 Boolean；只在 build 内活几行，不做类型暴露，可接受）
+                        mutableListOf(0, 0, false, ri, item.head)
+                    }
+                    if (e.isPreload) {
+                        slot[0] = (slot[0] as Int) + 1
+                    } else {
+                        slot[2] = true
+                    }
+                    if (e.paraTotal > (slot[1] as Int)) slot[1] = e.paraTotal
+                }
+                acc.forEach { (k, v) ->
+                    val count = v[0] as Int
+                    // 只登记「有备货卡、且整章零真播放」的章——其余不进折叠表
+                    // 已手动展开的章不再折叠（用户点了「展开」就铺出原始卡片）
+                    // ⚠️ 键必须是 **(书,章)** 而不是裸章名：两本书都有「第2章」是常态，
+                    // 用裸章名会让"展开A书第2章"连带展开B书第2章（跨书串态）。
+                    // 用 \u0001 作分隔符：书章名里不可能出现该控制字符，不会撞键。
+                    val rollupKey = k.first + "\u0001" + k.second
+                    if (count > 0 && !(v[2] as Boolean) && rollupKey !in expandedRollups) {
+                        rollupOf[k] = RollupStat(
+                            rollupKey = rollupKey,
+                            chapter = k.second,
+                            preloadCount = count,
+                            total = v[1] as Int,
+                            firstRaw = v[3] as Int,
+                            anchorEntry = v[4] as Int,
+                        )
+                    }
+                }
+            }
+            // 被折叠的 raw 下标集合：折叠表里那些章的 Group 全部收起
+            val foldedRaw = HashSet<Int>()
+            if (rollupOf.isNotEmpty()) {
+                raw.forEachIndexed { ri, item ->
+                    if (item !is Item.Group) return@forEachIndexed
+                    val e = list[item.head]
+                    if (e.bookName.isBlank() || e.chapterTitle.isBlank()) return@forEachIndexed
+                    val k = e.bookName to e.chapterTitle
+                    if (rollupOf.containsKey(k)) foldedRaw.add(ri)
+                }
+            }
+            // 每章只在「第一个被折叠的 raw 位置」插一条摘要
+            val rollupInsertAt = HashMap<Int, RollupStat>()
+            if (foldedRaw.isNotEmpty()) {
+                raw.forEachIndexed { ri, _ ->
+                    if (ri !in foldedRaw) return@forEachIndexed
+                    val g = raw[ri] as Item.Group
+                    val e = list[g.head]
+                    val k = e.bookName to e.chapterTitle
+                    val stat = rollupOf[k] ?: return@forEachIndexed
+                    if (stat.firstRaw == ri) rollupInsertAt[ri] = stat
+                }
+            }
+
             val finalItems = ArrayList<Item>(raw.size + 8)
             val map = IntArray(list.size) { -1 }
             var lastDate: String? = null
+            // 当前章摘要行在 finalItems 里的下标（折叠组登记 map 时指向它）
+            var rollupInsertPos = -1
             // 11-11：书条/章条改吸顶后不再需要这两个游标（原用于判断「换书/跨章处插签」）
 
             // 先统计每本书/每章各有多少条（书条/章节签要显示「N 条」键 + 首条下标）
             fun anchorOf(item: Item): Int = when (item) {
                 is Item.Bare -> item.index
                 is Item.Group -> item.head
+                // 11-22 折叠摘要：它代表整章备货，锚点=该章首条，吸顶跟随/搜索跳转照常
+                is Item.PreloadRollup -> item.anchorEntry
                 else -> -1
             }
             val bookCount = HashMap<String, Int>()
@@ -937,7 +1039,7 @@ internal class LogGroups(
                 }
             }
 
-            raw.forEach { item ->
+            raw.forEachIndexed { ri, item ->
                 val anchorIdx = anchorOf(item)
                 if (anchorIdx >= 0) {
                     val e = list[anchorIdx]
@@ -954,6 +1056,54 @@ internal class LogGroups(
                             lastDate = d
                         }
                     }
+                }
+                // ===== 11-22 折叠：在纯备货章的第一个组位置插摘要，并跳过该章全部组 =====
+                //
+                // 顺序很关键：日期签已在上面插过（折叠不吞日期签，日期是真实信息），
+                // 然后判断「当前位置是不是某折叠章的第一个组」→ 是就插摘要行；
+                // 之后凡属折叠章的组一律跳过（它们的数据已被摘要代表，展开时由渲染层
+                // 展开不是靠区间还原，而是让 build 重跑（expandedRollups 进 remember key）；
+                rollupInsertAt[ri]?.let { stat ->
+                    // 摘要占据一个列表项位置；把它记进 map，供搜索跳转定位到该章首条
+                    map[stat.anchorEntry] = finalItems.size
+                    finalItems.add(
+                        Item.PreloadRollup(
+                            chapter = stat.chapter,
+                            count = stat.preloadCount,
+                            total = stat.total,
+                            rollupKey = stat.rollupKey,
+                            anchorEntry = stat.anchorEntry,
+                        )
+                    )
+                    // 记下这条摘要的位置，供随后被跳过的同章组登记 map（见下方 foldedRaw 分支）
+                    rollupInsertPos = finalItems.size - 1
+                }
+                if (ri in foldedRaw) {
+                    // ⚠️ 11-22 自查修（折叠上线时必踩）：**被折叠的条目也要登记 map**，
+                    // 指向它所属那条摘要行的位置。
+                    //
+                    // 为什么必须登记：map 的语义是「条目下标 → 列表项下标」，搜索跳转、
+                    // 回原文定位、复制跳转全都靠它。若折叠组直接 return 不登记，那些条目
+                    // 的 map 保持 -1 ⇒ listItemFor 退回「直接拿条目下标当列表项下标」，
+                    // 而折叠后列表项总数变少、下标空间完全不同 ⇒ 跳到错误位置（通常是
+                    // 几百行开外）。这跟 11-15「两处 build 参数不一致导致错位」是同一类坑。
+                    //
+                    // 指向摘要行是正确的语义：搜索命中一张被折叠的备货卡时，跳到
+                    // 「第N章 已备货 x/y」那一行——用户在那里点展开就能看到目标卡。
+                    val g = item as Item.Group
+                    val summaryAt = rollupInsertPos
+                    // 防御：summaryAt<0 说明该组先于摘要行出现（理论上不会——摘要就插在
+                    // 该章第一个组的位置；但代码顺序一旦被人改动就会踩），
+                    // 此时不写 map（保持 -1 走 listItemFor 的兜底），绝不留负下标。
+                    if (summaryAt >= 0) {
+                        (listOf(g.head) + g.members).forEach { map[it] = summaryAt }
+                    } else {
+                        android.util.Log.w(
+                            "LogGroups",
+                            "folded group without rollup summary: head=${g.head}"
+                        )
+                    }
+                    return@forEachIndexed
                 }
                 // finalItems.size 即本 item 即将占据的下标
                 when (item) {
@@ -1055,6 +1205,13 @@ internal fun LogScreen(
     //   取消（吸顶「最新」胶囊再点）→ 回 FOLLOW_PLAYING。
     // 入口：吸顶行最右「最新」胶囊（PinnedLogHeader）；复位浮钮见下方 NATURAL 分支。
     autoScrollToBottom: Boolean = false,
+    // ===== 11-22（用户令「可以折叠」）：纯备货章折叠状态 =====
+    // key=章名，value=true 表示该章已展开。由上层 TtsLogScreen 持有并在重组间保留
+    //（remember），因为它是纯视图状态——放这里而不进 LogGroups 数据模型，
+    // 避免每次展开/收起都触发整份 2 万条分组重算。
+    // 折叠判据见 LogGroups.build 里 11-22 的注释：只折叠「整章零真播放请求」的章。
+    expandedRollups: Map<String, Boolean> = emptyMap(),
+    onToggleRollup: (String) -> Unit = {},
     scrollMode: com.github.jing332.tts_server_android.compose.systts.ScrollMode =
         com.github.jing332.tts_server_android.compose.systts.ScrollMode.FOLLOW_PLAYING,
     onScrollModeChange: (com.github.jing332.tts_server_android.compose.systts.ScrollMode) -> Unit = {},
@@ -1846,6 +2003,109 @@ internal fun LogScreen(
                         // currentGroups.isChapterTitleLog(boldBodyOf(head), head.chapterTitle)。
                         // 本分支保留仅为 sealed class 穷举。
                         is LogGroups.Item.ChapterBar -> Unit
+                        // 11-22（用户令「可以折叠」）：纯备货章的折叠摘要行。
+                        // 只显示一行「第N章 · 已备货 x/y 段 [展开]」，点一下原位展开该章卡片。
+                        // 展开态由渲染层本地状态持有（remember），不进 build 数据模型——
+                        // 因为它是纯视图状态，不该触发整份分组重算。
+                        is LogGroups.Item.PreloadRollup -> {
+                            // ===== 11-22（用户令「可以折叠」）：纯备货章摘要行 =====
+                            //
+                            // 版式：┌ 第3章 · 已备货 52/81 段         [展开 ▾] ┐
+                            // 视觉上刻意做得像「一张收起的卡」——与正文卡片同宽同内容线，
+                            // 左边用一条 3dp 主题色竖线标出这是"章级"元素（与日期签同语言），
+                            // 中间章名 SemiBold，右侧备货读数用主题绿（呼应「绿=已备」）。
+                            //
+                            // 交互：整行可点 → 展开/收起。展开后本行保持，下方铺出该章原始卡片
+                            //（展开渲染由 TtsLogScreen 传入的 expandedRollups 状态驱动）。
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    // 内容线 8dp（与书章框/进度行同源）
+                                    .padding(start = 8.dp, end = 8.dp, top = 6.dp, bottom = 6.dp)
+                                    .clip(AppShapes.sm)
+                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.06f))
+                                    .clickable {
+                                        // 传 (书,章) 键，不是裸章名（见 PreloadRollup.rollupKey 注释）
+                                        onToggleRollup(item.rollupKey)
+                                    }
+                                    .padding(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+                            ) {
+                                // 左侧竖线：章级元素标记（同日期签语言）
+                                Box(
+                                    Modifier
+                                        .width(3.dp)
+                                        .height(14.dp)
+                                        .clip(RoundedCornerShape(2.dp))
+                                        .background(MaterialTheme.colorScheme.primary)
+                                )
+                                Spacer(Modifier.width(7.dp))
+                                // 章名：深色 SemiBold，长章名省略（摘要行不该被章名撑爆）
+                                Text(
+                                    text = item.chapter,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f, fill = false),
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                // 备货读数：「已备货 52/81 段」，数字用 Plex Mono + 主题绿
+                                Text(
+                                    text = buildAnnotatedString {
+                                        withStyle(
+                                            SpanStyle(
+                                                fontSize = 11.5.sp,
+                                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+                                            )
+                                        ) { append("已备货 ") }
+                                        withStyle(
+                                            SpanStyle(
+                                                fontFamily = SegNumberFont,
+                                                fontWeight = FontWeight.SemiBold,
+                                                fontSize = 12.sp,
+                                                color = MaterialTheme.colorScheme.primary,
+                                            )
+                                        ) { append(item.count.toString()) }
+                                        if (item.total > 0) {
+                                            withStyle(
+                                                SpanStyle(
+                                                    fontFamily = SegNumberFont,
+                                                    fontSize = 11.5.sp,
+                                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
+                                                )
+                                            ) { append("/" as String); append(item.total.toString()) }
+                                        }
+                                        withStyle(
+                                            SpanStyle(
+                                                fontSize = 11.5.sp,
+                                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+                                            )
+                                        ) { append(" 段") }
+                                    },
+                                    fontSize = 11.5.sp,
+                                    maxLines = 1,
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                // 展开/收起指示：文字 + 箭头（箭头随状态翻转）
+                                val isExpanded = expandedRollups[item.rollupKey] == true
+                                Text(
+                                    text = if (isExpanded) "收起" else "展开",
+                                    fontSize = 11.5.sp,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Medium,
+                                    maxLines = 1,
+                                )
+                                Spacer(Modifier.width(2.dp))
+                                Text(
+                                    text = if (isExpanded) "▴" else "▾",
+                                    fontSize = 10.sp,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    maxLines = 1,
+                                )
+                            }
+                        }
                         is LogGroups.Item.Header -> {
                             // ===== 11-14 用户令：日期不再用胶囊 =====
                             //

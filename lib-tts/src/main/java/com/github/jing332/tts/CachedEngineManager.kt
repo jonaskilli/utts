@@ -72,7 +72,49 @@ object CachedEngineManager :
         val engine = getEngine(context, source) ?: return null
         // 计数挂在**这个实例对应的实际 key** 上。池化时 getEngine 内部按槽位选 key，
         // 这里无法直接得知是哪个槽——故用实例反查（见 keyOfEngine）。
-        val key = keyOfEngine(engine) ?: return engine
+        val key = keyOfEngine(engine)
+        if (key == null) {
+            // ===== 11-22 11:0x：反查失败**不能静默放行**（用户实报引擎仍在在飞期被销毁）=====
+            //
+            // 旧写法：`keyOfEngine(engine) ?: return engine` —— 反查不到就**直接返回、不计数**。
+            // 后果：这一笔请求拿到的是「没有任何保护」的引擎。若此刻另一线程正要对它
+            // removeEngine，hasInFlight(key) 看不到这笔请求 ⇒ 引擎被从它脚下撤走。
+            // 这正是「引擎销毁发生在请求在飞期间」的第二条成因，且它静默无日志、
+            // 只表现为请求莫名失败（日志里连 PluginJS/Engine not initialized 原文都没有）。
+            //
+            // 反查为 null 的两个真实来路：
+            //   ① 竞态：getEngine 刚 put 进 cache，另一个线程的 removeEngine/过期扫描
+            //      在 keyOfEngine 遍历前把它移除了（单实例插件只有这一个，移走即全灭）；
+            //   ② hutool cache[key] 因过期语义对该 key 返回 null（条目已过期但 keySet 还留着）。
+            // 两种情况下这个引擎都**已经不可信**：它可能正在被销毁。
+            //
+            // 处理：不放行，改用「按源重新取一次」——getEngine 会命中缓存或新建实例。
+            // 若重取拿到的仍是同一个已脱管实例（理论上不该发生），退化为按 baseKey
+            // 硬记计数（宁可计数不准也不能零保护），并打 WARN 留证。
+            logger.warn {
+                "acquireEngine: key lookup failed for ${source.getKey()}; " +
+                    "engine=${engine.javaClass.simpleName} not protected by in-flight counter. " +
+                    "Re-fetching to obtain a trackable instance."
+            }
+            val refetched = getEngine(context, source)
+            val refetchedKey = refetched?.let { keyOfEngine(it) }
+            if (refetched != null && refetchedKey != null) {
+                inFlight.getOrPut(refetchedKey) { java.util.concurrent.atomic.AtomicInteger(0) }
+                    .incrementAndGet()
+                firstAcquireAt.putIfAbsent(refetchedKey, System.currentTimeMillis())
+                return refetched
+            }
+            // 兜底：按 baseKey 硬记（池化时退化为整池一个计数，偏保守但不会零保护）
+            val fallbackKey = baseKeyOf(source)
+            inFlight.getOrPut(fallbackKey) { java.util.concurrent.atomic.AtomicInteger(0) }
+                .incrementAndGet()
+            firstAcquireAt.putIfAbsent(fallbackKey, System.currentTimeMillis())
+            logger.warn {
+                "acquireEngine: falling back to base key counter ($fallbackKey) — " +
+                    "protection is coarse for this request."
+            }
+            return refetched ?: engine
+        }
         inFlight.getOrPut(key) { java.util.concurrent.atomic.AtomicInteger(0) }.incrementAndGet()
         firstAcquireAt.putIfAbsent(key, System.currentTimeMillis())
         return engine

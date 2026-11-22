@@ -393,7 +393,14 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                 !vm.scopeChapter.value.isNullOrBlank()
         }
     }
-    val logGroups = remember(displayLogs, pinnedFallback, logNarrowed) {
+    // ===== 11-22（用户令「可以折叠」）：纯备货章折叠的展开态 =====
+    //
+    // 为什么放这里而不是 VM：它是**纯视图状态**——展开/收起不影响任何数据、
+    // 不该跨会话持久化，也不该进 ViewModel 让 2 万条日志的重组耦合它。
+    // key=章名（同一章名在同一本书内唯一；跨书同名章极少，且折叠判据本身按
+    // (书,章) 分组，这里用章名做 key 是权衡后的简化，可接受）。
+    var expandedRollups by remember { mutableStateOf<Set<String>>(emptySet()) }
+    val logGroups = remember(displayLogs, pinnedFallback, logNarrowed, expandedRollups) {
         LogGroups.build(
             displayLogs,
             fallbackBook = pinnedFallback?.bookName.orEmpty(),
@@ -402,7 +409,11 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
             // 11-21 14:2x（用户拍板「卡片按正文的顺序出现」）：日志流按
             // 「书→章→段」排序，预合成卡插到正文的正确位置，不再锯齿交错。
             // 排序键随 displayLogs 变化在 build 内重算，这里只取一次章序数据。
+            // ⚠️ 11-22 11:0x 用户定稿「日志一律按时间顺序」后，该参数**不再参与
+            // 日志列表排序**（改为纯时间序），仅保留形参以免改调用方签名。
             chapterOrder = vm.chapterOrderMap(),
+            // 11-22：已展开的备货章不折叠（点了「展开」就要看到原始卡片）
+            expandedRollups = expandedRollups,
         )
     }
 
@@ -465,6 +476,11 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                 fullList,
                 fallbackBook = pinnedFallback?.bookName.orEmpty(),
                 fallbackChapter = pinnedFallback?.chapterTitle.orEmpty(),
+                // ⚠️ 11-22 折叠上线后必须与主列表（上面 logGroups）传**同一套**折叠参数：
+                // 这里算出来的 listItemFor 下标要拿去 animateScrollToItem 滚主列表，
+                // 两份分组只要折叠判据不同、items 数量就不同，下标整体错位 ⇒ 定位偏。
+                // （这个坑和 11-15「二合一」那次同源：两处 build 参数必须一致。）
+                expandedRollups = expandedRollups,
             )
             // 状态更新后重组出完整列表再滚：等一帧让 displayLogs 生效
             withFrameNanos { }
@@ -949,6 +965,17 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
             // bottom* 四个参数同步删除（读数仍见吸顶进度行）。
             list = displayLogs,
             listState = listState,
+            // 11-22（用户令「可以折叠」）：纯备货章摘要行的展开态与切换回调。
+            // key 是 `书 + "\u0001" + 章`（rollupKey）——**不能用裸章名**，
+            // 两本书同号章是常态，裸章名会让"展开A书第2章"连带展开B书第2章。
+            // 渲染层收 Map<rollupKey, Boolean>（只关心「这章展开了没」），
+            // build 侧收 Set<String>（只关心「哪些 key 不要再折叠」）。
+            expandedRollups = expandedRollups.associateWith { true },
+            onToggleRollup = { chapter ->
+                expandedRollups =
+                    if (chapter in expandedRollups) expandedRollups - chapter
+                    else expandedRollups + chapter
+            },
             // 11-15：「实时跟随」整条链路随胶囊一起撤（见 PinnedLogHeader 里「最新日志」
             // 胶囊的注释）。列表不再自己滚底，回最新统一走右下角 ⇊ 浮钮。
             // 搜索定位/跳章那些**一次性**滚动仍由各自的回调驱动，不受影响。
@@ -2473,195 +2500,130 @@ private fun PinnedLogHeader(
                 synthIdxValid -> "第${synthIdx + 1}章"
                 else -> ""
             }
-            // ===== 11-16 02:2x 用户定稿格式 =====
-            //   同章：当前：62/362｜缓存：68/362        （同章**不写章名**）
-            //   跨章：当前：第二章 62/362｜缓存：第三章 5/40（两侧都写，否则分不清归属）
-            //   停止：缓存：第二章 68/362               （「当前」整段消失、**靠右**、
-            //                                            并无条件带章名——见下方 synthHead 注释）
-            // 与旧版的差别（用户逐条确认）：
-            //   ① 标签从「正在播放/合成进度」压成「当前/缓存」——两个字，省一半宽；
-            //   ② 同章不重复章名（书章行已经写着当前章），跨章才两边都补，
-            //      避免「62/362 到底是哪一章的」这种歧义；
-            //   ③ 停止朗读时只留后半段，后半段**居右**（TextAlign.End 而不是留一大片空白在左）。
-            //      11-16 用户令「合成日志都居右放」：朗读中也一律居右，两态统一。
-            //      不再按 playingNow 切换对齐（见下方 progTextAlign）
-            val playingNow = snap.playing
-            val playSegText = if (playTotal > 0) {
-                playDone.coerceAtMost(playTotal).toString() + "/" + playTotal
-            } else ""
+            // ===== 11-22（用户拍板方案 A「进度条」，紧凑版）=====
+            //
+            // ## 为什么放弃两个分数
+            // 旧行：`当前：第2章 45/71｜缓存：第2章 60/71`。三个根本问题：
+            //   ① 要算减法：「还剩多少」=71−45、「缓冲余量」=60−45，都得心算；
+            //   ② 「当前/缓存」是过程术语，用户关心的是「读到哪」「会不会卡」；
+            //   ③ 两个分数视觉权重相同，但它们是完全不同的两件事（已听 vs 已备）。
+            //
+            // ## 进度条为什么天然正确
+            // 「已听 / 已备 / 未备」是**比例关系**，比例用条子表达不需要换算：
+            //   深色段 = 已听到哪，浅绿段 = 已备到哪，灰 = 未备。
+            // **浅绿比深色多出来的那一截，就是「还能连续听多久不卡」**——眼睛直接量。
+            // 「当前」「缓存」两个词随之消失。
+            //
+            // ## 宽度核算（390dp 屏实算，不是估）
+            // 行可用 = 390 − 8(左) − 8(右) = 374dp。固定项：绿点 10 + 章名 36~64
+            // （第2章/第12章/第256章实测 40/52/64）+ 分数 42 + 间距 24。
+            // 最紧的「第256章」仍给进度条留 **234dp**（占 63%），够看比例。
+            // 反观旧方案：两个章名+两组分数把整行占满，一个像素都不剩给条子。
+            //
+            // ## 跨章画法（用户截图那种情况）
+            // 缓存跑到下一章时，一根条装不下两章的比例，故改成：
+            //   · 本章条**画满浅绿**（含义=本章已全部备好，可放心连听，本身就是信息）；
+            //   · 下方加一根 3dp 细条画下一章已备比例。
+            // 语义不串：粗条永远代表「当前朗读的这一章」，细条代表「已经预热的下一章」。
+            //
+            // ## 紧凑约束（用户选定）
+            // 条高 **6dp** 嵌在本行内、与文字垂直居中，**不加高吸顶区**
+            //（行内边距仍是 top1/bottom7）。条是「扫一眼」用的，不是盯着看的，
+            // 不该为它挤掉一行日志。
+            // 11-22 自查删：`playingNow` 是旧文字版进度行（"当前：…｜缓存：…"）的开关，
+            // 改进度条后不再分支显示，已成死变量。删掉免得后人以为还有两态逻辑。
+            // 绿点呼吸仍用 dotActive（15s 活跃门），口径见下方注释。
+            val playDoneSafe = if (playTotal > 0) playDone.coerceAtMost(playTotal) else 0
             val playNameOrNum = when {
                 playName.isNotBlank() -> playName
                 snap.chapterIndex >= 0 -> "第${snap.chapterIndex + 1}章"
                 else -> ""
             }
-            // 跨章判定：章号都有效且不同（章号缺失时按"同章"处理，宁可不写重复章名）
-            val crossChapter = snap.synthChapterIndex >= 0 &&
-                snap.chapterIndex >= 0 && snap.synthChapterIndex != snap.chapterIndex
-            val playHead = buildString {
-                if (playNameOrNum.isNotBlank() && crossChapter) {
-                    append(playNameOrNum).append(' ')
-                }
-                append(playSegText)
-            }
-            val synthHead = buildString {
-                // 11-16 02:3x 用户二次澄清：「停止朗读了，要显示第x章，不分是否跨章」。
-                // 所以「缓存」侧的章名条件是 **crossChapter || !playingNow**：
-                //   · 在朗读且同章 → 省略（书章行已写着当前章）；
-                //   · 跨章 → 写（否则分不清数字归属）；
-                //   · 已停止 → 一律写（此时没有「当前」可比，不写就不知道缓存停在哪一章）。
-                if (synthNameOrNum.isNotBlank() && (crossChapter || !playingNow)) {
-                    append(synthNameOrNum).append(' ')
-                }
-                if (synthTotal > 0) {
-                    append(synthDone.coerceAtMost(synthTotal)).append('/').append(synthTotal)
-                }
-            }
-            // 竖线两侧**不留空格**（用户给的样例就是 1/25｜缓存）；全角竖线本身自带间距。
-            // 11-18 段号突出：曾有「分子半粗、分母常规」的字重分层方案；11-19 用户令
-            // 整段统一（含分母同字重），字重分层取消。11-20 定档 500 Medium（见 boldSeg）。
-            // 当前侧与缓存侧同口径（用户令两侧统一）。
-            // 用 AnnotatedString 局部设置，不拆多 Text（保持单行居右 + Ellipsis 整体行为）。
-            // 11-19 晚用户令「段数换字体，顶部播放和缓存那一行也要改」→ 同一个
-            // SegNumberFont（IBM Plex Mono）。**只作用于 N/M 这一段**：
-            // 参数名虽叫 numerator，实际调用方传的是整个「133/389」（含分母）——
-            // 与日志行右侧段号同口径（11-19 起整段同字重）。
-            // 11-20 装机实拍 600「太重」→ 用户选定降一档 **500 Medium**，
-            // 与 LogScreen.kt 段号同步改；SpanStyle 必须与 Type.kt 里 Font()
-            // 的登记（Medium）对上，否则叠合成伪粗。
-            // 中文「当前：」「｜缓存：」「第12章」不在这个 span 内，仍走系统字体；
-            // 即便误入也不会变豆腐块——Plex 子集没有的字形会自动回落。
-            fun boldSeg(numerator: String) = buildAnnotatedString {
-                withStyle(
-                    SpanStyle(
-                        fontFamily = SegNumberFont,
-                        fontWeight = FontWeight.Medium,
-                    )
-                ) { append(numerator) }
-            }
-            // ===== 11-22 00:3x 用户令「把缓存进度弄到明显一点」=====
+            // synthNameOrNum 已在上方定义（沿用 11-14「第 0 章」修正口径），此处不重复声明
+            val synthDoneSafe = if (synthTotal > 0) synthDone.coerceAtMost(synthTotal) else 0
+            // 缓存是否跨到别的章：章号都有效且不同。章号缺失按同章处理
+            val cacheInOtherChapter = synthIdxValid && snap.chapterIndex >= 0 &&
+                synthIdx != snap.chapterIndex
+
+            // ===== 11-22（用户令「跨章备的量得显示」）：缓冲段数优先用 U阅 上报值 =====
             //
-            // 旧口径：缓存进度与播放进度挤在同一行（「当前：95/110｜缓存：107/110」），
-            // 两者字号、颜色、字重完全同档，只靠一个「｜」分隔。用户反馈"不明显"——
-            // 确实如此：这行里真正回答"我接下来能不能秒播"的是**缓存**那一半，
-            // 播放进度只是"我听到哪了"，而旧版把二者做成同权重。
+            // ## 为什么不能只按「本章已备比例」画
+            // 用户原话：「你备到下一章第一条也算备到下一章，但是这个量很少，
+            // 下一章备的量真的没必要吗？」——一针见血。旧画法跨章时只会把本章条
+            // 打满，然后写「已备至第N章」，而「第N章备了1条」和「备了60条」
+            // 显示完全一样，可听感天差地别（一个听完本章就断，一个能连着听好几章）。
             //
-            // 新口径（只加重、不换行、不改数据源）：
-            //   ① 缓存那一半整体**提一档字重**（Medium）并换成主题绿 primary——
-            //      绿色在这一页的语义就是「已完成/可用」（成功丸、胶囊选中同色系），
-            //      "已缓存"正是这个语义，用它做区分既醒目又不引入新颜色；
-            //   ② 缓存侧数字用 SegNumberFont + 加粗，与段号同口径（用户 11-19 定的
-            //      「段数换字体」在两步之内的延续）；
-            //   ③ 播放侧（「当前」）保持原来的灰 + 常规字重——它不需要抢眼。
-            // 不改行高、不改对齐、不改 Ellipsis 行为：单行 AnnotatedString 局部加样式。
-            val cacheColor = MaterialTheme.colorScheme.primary
-            fun cacheSeg(numerator: String) = buildAnnotatedString {
-                withStyle(
-                    SpanStyle(
-                        fontFamily = SegNumberFont,
-                        fontWeight = FontWeight.SemiBold,
-                        color = cacheColor,
-                    )
-                ) { append(numerator) }
-            }
-            val text = if (playingNow && playHead.isNotBlank()) {
-                buildAnnotatedString {
-                    append("当前：")
-                    // playHead 可能带跨章章名前缀（「第2章 33/89」）：章名常规，分子才半粗
-                    val sp = playHead.indexOf(' ')
-                    if (sp > 0) {
-                        append(playHead.substring(0, sp + 1))
-                        append(boldSeg(playHead.substring(sp + 1)))
-                    } else {
-                        append(boldSeg(playHead))
-                    }
-                    append("｜")
-                    // 11-22：「缓存」标签本身也染绿加粗，让右半边整块跳出来
-                    withStyle(
-                        SpanStyle(fontWeight = FontWeight.Medium, color = cacheColor)
-                    ) { append("缓存：") }
-                    val spS = synthHead.indexOf(' ')
-                    if (spS > 0) {
-                        append(synthHead.substring(0, spS + 1))
-                        append(cacheSeg(synthHead.substring(spS + 1)))
-                    } else {
-                        append(cacheSeg(synthHead))
-                    }
-                }
-            } else {
-                buildAnnotatedString {
-                    // 不在朗读时整行只剩缓存——此时它是唯一信息，同样染绿加粗
-                    withStyle(
-                        SpanStyle(fontWeight = FontWeight.Medium, color = cacheColor)
-                    ) { append("缓存：") }
-                    val spS = synthHead.indexOf(' ')
-                    if (spS > 0) {
-                        append(synthHead.substring(0, spS + 1))
-                        append(cacheSeg(synthHead.substring(spS + 1)))
-                    } else {
-                        append(cacheSeg(synthHead))
-                    }
-                }
-            }
-            // 11-16 用户令「合成日志都居右放」：**一律居右**，不再分朗读中/停止两态
-            // （原先朗读中左对齐、停止才居右）。文字内容不变，「当前：…｜缓存：…」
-            // 朗读中照旧整段显示，停止时只剩「缓存：…」——都靠右。
-            val progTextAlign = TextAlign.End
-            // 合成侧完全没数据（没开播/未上报）时这一行**整行不渲染**——否则只剩
-            // 「合成进度：」四个字挂在那里，没有信息量还占 24dp。
-            // ⚠️ 必须真用上这个门控（11-14 自查发现：上一版只声明没使用）。
-            // 顺带影响：书章行 bottom 已改成 0（为与进度行贴成一组），
-            // 若此时仍渲染空进度行不会有问题；但若整行隐藏，书章行会直接贴在
-            // 列表首行上——故隐藏时把书章行的呼吸补回来，见下方 else 分支。
-            // 11-15：整行存在性只看**合成侧**有没有数据——用户令「停止朗读时，合成进度行
-            // 照样显示」，所以不能再因为 playing=false 就整行收起。
-            val showProgLine = synthTotal > 0 || synthNameOrNum.isNotBlank()
+            // ## 新口径：条子表达「从当前位置往后一共还能连听多少」
+            // U阅 侧上报 bufferedAheadSegs = 从当前段往后已备好的**总段数**（跨章累加）。
+            // 条子按这个值画：深色=已听到哪，浅绿=已备覆盖到哪，
+            // **浅绿比深色多出的那截 = 缓冲余量**，右侧直接写「缓冲 N 段」。
+            // 这样跨 1 章、跨 3 章都是同一个数字，不需要多根条，也不会有推断值。
+            //
+            // ## 兜底（U阅 旧版本没有该字段）
+            // bufferedAheadSegs = -1 ⇒ 退回旧画法：只剩本章已备比例（跨章时本章打满），
+            // 且**不显示**「缓冲 N 段」（宁可少一个数字，也不显示假数据）。
+            val bufferedAhead = snap.bufferedAheadSegs
+            val hasBufferedAhead = bufferedAhead >= 0
+            // 当前段在章内的 0-based 下标（playDone 是「已完成段数」= 下一段下标）
+            val curSegIdx = (playDoneSafe - 1).coerceAtLeast(0)
+            // 已备覆盖到的绝对位置（本章内，段为单位）：当前段 + 缓冲段数
+            val bufEndAbs = curSegIdx + bufferedAhead
+            // 条子分母：本章总段数（缓冲超过本章时条子就是满格，多出来的用数字表达）
+            val barDenom = if (playTotal > 0) playTotal else 1
+            // 比例一律收敛到 0f..1f，分母为 0 时给 0（不画），避免除零与越界
+            val playedFrac = if (playTotal > 0) {
+                playDoneSafe.toFloat() / playTotal
+            } else 0f
+            val bufferedFrac = when {
+                playTotal <= 0 -> 0f
+                hasBufferedAhead -> bufEndAbs.toFloat() / barDenom
+                cacheInOtherChapter -> 1f                       // 旧兜底：跨章=本章已打满
+                else -> synthDoneSafe.toFloat() / playTotal     // 旧兜底：按前沿段号
+            }.coerceIn(playedFrac, 1f)   // 已备不可能少于已听：防脏数据倒挂
+
+            // ===== 11-22（用户拍板方案 A）：进度行改进度条 =====
+            //
+            // 版式：`● 第2章 [━━━━▓▓░░] 45/71 · 缓冲 26 段`
+            //   · 绿点：保留（播放中呼吸 / 停止灰）——「这行是活的」
+            //   · 章名：12sp SemiBold 深色，让「这是哪一章」自明
+            //   · 条：6dp 高、全圆角，深色=已听、浅绿=已备、灰=未备
+            //   · 分数：Plex Mono，`45/71` 仍是「已听到第几段」
+            //   · 缓冲：浅绿多出来的部分换算成段数——直接回答「还能连听多少」
+            //
+            // 紧凑约束：条高 6dp 嵌入本行、与文字垂直居中，**不加高吸顶区**
+            //（行内边距仍是 top1/bottom7）。条是扫一眼用的，不该挤掉一行日志。
+            //
+            // 门控保持原样：合成侧完全没数据时整行隐藏（只留一笔呼吸高度）。
+            // ===== 进度条三色（11-22 定，与全站语义对齐）=====
+            //   · playedColor  已听 = onSurface 全黑（与正文同色，视觉最重）
+            //   · bufferedColor 已备 = 主题绿 #018786 的浅色版（同一 hue，降饱和提亮，
+            //     与「成功/可用」的绿色语义一脉相承，又不会比深色段更重）
+            //   · trackColor   未备 = 极浅灰（onSurface@10%，仅作背景轮廓）
+            // 为什么已备用「浅」绿而不是纯主题绿：纯绿 #018786 明度偏低，与深色段并排
+            // 会显得两段一样重，看不出「哪段是已听后延伸出来的」；提亮后深浅分明，
+            // 扫一眼就知道黑到哪、绿到哪。
+            val playedColor = MaterialTheme.colorScheme.onSurface
+            val bufferedColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
+            val trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f)
+            val showProgLine = synthTotal > 0 || synthNameOrNum.isNotBlank() || playTotal > 0
             if (showProgLine) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    // 11-15 用户令：「合成进度以及下方的日志都要左右边距改为 8dp，
-                    // 就是跟顶部一样」→ 16/16 改 **8/8**，与书章框左缘同线。
-                    // 原注释（11-14 的「归到内容线 16」）随之失效：内容线本身已整体
-                    // 收到 8（见 LogScreen 裸行/组卡/日期签注释），进度行不再当孤例。
-                    // 11-16 换位后这行沉到**第三排**、紧贴日志列表：top 与上方筛选行
-                    // 成一组（筛选 bottom6 + 本行 top1 = 7dp），bottom 留呼吸与列表分开。
+                    // 左右 8dp 与书章框左缘同线（11-15 用户令）；
+                    // top1/bottom7 与筛选行成一组、与列表留呼吸（11-16 定稿，不动）
                     .padding(start = 8.dp, end = 8.dp, top = 1.dp, bottom = 7.dp),
-                // 11-16：整行靠右 = 点 + 读数作为一个整体贴在右缘（原先 Text 独占
-                // weight 会把点甩到最左边、和读数中间空半屏）。改成
-                // Arrangement.End，点跟着文字走，读起来就一句「● 当前：…｜缓存：…」。
-                horizontalArrangement = Arrangement.End,
+                // 左对齐（旧版整行居右）：有了条子就必须占满整行宽度，
+                // 居右会把条子挤窄、比例失真。这是本方案对 11-16「居右」口径的
+                // 有意变更，理由=条子的长度本身就是信息。
+                horizontalArrangement = Arrangement.Start,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                // 11-16 用户令（第三轮定稿）：「在**前面加一个绿色点**表示提示，
-                // 字体颜色就按照筛选行字体颜色」。
-                //
-                // 为什么加点是正解、而前两轮「提黑/深绿」都不对：
-                //   · 提黑（A）= 跟书章抢同一档；书章是「身份」，进度是「状态」，
-                //     同一黑会把吸顶三行的层级压平。
-                //   · 深绿（C）= 整行染绿，但这页已满页绿（成功丸、胶囊选中、
-                //     目录键），再来一行绿会被读成「又一个状态」。
-                //   · **点**只占 5dp、只表达「这行是活的」，不改变字的灰度——
-                //     字色归队筛选行（78% 灰），身份靠一枚点单独表达，两件事分开。
-                //
-                // 点的规格（与全站圆点同口径：见本页 1462 的时间轴圆点、LogScreen 的
-                // 成功丸前置点，都是 5dp + CircleShape）。动态口径见下方 if/else 注释
-                // （播放=呼吸绿，停止=灰点静止）。
-                // 位置：Row 内居中对齐（verticalAlignment=CenterVertically），
-                // 与文字同一视觉中线；右侧留 5dp（点 5 + 间隙 5 ≈ 一个字的半宽，
-                // 不会跟「当前：」贴死，也不至于看起来像两个独立元素）。
-                // 11-16 晚用户令（推翻我按静态 A 案的落定）：「正在合成和缓存那一行
-                // 绿点不是动态点吗？你预览都出了，怎么现在是静态点？」——落回预览 B 案：
-                //   · 播放中：绿点呼吸（rememberInfiniteTransition，700ms 去回 ≈1.4s 一个
-                //     来回，透明度 1→0.3→1）。动画只挂在播放态的 Composable 上，切到停止
-                //     分支即离开组合，动画随之销毁，不耗帧。
-                //   · 停止：灰点静止（onSurface@38%）。不选「停止无点」的 C 案：留一颗
-                //     灰点行高不变、左右不跳位，且保留「流水线还在、只是没在播」的暗示；
-                //     要换 C 案删 else 分支即可。
-                //   · ⚠️ 呼吸用 alpha 而不是改尺寸/颜色：改尺寸会牵动行内基线，改颜色
-                //     要插值两个 Color；alpha 只动透明度，GPU 合成最便宜。
-                //   · 呼吸条件=dotActive（15s 活跃门，11-16 晚用户拍板），不是 playingNow：
-                //     后者来自 readRaw 的 30min 宽限，U阅 被杀后会假呼吸；前者 15s 内没
-                //     心跳就变灰。进度行文字仍按 playingNow（停止后照显示口径不动）。
+                // ===== 绿点（口径完全沿用 11-16 定稿，不改）=====
+                // 播放中：呼吸（700ms 去回，alpha 1→0.3→1，只动 alpha 最省 GPU）；
+                // 停止：灰点静止（onSurface@38%）。
+                // 呼吸条件=dotActive（15s 活跃门），不是 playingNow——后者来自 30min
+                // 宽限，U阅 被杀后会假呼吸。
                 if (dotActive) {
                     val dotTransition = rememberInfiniteTransition(label = "progDot")
                     val dotAlpha by dotTransition.animateFloat(
@@ -2686,28 +2648,105 @@ private fun PinnedLogHeader(
                     )
                 }
                 Spacer(Modifier.width(5.dp))
+
+                // ===== 章名（有就写；旧日志无章号时省略，不写「第?章」）=====
+                val progChapter = playNameOrNum.ifBlank { synthNameOrNum }
+                if (progChapter.isNotBlank()) {
+                    Text(
+                        text = progChapter,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        // 章名最长「第256章」约 64dp；给个上限防超长章名吃掉条子
+                        modifier = Modifier.widthIn(max = 72.dp),
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Spacer(Modifier.width(6.dp))
+                }
+
+                // ===== 进度条本体 =====
+                // 实现=外层 Box 当轨道（浅灰满宽 + 圆角裁剪），内层两个 Box 依次叠上：
+                //   · 先铺「已备」浅绿（宽=bufferedFrac）
+                //   · 再压「已听」深色（宽=playedFrac，恒 ≤ 已备）
+                // 不用 Canvas：这里三段是有先后遮盖关系的矩形，叠 Box 的语义（后画的盖前画的）
+                // 天然就是我们要的层次，且能用 fillMaxWidth(fraction) 直接表达比例，
+                // 比 Canvas 手算像素更少出错。圆角只在外层裁一次，内层自然跟随。
+                // width=weight(1f) 吃掉剩余全部宽度（这是本方案的核心收益：
+                // 旧版两个章名+两组分数把整行占满，一个像素都不剩给条子）。
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(6.dp)
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(trackColor)
+                ) {
+                    // 已备（浅绿）：从左铺到 bufferedFrac，画在底层
+                    Box(
+                        Modifier
+                            .fillMaxWidth(bufferedFrac)
+                            .fillMaxHeight()
+                            .background(bufferedColor)
+                    )
+                    // 已听（深色）：从左铺到 playedFrac，压在上面
+                    Box(
+                        Modifier
+                            .fillMaxWidth(playedFrac)
+                            .fillMaxHeight()
+                            .background(playedColor)
+                    )
+                }
+                Spacer(Modifier.width(8.dp))
+
+                // ===== 分数（已听到第几段）=====
+                // 仍是 Plex Mono 12sp（11-19 定稿：段数换等宽字体），深色 SemiBold
                 Text(
-                    text = text,
-                    style = MaterialTheme.typography.labelSmall,
-                    // 11-16 用户令「字号跟筛选行统一」：12.5 → **12sp**，
-                    // 与筛选标签、胶囊同档（理由：这行是第二排的读数，不该比
-                    // 它自己那一排的标题大半档；旧 12.5 是 11-15「介于 12/13」的残留）。
+                    text = buildAnnotatedString {
+                        withStyle(
+                            SpanStyle(
+                                fontFamily = SegNumberFont,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                        ) { append(playDoneSafe.toString()) }
+                        withStyle(
+                            SpanStyle(
+                                fontFamily = SegNumberFont,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f),
+                            )
+                        ) { append("/" as String); append(playTotal.toString()) }
+                    },
                     fontSize = 12.sp,
-                    // 11-16 用户令「字体颜色就按照筛选行」：改回 78% 灰
-                    // （原 onSurfaceVariant #414941 与 78% ≈#4B4E4A 几乎同灰，
-                    // 改后与筛选标签、胶囊、书章的灰阶彻底同源）。
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.78f),
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = progTextAlign,
-                    // 交给 Arrangement.End 贴右；不再 weight 抢宽——抢宽会把
-                    // 前面的绿点顶到行首，点与读数分家。
-                    modifier = Modifier.weight(1f, fill = false),
                 )
+
+                // ===== 缓冲段数（U阅 新版本才有的数据，旧版不显示）=====
+                // 这是本行的**结论性信息**：「还能连着听多少」。
+                // 用主题绿呼应条子里的浅绿段，让「绿的多少 = 这个数字」形成对应关系。
+                if (hasBufferedAhead) {
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = buildAnnotatedString {
+                            withStyle(
+                                SpanStyle(color = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f))
+                            ) { append("缓冲 ") }
+                            withStyle(
+                                SpanStyle(
+                                    fontFamily = SegNumberFont,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                            ) { append(bufferedAhead.toString()) }
+                            withStyle(
+                                SpanStyle(color = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f))
+                            ) { append(" 段") }
+                        },
+                        fontSize = 11.5.sp,
+                        maxLines = 1,
+                    )
+                }
             }
-            } else {
-                // 没有合成数据：进度行整行隐藏，补一笔呼吸高度，
-                // 否则筛选行会直接贴在日志列表首行的分隔线上。
+
                 Spacer(Modifier.height(7.dp))
             }
         }

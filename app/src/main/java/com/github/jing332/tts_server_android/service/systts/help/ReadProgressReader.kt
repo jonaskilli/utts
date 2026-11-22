@@ -60,6 +60,17 @@ object ReadProgressReader {
         val synthSegIndex: Int = -1,
         val synthChapterTitle: String = "",
         val synthTotalSegs: Int = 0,
+        /**
+         * 11-22（用户令「跨章备的量得显示」）：从当前播放段往后，U阅 侧已备好的
+         * **总段数**（跨章累加）。吸顶进度条「浅绿段 + 缓冲 N 段」的数据源。
+         *
+         * -1 = U阅 未上报该字段（旧版本 App）⇒ 渲染侧退回旧画法（只画本章已备比例，
+         * 不显示缓冲段数），不显示假数据。
+         *
+         * 为什么不自己算：UTTS 只知道「合成前沿在第几章第几段」，算不出往后备了多少；
+         * 而「还能连着听多少」正是这一行要回答的核心问题。U阅 合成循环天然有全部信息。
+         */
+        val bufferedAheadSegs: Int = -1,
     )
 
     private data class Cache(val mtime: Long, val size: Long, val snap: Snapshot)
@@ -145,6 +156,7 @@ object ReadProgressReader {
                 synthSegIndex = obj.optInt("synthSegIndex", -1),
                 synthChapterTitle = obj.optString("synthChapterTitle"),
                 synthTotalSegs = obj.optInt("synthTotalSegs", 0),
+                bufferedAheadSegs = obj.optInt("bufferedAheadSegs", -1),
             )
             cached = Cache(mtime, size, snap)
             snap
