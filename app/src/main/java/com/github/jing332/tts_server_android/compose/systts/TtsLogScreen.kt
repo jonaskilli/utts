@@ -72,6 +72,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import com.github.jing332.tts_server_android.compose.nav.NavTopAppBar
 import com.github.jing332.tts_server_android.compose.theme.softStructureColor
 import com.github.jing332.tts_server_android.compose.theme.SegNumberFont
+import com.github.jing332.tts_server_android.compose.theme.isAppInDarkTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -2630,8 +2631,8 @@ private fun PinnedLogHeader(
             //
             // 版式：`● 第2章 [━━━━▓▓░░] 45/71 · 缓冲 26 段`
             //   · 绿点：保留（播放中呼吸 / 停止灰）——「这行是活的」
-            //   · 章名：12sp SemiBold 深色，让「这是哪一章」自明
-            //   · 条：6dp 高、全圆角，深色=已听、浅绿=已备、灰=未备
+            //   · 章名：12sp Medium #5C6664（11-22 晚案 A 降档，不再纯黑）
+            //   · 条：6dp 高、全圆角，青=已听、青38%=已备、#ECEDE9=未备
             //   · 分数：Plex Mono，`45/71` 仍是「已听到第几段」
             //   · 缓冲：浅绿多出来的部分换算成段数——直接回答「还能连听多少」
             //
@@ -2639,17 +2640,39 @@ private fun PinnedLogHeader(
             //（行内边距仍是 top1/bottom7）。条是扫一眼用的，不该挤掉一行日志。
             //
             // 门控保持原样：合成侧完全没数据时整行隐藏（只留一笔呼吸高度）。
-            // ===== 进度条三色（11-22 定，与全站语义对齐）=====
-            //   · playedColor  已听 = onSurface 全黑（与正文同色，视觉最重）
-            //   · bufferedColor 已备 = 主题绿 #018786 的浅色版（同一 hue，降饱和提亮，
-            //     与「成功/可用」的绿色语义一脉相承，又不会比深色段更重）
-            //   · trackColor   未备 = 极浅灰（onSurface@10%，仅作背景轮廓）
-            // 为什么已备用「浅」绿而不是纯主题绿：纯绿 #018786 明度偏低，与深色段并排
-            // 会显得两段一样重，看不出「哪段是已听后延伸出来的」；提亮后深浅分明，
-            // 扫一眼就知道黑到哪、绿到哪。
-            val playedColor = MaterialTheme.colorScheme.onSurface
-            val bufferedColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
-            val trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f)
+            // ===== 进度条三色（11-22 晚「案 A 青绿主色」，用户拍板）=====
+            //
+            // ## 改前（用户实报「第x章、进度条、数字 8，都黑黑的，尤其是条那个黑不合适」）
+            //   已听 = onSurface 纯黑实块、章名 SemiBold 纯黑、数字 600 纯黑——
+            //   三个最重的颜色全压在这一行，比下面的日志正文还抢眼。
+            //   而这一行只是**状态条**，不是正文，不该用正文档的黑。
+            //
+            // ## 改后：整行同一套青绿语言
+            //   · playedColor   已听 = 主题青 #018786（实心）
+            //   · bufferedColor 已备 = 同色 38%（比改前 45% 再降一档：不透明感更弱，
+            //     且与实心青拉开「已听 / 已备」的层次——同 hue 靠明度分，不引第二种颜色）
+            //   · trackColor    未备 = #ECEDE9（近白暖灰，与前两档同明度带；
+            //     旧版是 onSurface@10%，在浅色底上偏灰、条整体发闷）
+            //   · 章名 onSurface → #5C6664、字重 SemiBold → Medium（降一档，退为「标签」）
+            //   · 分数 #1A1C1E → #2F3B39、分母黑 45% → 40%（同样降一档）
+            // 颜色全部从主题色派生（primary 及其透明度）+ 两个中性色常量，
+            // 换主题时青绿会跟着变，不会留下一块写死的绿。
+            //
+            // ## 深色主题（不在本机实测范围内，只按同一关系反推）
+            // 深色下 track 若仍是 #ECEDE9 会亮成一条白杠，故走分支：轨道取 onSurface@12%，
+            // 已听/已备仍用 primary（深色主题的 primary 本身会被换成亮青）。
+            val darkTheme = isAppInDarkTheme()
+            val playedColor = MaterialTheme.colorScheme.primary
+            val bufferedColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f)
+            val trackColor = if (darkTheme) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
+            else Color(0xFFECEDE9)
+            // 章名与数字的中性色（浅色主题 A 案实测取值；深色下换回 onSurface 系）
+            val progLabelColor = if (darkTheme) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f)
+            else Color(0xFF5C6664)
+            val progScoreColor = if (darkTheme) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.90f)
+            else Color(0xFF2F3B39)
+            val progScoreDimColor = if (darkTheme) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.40f)
+            else Color(0xFF2F3B39).copy(alpha = 0.40f)
             val showProgLine = synthTotal > 0 || synthNameOrNum.isNotBlank() || playTotal > 0
             if (showProgLine) {
             Row(
@@ -2700,8 +2723,11 @@ private fun PinnedLogHeader(
                     Text(
                         text = progChapter,
                         fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface,
+                        // 11-22 晚（案 A）：SemiBold→Medium、纯黑→#5C6664。
+                        // 这一行是「状态条」，章名是它的标签；吸顶正文的层级在下面的日志里，
+                        // 三处纯黑（章名/数字/条）会让整行压过正文。
+                        fontWeight = FontWeight.Medium,
+                        color = progLabelColor,
                         maxLines = 1,
                         // 章名最长「第256章」约 64dp；给个上限防超长章名吃掉条子
                         modifier = Modifier.widthIn(max = 72.dp),
@@ -2712,8 +2738,8 @@ private fun PinnedLogHeader(
 
                 // ===== 进度条本体 =====
                 // 实现=外层 Box 当轨道（浅灰满宽 + 圆角裁剪），内层两个 Box 依次叠上：
-                //   · 先铺「已备」浅绿（宽=bufferedFrac）
-                //   · 再压「已听」深色（宽=playedFrac，恒 ≤ 已备）
+                //   · 先铺「已备」青 38%（宽=bufferedFrac）
+                //   · 再压「已听」实心青（宽=playedFrac，恒 ≤ 已备）
                 // 不用 Canvas：这里三段是有先后遮盖关系的矩形，叠 Box 的语义（后画的盖前画的）
                 // 天然就是我们要的层次，且能用 fillMaxWidth(fraction) 直接表达比例，
                 // 比 Canvas 手算像素更少出错。圆角只在外层裁一次，内层自然跟随。
@@ -2751,13 +2777,15 @@ private fun PinnedLogHeader(
                             SpanStyle(
                                 fontFamily = SegNumberFont,
                                 fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSurface,
+                                // 11-22 晚（案 A）：已听数字 #2F3B39（不再纯黑）
+                                color = progScoreColor,
                             )
                         ) { append(playDoneSafe.toString()) }
                         withStyle(
                             SpanStyle(
                                 fontFamily = SegNumberFont,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f),
+                                // 分母 40%（比改前 45% 再淡一档）
+                                color = progScoreDimColor,
                             )
                         ) { append("/" as String); append(playTotal.toString()) }
                     },
