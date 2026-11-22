@@ -2834,10 +2834,46 @@ private fun PinnedLogHeader(
             }
         }
 
-        // ===== ④ 跳转提示条：筛着 A 书、却在读 B =====
-        // 用户：「如果正在朗读其他的再来一个跳转」。只在"有筛选 且 正在读的不是筛选的那本"时出现。
-        val readingMismatch = !scopeBook.isNullOrBlank() &&
-            readingBook.isNotBlank() && readingBook != scopeBook
+        // ===== ④ 跳转提示条：看着 A 书、却在读 B =====
+        //
+        // 用户：「如果正在朗读其他的再来一个跳转」。
+        // 22:5x 放宽（用户令「放宽吧，我都是直接浏览日志，不筛书」）：
+        //
+        // ## 改前只认筛选，漏了更常见的浏览态
+        // 原判据 `!scopeBook.isNullOrBlank() && readingBook != scopeBook`：
+        // 必须**筛选**了某本书才出现。而用户平时是**直接滑着看**（不筛书），
+        // 此时 scopeBook 恒为 null ⇒ 黄条永远不出现 ⇒ 滑到别的书时完全不知道
+        // 耳朵在听哪本。这是真正的缺口（他先前那句"不是有吗"问的就是这个）。
+        //
+        // ## 现判据：筛选态 或 浏览态，两者任一不匹配就出
+        //   · 筛选态：正在读的不是筛选的那本（原逻辑，立即出现）；
+        //   · 浏览态：**视野里那本**不是正在读的那本 + 朗读中 + **停留超 2 秒**。
+        //
+        // ## 为什么浏览态要加「2 秒停留」
+        // 浏览态下书是**滚动**出来的：一路划过去会连续经过好几本书，
+        // 若一碰到就弹，等于划一下闪五次（用户明说会吵）。2 秒是按"停下来看"的
+        // 最短时长取的——划过去不停留不会触发，停下来读才出现。
+        // 判据用 viewBook（视线书章，由滚动回传）而不是 scopeBook。
+        //
+        // ## 为什么还要「朗读中」
+        // 没在朗读时 readingBook 可能残留上一次的值（快照 30 分钟宽限），
+        // 不判朗读态会在停止朗读后继续拿旧书去比、弹一条假提示。
+        // 这里用 dotActive（15 秒活跃门）而不是 playingSnapshot != null（30 分钟宽限）：
+        // 提示条要的是"我现在真的在读"，15 秒门才准。
+        var viewMismatchSettled by remember { mutableStateOf(false) }
+        val browsingOtherBook = readingBook.isNotBlank() && viewBook.isNotBlank() &&
+            readingBook != viewBook
+        LaunchedEffect(browsingOtherBook, dotActive, readingBook, viewBook) {
+            if (!browsingOtherBook || !dotActive) {
+                viewMismatchSettled = false
+                return@LaunchedEffect
+            }
+            delay(2000)
+            viewMismatchSettled = true
+        }
+        val readingMismatch = (!scopeBook.isNullOrBlank() &&
+            readingBook.isNotBlank() && readingBook != scopeBook) ||
+            (viewMismatchSettled && browsingOtherBook && dotActive)
         if (readingMismatch) {
             Row(
                 modifier = Modifier
