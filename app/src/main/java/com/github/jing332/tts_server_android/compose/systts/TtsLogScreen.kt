@@ -2566,9 +2566,33 @@ private fun PinnedLogHeader(
             val hasBufferedAhead = bufferedAhead >= 0
             // 当前段在章内的 0-based 下标（playDone 是「已完成段数」= 下一段下标）
             val curSegIdx = (playDoneSafe - 1).coerceAtLeast(0)
-            // 已备覆盖到的绝对位置（本章内，段为单位）：当前段 + 缓冲段数
-            val bufEndAbs = curSegIdx + bufferedAhead
-            // 条子分母：本章总段数（缓冲超过本章时条子就是满格，多出来的用数字表达）
+            // ===== 11-22 15:0x（用户拍板方案 A）：条只画本章，数字跨章 =====
+            //
+            // ## 现场问题（用户问「缓冲段数指的是从哪里到哪里」时揪出）
+            // 旧写法把**跨章累加**的 bufferedAhead 直接加到本章段号上：
+            //     val bufEndAbs = curSegIdx + bufferedAhead
+            //     val bufferedFrac = bufEndAbs / playTotal   // 再 coerceIn 到 1f
+            // 于是「第259章 105 段、播到第 100 段、缓冲 60 段（都在第260章）」时
+            // `99+60=159`，`159/105` 被夹成 **100%** ⇒ 条显示「本章全备好了」，
+            // **可本章还剩 5 段没备**。用户会误以为本章安全，实际听 5 段后就断。
+            // 这不是「多出来的看不出来」，是**条在撒谎**。
+            //
+            // ## 修法：条与数字各自诚实，不互相冒充
+            //   · 条的分母永远是**本章总段数**，浅绿最多画到 100%，绝不越界；
+            //   · 浅绿只表示「本章内、当前段之后真正已备的比例」（空洞不算、不虚报）；
+            //   · 数字仍用跨章累加的真实余量，超出本章时后缀标「跨 N 章」。
+            //   · 两者不一致时：**条回答「本章稳不稳」，数字回答「还能听多久」**。
+            //
+            // 截断口径：缓冲里属于本章的部分最多是 `playTotal - 1 - curSegIdx` 段
+            //（当前段之后到章末），超出部分是后续章的，条上不画、只进数字。
+            val chapterBufCount = if (playTotal > 0) {
+                bufferedAhead.coerceIn(0, (playTotal - 1 - curSegIdx).coerceAtLeast(0))
+            } else 0
+            // 已备覆盖到的绝对位置（**仅本章内**）：当前段 + 本章内缓冲段数
+            val bufEndAbs = curSegIdx + chapterBufCount
+            // 缓冲是否溢出了本章（决定要不要画「跨 N 章」）
+            val bufferSpillsChapter = hasBufferedAhead && bufferedAhead > chapterBufCount
+            // 条子分母：本章总段数
             val barDenom = if (playTotal > 0) playTotal else 1
             // 比例一律收敛到 0f..1f，分母为 0 时给 0（不画），避免除零与越界
             val playedFrac = if (playTotal > 0) {
@@ -2740,6 +2764,16 @@ private fun PinnedLogHeader(
                             withStyle(
                                 SpanStyle(color = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f))
                             ) { append(" 段") }
+                            // 11-22 15:0x（方案 A）：缓冲溢出本章时标出来源，
+                            // 否则用户会困惑「条都满格了，数字怎么还这么大」。
+                            // 只在真溢出时追加，正常情况行不加长。
+                            if (bufferSpillsChapter) {
+                                withStyle(
+                                    SpanStyle(
+                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
+                                    )
+                                ) { append("·跨章") }
+                            }
                         },
                         fontSize = 11.5.sp,
                         maxLines = 1,
