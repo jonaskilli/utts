@@ -1243,15 +1243,66 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
     // 是否「源错误」（插件/JS 引擎抛出的错，即朗读源本身的问题）：10-12 用于给失败条选首行文案
     //（源错误：… / 获取失败：…）。判据=cause 链里出现 Rhino 的异常类型——插件调用经
     // JavaException/EvaluatorException 桥上来，应用层归因（解析/超时/网络）不会带这两类
+    //
+    // 11-22 02:4x（用户实报「源错误：NetUnknownHostException：…」，问「这俩失败啥意思」）：
+    // **网络类异常即使跨了 JS 边界也不算源错误**。
+    //
+    // 现场：纳米AI36 插件在 JS 里调 JsNet.httpPost → drake 抛 NetUnknownHostException →
+    // 异常往上传时被 Rhino 包成 JavaException ⇒ 按旧判据 `org.mozilla.javascript` 命中
+    // ⇒ 首行写成「源错误」。可这是**手机 DNS 解析失败**（api.so.n.cn 解析不了），
+    // 跟「朗读源（插件）坏了」是两回事——用户看到「源错误」会去查插件配置，方向全错。
+    //
+    // 判据：先认网络故障，直接返回 false（走「获取失败」）。网络故障清单与 friendlyCause
+    // 的归因一一对应（java.net.* + drake 的 Net* 类名），两处必须同口径。
+    //
+    // ===== 11-22 03:3x（用户拍板「是否算源错误你定吧」）：引擎失效 → 源错误 =====
+    //
+    // 用户原话「我都不知道啥是源错误」——说明这个二分本身没解释清楚。先把口径写明白：
+    //   · 源错误   = **朗读源（插件/引擎）自己坏了**。删掉重试不会好，要去看插件配置/换音色。
+    //   · 获取失败 = **应用层归纳的故障**（网络/超时/返回格式）。多数重试一下就好。
+    // 二分的目的只有一个：告诉用户该去查什么。所以判据不该是技术性的「有没有跨 Rhino」，
+    // 而该是「这个错重试会不会自愈」。
+    //
+    // 据此把两类**引擎失效**并入源错误（此前都走「获取失败」，方向带偏）：
+    //   ① `Object PluginJS not found`（TtsPluginEngineV2.pluginJsObj）——插件 JS 对象没了，
+    //      引擎实例失效，重试拿到同一个脏实例仍会失败；
+    //   ② `Engine not initialized: <pluginId>`（PluginTtsProvider.getStream）——
+    //      provider 的 mEngine 为 null，同样实例级失效。
+    // 11-15 整章无声那次就是这样：13 个插件全报 PluginJS not found，却标成「获取失败」，
+    // 排查时先去查了网络与密钥，绕了很久（归档 011 有记录）。
+    //
+    // 实现上用**消息文本**判（这两条都是 `IllegalStateException`，类名区分不出来），
+    // 判据收得很紧：必须同时命中 `IllegalStateException` + 上面两条固定文案之一，
+    // 避免把插件自己抛的同名文本误判（插件异常经 Rhino 包装，simpleName 是 JavaException，
+    // 但消息里可能抄了同样的字——所以额外要求 cause 链里**没有** Rhino 包装层之外的业务异常）。
     private fun isSourceError(t: Throwable?): Boolean {
         var cur = t
         var depth = 0
+        var sawRhino = false
         while (cur != null && depth++ < 16) {
             val n = cur.javaClass.name
-            if (n.startsWith("org.mozilla.javascript")) return true
+            val simple = cur.javaClass.simpleName
+            // 网络层故障优先判定：跨没跨 JS 边界都归「获取失败」
+            when {
+                cur is java.net.UnknownHostException -> return false
+                cur is java.net.ConnectException -> return false
+                cur is java.net.SocketTimeoutException -> return false
+                cur is java.net.SocketException -> return false
+                cur is javax.net.ssl.SSLException -> return false
+                simple == "NetUnknownHostException" -> return false
+                simple == "NetConnectException" -> return false
+                simple == "NetSocketTimeoutException" -> return false
+                simple == "NetworkingException" -> return false
+            }
+            // 引擎失效：朗读源自己坏了（见上方 11-22 03:3x 注释）
+            if (cur is IllegalStateException) {
+                val m = cur.message.orEmpty()
+                if (m.contains("PluginJS` not found") || m.contains("Engine not initialized")) return true
+            }
+            if (n.startsWith("org.mozilla.javascript")) sawRhino = true
             cur = cur.cause
         }
-        return false
+        return sawRhino
     }
 
     // 失败原因归因：把异常类型/HTTP状态码翻译成用户可读文本。
@@ -1274,6 +1325,18 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
         if (chain.any { it is java.net.SocketTimeoutException }) {
             return getString(R.string.systts_log_cause_timeout)
         }
+        // ①-b 11-22 03:3x：**引擎失效**排在状态码之前。
+        //
+        // 为什么必须最前：这类异常的 message 里常带插件 id / 段号（如
+        // `Engine not initialized: nami.ai.…#132`），里面可能出现 5xx 数字，
+        // 会被下面的 ② 状态码正则抢走报成「服务端错误」——而真因是引擎没了，
+        // 与服务端毫无关系。判据同样用固定文案（与 isSourceError 同一处口径）。
+        if (chain.any { c ->
+                c is IllegalStateException && c.message.orEmpty().let {
+                    it.contains("PluginJS` not found") || it.contains("Engine not initialized")
+                }
+            }
+        ) return getString(R.string.systts_log_cause_engine_invalid)
 
         val msg = chain.joinToString(" ") { it.message.orEmpty() }
         // ② 消息里的 HTTP 状态码（插件原文常把真实码写在外层消息里）
@@ -1295,6 +1358,35 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
             return getString(R.string.systts_log_cause_no_network)
         if (chain.any { it is java.net.ConnectException || it is javax.net.ssl.SSLException })
             return getString(R.string.systts_log_cause_connect)
+        // ===== 11-22 02:4x（用户实报「源错误：NetUnknownHostException：com.drake.net…」）：drake 网络异常归因 =====
+        //
+        // 现场（01:45:28 真机）：
+        //   源错误：NetUnknownHostException：com.drake.net.exception.NetUnknownHostException:
+        //           Unable to resolve host "api.so.n.cn": No address associated with hostname
+        // 这是**手机解析不了域名**（DNS 失败），却报了「源错误」（=朗读源自己的问题），
+        // 且原因文本是兜底拼的 Java 类名 + 全限定名，用户看不出是网络问题。
+        //
+        // ## 为什么上面的 UnknownHostException 一条没拦住
+        // JsNet 的网络走 drake（`com.drake.net`），它把 OkHttp 的原始异常**包成自己的子类**
+        // 再抛：NetUnknownHostException / NetConnectException / NetSocketTimeoutException
+        // 全部 `extends HttpFailureException extends NetException extends IOException`，
+        // 与 `java.net.*` **没有继承关系**。更关键的是 drake 抛 NetUnknownHostException 时
+        // 构造参数 cause 传的是 **null**（见 NetOkHttpInterceptor 的
+        // `throw new NetUnknownHostException(build, e.getMessage(), null)`），
+        // 原始 java.net.UnknownHostException 根本不在 cause 链里 ⇒
+        // `chain.any { it is java.net.UnknownHostException }` 永远 false。
+        // 即：**「网络不通」这条中文归因从 drake 接入起就是死代码**，一次都没生效过。
+        //
+        // ## 为什么按类名字符串匹配，而不是 import 后判类型
+        // 本文件在 app 模块，drake 是 lib-script 的实现细节；这里只认异常**类名**，
+        // 不引入对 com.drake 的编译期依赖（换网络库/版本升级都不会编译失败）。
+        // 判据取 simpleName 全等，不做 contains——避免把用户插件里恰好叫这名子的
+        // 自定义异常误判（插件异常经 Rhino 包装，simpleName 是 JavaException）。
+        val simpleNames = chain.map { it.javaClass.simpleName }
+        fun hasName(name: String) = simpleNames.any { it == name }
+        if (hasName("NetUnknownHostException")) return getString(R.string.systts_log_cause_no_network)
+        if (hasName("NetSocketTimeoutException")) return getString(R.string.systts_log_cause_timeout)
+        if (hasName("NetConnectException")) return getString(R.string.systts_log_cause_connect)
         // 11-22 00:1x（用户实报两条预合成失败格式不一致）：补 SocketException 归因。
         //
         // 现场：同一段（第 60 段）连出两行，格式却完全不同——
@@ -1336,10 +1428,31 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
             ?: "未知错误"
         val cleanMsg = msg
             .replace(Regex("Wrapped\\s+"), "")
-            .replace(Regex("\\b(?:java|javax|kotlin|android)\\.[a-zA-Z0-9_.]+\\."), "")
+            // 11-22 02:4x（用户实报「源错误：NetUnknownHostException：com.drake.net…」）：
+            // 包名剥离从「白名单 java/javax/kotlin/android」改为**任意全限定类名**。
+            //
+            // 旧白名单漏了所有第三方库：现场消息里的 FQCN 是
+            //   com.drake.net.exception.NetUnknownHostException
+            // 剥不掉包名 ⇒ 一行里类名出现两遍（首段 cleanType 一遍、消息里 FQCN 一遍），
+            // 且挤占 120 字额度。
+            //
+            // ⚠️ 判据必须锚定「以类名结尾」：包名段的**首字母一律小写**，最后一段
+            // （类名）**首字母大写**——`(?:[a-z][a-z0-9_]*\.)+[A-Z]`。
+            // 曾写成 `(?:[a-z][a-z0-9_]*\.)+` 不加末段约束：**域名被当成包名剥掉**，
+            // `api.so.n.cn` → `cn`（域名是 DNS 故障唯一的现场线索，剥了等于毁证据）。
+            // 域名各段全小写、没有大写类名结尾，加末段约束后天然不受影响。
+            .replace(Regex("\\b(?:[a-z][a-z0-9_]*\\.)+[A-Z][A-Za-z0-9_$]*"), "")
             .trim()
-        return if (cleanMsg.isBlank()) cleanType
-        else cleanType + "：" + cleanMsg.take(120)
+        // 剥完包名后常出现「类名：类名: 原文」的重复首段（cleanType 已经给了类名），
+        // 去掉消息里那个重复前缀，只留真正的原因文字。
+        val dedupMsg = cleanMsg
+            .removePrefix("$cleanType：")
+            .removePrefix("$cleanType:")
+            .trim()
+            .trimStart('：', ':')
+            .trim()
+        return if (dedupMsg.isBlank()) cleanType
+        else cleanType + "：" + dedupMsg.take(120)
     }
 
     private fun normalEvent(e: NormalEvent) {

@@ -368,13 +368,9 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
             }
         }
     )
-    // 11-22 00:3x 底部固定缓存提示（用户拍板 甲 案）：用 **progressSnap**（含停止态）
-    // 而不是 playingSnap——用户令「停止朗读时合成进度行照样显示」，底部这条同理：
-    // 停读之后备货仍在进行，此时更需要看到缓存备到哪了。
-    // 11-22 00:4x 用户令「底部还得带当前进度，不然缓存超了几章也不知道」：
-    // 缓存侧数字口径与吸顶完全一致（同一个快照字段、同一种算法），当前侧取播放位置。
-    // 四段 = (缓存标签, 缓存数字, 当前标签, 当前数字)，空串表示该段不显示。
-    val bottomParts = bottomCacheParts(progressSnap)
+    // 11-22 02:2x 用户令「还是别要这个底部的悬浮窗了」：底部固定缓存提示整撤
+    //（`bottomCacheParts` 与 LogScreen 的四个 bottom* 参数一并删除）。
+    // 读数仍在吸顶进度行，不另算一份。
     val synthesizedChapter = playingSnap?.synthChapterTitle.orEmpty()
     val synthesizedAhead = playingSnap?.let { snap ->
         if (snap.synthChapterIndex == snap.chapterIndex &&
@@ -949,13 +945,8 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                 .padding(bottom = paddingValues.calculateBottomPadding()),
             // 11-14「正在朗读」：快照（卡片描边/复位浮钮/段号丸）；进度行在 PinnedLogHeader
             playingSnapshot = playingSnap,
-            // 11-22 00:3x 用户令「日志最底部也要缓存提示」：与吸顶**同源同口径**
-            //（缓存侧同源同算法）。当前侧用户 00:4x 追加：不给当前就不知道领先几章。
-            // 缓存数字为空=整条不渲染（LogScreen 内部按它判门控）。
-            bottomCacheLabel = bottomParts[0],
-            bottomCacheCount = bottomParts[1],
-            bottomPlayLabel = bottomParts[2],
-            bottomPlayCount = bottomParts[3],
+            // 11-22 02:2x 用户令「还是别要这个底部的悬浮窗了」：底部固定缓存提示已撤，
+            // bottom* 四个参数同步删除（读数仍见吸顶进度行）。
             list = displayLogs,
             listState = listState,
             // 11-15：「实时跟随」整条链路随胶囊一起撤（见 PinnedLogHeader 里「最新日志」
@@ -1769,64 +1760,6 @@ private fun hasSynthLine(
     if (s.synthTotalSegs > 0) return true
     if (shortChapterLabel(s.synthChapterTitle).isNotBlank()) return true
     return s.synthChapterIndex >= 0
-}
-
-/**
- * 底部固定缓存提示的文本分段（11-22 00:3x 用户令「日志最底部也要缓存提示」，
- * 00:4x 追加「底部还得带当前进度吧，不然缓存超了几章也不知道」）。
- *
- * 返回四段：(缓存标签, 缓存数字, 当前标签, 当前数字)——空串表示该段不显示。
- *
- * ## 为什么要带「当前」
- * 只有缓存读数时，用户看不出**备货领先多少**：看到「缓存：107/110」不知道播放读到哪，
- * 就不知道"够不够用、还能不能快进"。而"领先几章"正是预加载唯一的价值所在。
- * 两个读数并排，「缓存章 ≠ 当前章」时一眼就知道已经跨章备货了。
- *
- * ## 为什么不用图形（用户 00:4x 问「会不会花里胡哨」，拍板纯文字）
- * 底部是**常驻**元素。进度条/环会长亮在屏幕上，每天看几十次；而这条的信息量
- * 只是「两个分数」，文字足够表达。图形留给"偶尔打开看一眼"的面板才划算。
- *
- * ## 口径
- * 与吸顶共用同一份快照字段，缓存侧数字口径与吸顶完全一致（synthSegIndex+1）；
- * 当前侧取播放段（segIndex+1 / totalSegs）。**两处数字不会漂移**。
- * 章名一律带上（底部无"正在播"语境，裸数字会让人猜是哪一章）。
- */
-private fun bottomCacheParts(
-    snap: com.github.jing332.tts_server_android.service.systts.help.ReadProgressReader.Snapshot?
-): List<String> {
-    val s = snap ?: return listOf("", "", "", "")
-    if (!hasSynthLine(s)) return listOf("", "", "", "")
-    val synthTotal = s.synthTotalSegs
-    if (synthTotal <= 0) return listOf("", "", "", "")
-
-    // ===== 11-22 01:1x 用户定稿「去掉第字」=====
-    //
-    // 空间核算（浮钮保持原位 20dp，底部条必须避开它的 72dp 触摸区）：
-    //   可用 = 360(屏) − 8(左) − 80(浮钮含边距) − 20(内衬) = 252dp
-    //   带「第」字 11sp ≈ 273dp ⇒ 差 21dp，放不下
-    //   去「第」字 11sp ≈ 251dp ⇒ 刚好放下（再把内衬收到 8dp 留余量）
-    // 章名本身必须保留——它是「缓存超了几章」的唯一依据；能省的只有「第」这个虚字。
-    // 显示成「254章」而非「第254章」，读起来仍完整（数字后紧跟「章」已足够表意）。
-    fun chapterLabelOf(title: String, index: Int): String = when {
-        shortChapterLabel(title).isNotBlank() -> shortChapterLabel(title)
-        index >= 0 -> "${index + 1}章"  // 底部专供：省略「第」字（见上方空间核算）
-        else -> ""
-    }
-    val synthNameOrNum = chapterLabelOf(s.synthChapterTitle, s.synthChapterIndex)
-    // 缓存侧：前沿段号+1，与吸顶同口径
-    val cacheDone = (s.synthSegIndex + 1).coerceAtLeast(0).coerceAtMost(synthTotal)
-    val cacheLabel = if (synthNameOrNum.isNotBlank()) "$synthNameOrNum " else ""
-    val cacheCount = "$cacheDone/$synthTotal"
-
-    // 当前侧：播放位置。totalSegs 为 0 时（旧快照/未上报）这一段整段不显示——
-    // 宁可只显示缓存，也不显示「当前：0/0」这种假数据。
-    val playTotal = s.totalSegs
-    if (playTotal <= 0) return listOf(cacheLabel, cacheCount, "", "")
-    val playNameOrNum = chapterLabelOf(s.chapterTitle, s.chapterIndex)
-    val playDone = (s.segIndex + 1).coerceAtLeast(0).coerceAtMost(playTotal)
-    val playLabel = if (playNameOrNum.isNotBlank()) "$playNameOrNum " else ""
-    val playCount = "$playDone/$playTotal"
-    return listOf(cacheLabel, cacheCount, playLabel, playCount)
 }
 
 // ===================== 日志吸顶区（11-11 用户令「书名和章节名一直置顶」）=====================

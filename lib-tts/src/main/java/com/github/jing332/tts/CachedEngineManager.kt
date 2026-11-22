@@ -95,13 +95,13 @@ object CachedEngineManager :
         // 11-22 01:1x：归零后补做「removeEngine 时因在飞而推迟的作废」——
         // 否则这个脏实例会一直留在池里继续服务（那等于 removeEngine 失效）。
         if (staleAfterUse.remove(key)) {
-            if (cache.remove(key) != null) {
-                destroyExecutor.submit {
-                    runCatching { engine.onDestroy() }
-                        .onFailure { logger.warn(it) { "async engine destroy failed: $key" } }
-                }
-                logger.atDebug { message = "Engine stale destroy after last release: $key" }
-            }
+            // 11-22 02:4x：**销毁只做一次**。cache.remove 会走 hutool listener →
+            // onCacheRemove → 那里已经 `value.onDestroy()`，此处再 submit 一次就是双销毁
+            //（与 removeEngine / removeByPluginId / expireAll 同一处坑）。
+            // 此时计数已归零，onCacheRemove 的 hasInFlight 必为 false ⇒ 一定会销毁，
+            // 所以只要 remove 成功就够，不需要额外动作。
+            cache.remove(key)
+            logger.atDebug { message = "Engine stale destroy after last release: $key" }
         }
     }
 
@@ -149,7 +149,24 @@ object CachedEngineManager :
             firstAcquireAt.remove(key)
         }
         logger.atDebug { message = "Engine timeout destroy: $key" }
-        value.onDestroy()
+        // ===== 11-22 02:4x：销毁**统一在这里异步做**，调用方一律只 cache.remove =====
+        //
+        // 为什么改成异步：onDestroy/onStop 内部会同步调用脚本（Rhino invokeMethod），
+        // 可能因脚本卡死或后台线程占用而永久阻塞。而 onCacheRemove 是 hutool listener
+        // 在 `cache.remove()` 里**同步回调**的——若在此直接 onDestroy，阻塞会顺着
+        // cache.remove 一路卡到调用方线程（最坏是请求线程，重试就发不出来了）。
+        // 这正是 destroyExecutor 当初存在的理由，必须保留。
+        //
+        // 为什么只在这一处：此前 removeEngine / removeByPluginId / expireAll /
+        // releaseEngine 各自都 `submit { onDestroy() }`，而它们的 `cache.remove()`
+        // 又会回到本函数再销毁一次 ⇒ **同一个引擎销毁两遍**。PluginTtsProvider.onDestroy
+        // 会把 mEngine 置 null 并 TtsPluginEngineManager.removeOne（内层 Rhino 也销毁），
+        // 第二遍在已空的实例上再跑 onStop/destroy，轻则重复日志，重则与仍在读那笔流的
+        // LatchedInputStream 抢同一个内层引擎。现统一收敛到本处，其余位置只 remove。
+        destroyExecutor.submit {
+            runCatching { value.onDestroy() }
+                .onFailure { logger.warn(it) { "async engine destroy failed: $key" } }
+        }
 
         return super.onCacheRemove(key, value)
     }
@@ -249,7 +266,7 @@ object CachedEngineManager :
         val baseKey = baseKeyOf(source)
         val keys = cache.keySet().filter { it == baseKey || it.startsWith("$baseKey#") }
         for (key in keys) {
-            val engine = cache[key] ?: continue
+            if (cache[key] == null) continue
             // 11-22 01:1x（用户令「不要遗留，直接修」）：**别家正在跑的实例不能陪葬**。
             //
             // removeEngine 的调用面比想象中宽——最典型的是 DefaultTtsRequester：
@@ -269,13 +286,18 @@ object CachedEngineManager :
                 }
                 continue
             }
+            // ===== 11-22 02:4x：这里只 remove，销毁统一由 onCacheRemove 异步做 =====
+            //
+            // 旧写法是「cache.remove(key) + 再 submit 一次 onDestroy()」——**同一个引擎销毁两遍**：
+            //   · cache.remove 走 hutool 的 listener → onCacheRemove → 那里 submit 一次 onDestroy；
+            //   · 紧接着这里又 submit 一次。
+            // 后果：PluginTtsProvider.onDestroy 会把 mEngine 置 null 再
+            // TtsPluginEngineManager.removeOne（内层 Rhino 引擎也销毁一次），第二遍在已空
+            // 的实例上再跑一次 onStop/destroy。轻则重复日志，重则与仍在读那笔流的
+            // LatchedInputStream 抢同一个内层引擎——正是 PluginJS not found 的另一半来源。
+            // 前面已 `cache[key] == null` 判空，这里 remove 必然命中；返回值不再判
+            //（曾写 `if (cache.remove(key) == null) continue`，编译实锤「恒为 false」）。
             cache.remove(key)
-            // 异步销毁：onDestroy 内部的 onStop 会同步调用脚本（Rhino invokeMethod），
-            // 可能因脚本卡死或后台线程占用而永久阻塞，同步等待会导致重试无法触发
-            destroyExecutor.submit {
-                runCatching { engine.onDestroy() }
-                    .onFailure { logger.warn(it) { "async engine destroy failed: $key" } }
-            }
         }
     }
 
@@ -299,9 +321,18 @@ object CachedEngineManager :
         for (key in keys) {
             val value = cache[key] ?: continue
             if (value is PluginTtsProvider && value.plugin.pluginId == pluginId) {
-                destroyExecutor.submit {
-                    runCatching { value.onDestroy() }
-                        .onFailure { logger.warn(it) { "async engine destroy failed: $pluginId" } }
+                // 11-22 02:4x：**销毁只做一次**——cache.remove 已触发
+                // onCacheRemove 里的 onDestroy()，这里再 submit 一次就是双销毁
+                //（与 removeEngine 同一处坑，详见那边的注释）。
+                // 但这条路径的口径是「插件变量/代码变了，旧实例一律作废」，
+                // 所以先看在飞：真在跑就按 removeEngine 的做法延后作废，
+                // 别把正在合的请求脚下抽走。
+                if (hasInFlight(key)) {
+                    staleAfterUse.add(key)
+                    logger.atDebug {
+                        message = "Engine removeByPluginId deferred, marked stale (in-flight>0): $key"
+                    }
+                    continue
                 }
                 cache.remove(key)
             }
@@ -312,12 +343,11 @@ object CachedEngineManager :
         logger.atDebug { message = "Expire all cached engine" }
         val keys = cache.keySet().toList()
         for (key in keys) {
-            val value = cache[key]
-            if (value != null) {
-                destroyExecutor.submit {
-                    runCatching { value.onDestroy() }
-                        .onFailure { logger.warn(it) { "async engine destroy failed: $key" } }
-                }
+            // 11-22 02:4x：同 removeEngine——销毁交给 listener（cache.remove 触发
+            // onCacheRemove），不再额外 submit；在飞的实例延后作废。
+            if (hasInFlight(key)) {
+                staleAfterUse.add(key)
+                continue
             }
             cache.remove(key)
         }

@@ -231,6 +231,10 @@
     <string name="systts_log_cause_not_found">接口不存在（插件可能需更新）</string>
     <string name="systts_log_cause_parse">返回内容解析失败</string>
     <string name="systts_log_cause_unknown">未知错误</string>
+    <!-- 11-22 03:3x（用户拍板「是否算源错误你定吧」）：引擎失效改用人类可读文案。
+         此前这两条都是 `IllegalStateException：Object `PluginJS` not found` 这种
+         Java 原文，用户看不出是「朗读引擎没了」。归到源错误 → 去看插件。 -->
+    <string name="systts_log_cause_engine_invalid">朗读引擎失效（可重试或换音色）</string>
     <string name="systts_log_audio_empty">音频为空：%1$s</string>
     <string name="systts_log_decode_failed">解码失败：%1$s</string>
     <string name="systts_log_canceled">已取消：%1$s</string>

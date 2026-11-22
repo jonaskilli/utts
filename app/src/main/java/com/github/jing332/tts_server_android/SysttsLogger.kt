@@ -52,6 +52,50 @@ object SysttsLogger {
     /** console 日志补段号用：最近一次主流程的段号（-1=还没见过） */
     fun currentParaIndex(): Int = currentParaIndex
 
+    // ===== 11-22 02:4x（用户实报「书章就绪那行位置不对」）：自描述行用自己的书章 =====
+    //
+    // 现象（01:48:00.630 真机）：
+    //   | §穿进自绘断更漫画 | 第1章 穿越进了自绘漫画？ | 102 | 【书章就绪】… · 第2章 得赶紧和她见面（heading）
+    // 正文宣告**第2章**，书章列与段号列却是**第1章 / 段102**，于是排序键把它当第1章段102，
+    // 落到第1章章尾——正好违反检验单 V5「该行出现在它宣告那一章正文之前」，
+    // 按书筛选第2章时还会直接消失。
+    //
+    // 根因：console 行（规则/插件）自己不带书章，补的是「最近一笔主流程请求」的上下文
+    // （currentBookChapter / currentParaIndex）。规则打这条就绪行时，跨章的第一笔播放请求
+    // 还没落日志（实测就绪行 00.630、它那笔请求 00.639，**早 9 毫秒**）⇒ 上下文仍是上一章。
+    // 这是竞态，所以不是每次都错（02:02:03 / 02:09:18 两条就是对的，那次主请求行先到）。
+    //
+    // 修法：这一类行**自带权威书章**（规则刚从 data.json 解析出来，比上下文猜的准），
+    // 直接用它自己的；段号固定 -1（=章首），排在它宣告那一章所有正文之前。
+    // 为什么允许解析文案：`【书章就绪】<书> · <章>（来源）` 是规则 JS `_bookChapterReady`
+    // 里硬编码的固定格式（v1.7.3 起沿用至今，来源标记 v1.7.14 加），
+    // 比「让规则回传额外字段」改动面小得多；这里只在**这一个前缀**上做判别，不泛化解析规则日志。
+    private const val CHAPTER_READY_MARKER = "【书章就绪】"
+
+    /** 这条规则行是否「章首宣告」行（`【书章就绪】<书> · <章>（来源）`）。 */
+    private fun isChapterReadyLine(message: String): Boolean =
+        message.removePrefix("[SpeechRule] ").trimStart().startsWith(CHAPTER_READY_MARKER)
+
+    /**
+     * 从章首宣告行里解出它宣告的 (书, 章)；不是这类行返回 null。
+     *
+     * 解析约定（与规则 JS `_bookChapterReady` 一一对应）：
+     *   · 前缀固定 `【书章就绪】`，后面是 `<书> · <章>`；章名解析失败但非「沿用」时只有 `<书>`；
+     *   · 尾部可能带全角来源标记 `（heading）`/`（meta）`/`（locate）`/`（来源未知）`，先剥掉；
+     *   · 用 **lastIndexOf(" · ")** 切：书名本身可能含 `·`，末尾那一段才是章名。
+     */
+    fun parseChapterReadyLine(message: String): Pair<String, String>? {
+        if (!isChapterReadyLine(message)) return null
+        val rest = message.removePrefix("[SpeechRule] ").trimStart()
+            .removePrefix(CHAPTER_READY_MARKER)
+            .replace(Regex("（[^）]*）\\s*$"), "")
+            .trim()
+        if (rest.isEmpty()) return null
+        val sep = rest.lastIndexOf(" · ")
+        return if (sep > 0) rest.substring(0, sep).trim() to rest.substring(sep + 3).trim()
+        else rest to ""
+    }
+
     fun log(entry: LogEntry) {
         // 更新书章上下文：任何带书名的条目都会刷新（主行与子行都算）。
         // 段号只认主行（indent=0 且 paraIndex>=0）：子行/插件行不带可靠段号，
@@ -137,7 +181,13 @@ object SysttsLogger {
                 // 重启回读后这些行没有书章 ⇒ 按书过滤时被丢弃（用户实报"不显示"）。
                 // 格式与主日志统一：time | LEVEL | configId | roleName | §book | chapter | message
                 // configId/roleName 留空占位，避免解析器把 § 当正文字符。
-                val (bk, ch) = currentBookChapter()
+                //
+                // 11-22 02:4x（用户实报「书章就绪那行位置不对」）：**自描述行用自己的书章**。
+                // 「【书章就绪】书 · 章」这类行自带权威书章（规则刚从 data.json 解析出来），
+                // 用它覆盖上下文推断值；段号固定空（回读为 -1 = 章首），
+                // 让它排在自己宣告那一章所有正文之前。详见 isChapterReadyLine 上方注释。
+                val selfDeclared = parseChapterReadyLine(entry.message)
+                val (bk, ch) = selfDeclared ?: currentBookChapter()
                 // ⚠️ 分隔符防护：书名/章名若含 " | " 或 "§"，写盘后会串位、回读解析错乱。
                 // 文件名本身能包含这些字符（用户的书名是任意文本），故写入前替换掉。
                 // 双竖线用全角｜替代（显示上几乎无差别），§ 同理。message 是最后一段、
@@ -151,7 +201,7 @@ object SysttsLogger {
                 // 回读即可精确归位；实时路径仍走 stampBookChapter 内存补齐，两路同源。
                 // 格式：time | LEVEL | configId | roleName | §book | chapter | paraIndex | message
                 //（旧行无此列，回读正则按可选段兼容，历史文件不丢）
-                val para = currentParaIndex()
+                val para = if (selfDeclared != null) -1 else currentParaIndex()
                 val safePara = if (para >= 0) para.toString() else ""
                 FileWriter(f, true).use { w ->
                     w.append("$time | $level |  |  | §$safeBook | $safeChapter | $safePara | ${entry.message}\n")

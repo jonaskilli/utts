@@ -234,6 +234,14 @@ class TtsLogViewModel : ViewModel() {
      */
     private fun stampBookChapter(entry: LogEntry): LogEntry {
         if (entry.bookName.isNotBlank()) return entry
+        // 11-22 02:4x（用户实报「书章就绪那行位置不对」）：自描述行用自己的书章。
+        // 「【书章就绪】书 · 章」自带权威书章（规则刚从 data.json 解析出来），
+        // 比上下文猜的准——跨章第一笔播放请求还没落日志时，上下文仍是上一章，
+        // 会把这条章首宣告排到上一章末尾。段号置 -1=章首，排在它宣告那一章正文之前。
+        // 与 persistConsole（落盘路径）同一口径，两路同源。详见 SysttsLogger.parseChapterReadyLine。
+        SysttsLogger.parseChapterReadyLine(entry.message)?.let { (book, chapter) ->
+            return entry.copy(bookName = book, chapterTitle = chapter, paraIndex = -1)
+        }
         val (book, chapter) = SysttsLogger.currentBookChapter()
         if (book.isBlank()) return entry
         // 11-21 14:5x（用户终裁「全按正文顺序 100% 不串」）：console 日志（插件/

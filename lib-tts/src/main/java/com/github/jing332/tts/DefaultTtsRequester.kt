@@ -80,9 +80,28 @@ class DefaultTtsRequester(
                 CachedEngineManager.releaseEngine(engine)
                 throw e
             } catch (e: Exception) {
-                CachedEngineManager.releaseEngine(engine)
-                // removeEngine 内部会异步销毁引擎，防止 onDestroy/onStop 同步阻塞卡住
+                // ===== 11-22 02:4x（用户实报 PluginJS not found 第 3 次复现）：顺序必须反 =====
+                //
+                // ⚠️ 这里原先是：
+                //     releaseEngine(engine)      // 先把在飞计数减到 0
+                //     removeEngine(tts.source)   // 再销毁 —— hasInFlight() 恒 false，必销毁
+                //
+                // 而 removeEngine 的**唯一否决条件**就是 hasInFlight(key)。
+                // 先减到 0 再调它，等于把 bc2f44c0 那套引用计数保护亲手绕过去了 ——
+                // 这就是「Engine destroy deferred 一次都没出现」的原因，也是
+                // `Engine timeout destroy` 紧跟在 start request 后 1~2ms 出现的原因：
+                // 那笔请求自己 getStream 抛异常 → 走这里 → 立刻销毁自己脚下的引擎。
+                //
+                // 现在的顺序（与 staleAfterUse 设计意图一致）：
+                //   ① removeEngine **先**调：此刻计数仍 >0（本笔还没释放）⇒ 它走
+                //      `hasInFlight` 分支，只打 staleAfterUse 标记、**不销毁**；
+                //   ② 再 releaseEngine：计数归零 → 见 releaseEngine 里的
+                //      `if (staleAfterUse.remove(key))` 补做作废，异步销毁。
+                // 于是「作废」语义保留（脏实例不会长期留在池里），但**不会在还有别的
+                // 请求握着它时销毁** —— 单实例插件（未 allowParallel）尤其致命：
+                // 池里只有那一个，销毁就是全场 PluginJS not found。
                 CachedEngineManager.removeEngine(tts.source)
+                CachedEngineManager.releaseEngine(engine)
                 Err(RequesterError.RequestError(e))
             }
         }

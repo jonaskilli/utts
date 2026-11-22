@@ -495,6 +495,7 @@ internal class LogGroups(
                 class RowKey(val book: String, val rank: Int, val para: Int)
                 val keys = ArrayList<RowKey>(input.size)
                 var ctxBook = ""
+                var ctxChapter = ""
                 var ctxRank = Int.MAX_VALUE
                 var ctxPara = Int.MAX_VALUE
                 var sawContext = false
@@ -511,13 +512,28 @@ internal class LogGroups(
                 val headPara = headFirst?.paraIndex?.takeIf { it >= 0 } ?: -1
                 input.forEach { e ->
                     if (e.bookName.isNotBlank()) {
+                        // 11-22 02:4x（用户实报「书章就绪那行位置不对」）：**跨章不得继承段号**。
+                        //
+                        // 现象：第1章读到段102 时，规则打出一条宣告**第2章**的章首行
+                        // （落盘书章已被 SysttsLogger 修正为第2章、段号空=-1）。
+                        // 旧代码 `ctxPara = e.paraIndex.takeIf { it >= 0 } ?: ctxPara` 在
+                        // 段号为 -1 时**沿用上一章的 102** ⇒ 排序键 (第2章, rank, 102)，
+                        // 比第2章全部正文（0..71）都大 ⇒ 章首行沉到第2章**末尾**，
+                        // 仍然违反 V5「出现在它宣告那一章正文之前」。
+                        // 根因是「继承前行段号」这条兜底只在**同章内**成立；跨章时它继承的
+                        // 是旧章序号，语义上根本不对应。故：章一变（或书变）段号就作废，
+                        // 取本行自己的（-1 = 章首），同章内才继续继承。
+                        val chapterChanged = ctxBook != e.bookName || ctxChapter != e.chapterTitle
                         ctxBook = e.bookName
+                        ctxChapter = e.chapterTitle
                         ctxRank = orderOf[e.bookName]?.get(e.chapterTitle) ?: Int.MAX_VALUE
                         // 11-21 22:5x（用户「重启后规则日志分离到日志最后」）：
                         // 有书章但无段号的行（历史 speech_rule 行 paraIndex=-1）此前
                         // 落 Int.MAX_VALUE ⇒ 沉到章尾。与无书章行同款「上下文继承」：
                         // 继承时间轴上前一行的段号，落在它发生的位置。
-                        ctxPara = e.paraIndex.takeIf { it >= 0 } ?: ctxPara
+                        // 11-22 02:4x：仅**同章内**继承（见上方跨章说明）。
+                        ctxPara = if (chapterChanged) e.paraIndex.takeIf { it >= 0 } ?: -1
+                        else e.paraIndex.takeIf { it >= 0 } ?: ctxPara
                         sawContext = true
                         keys.add(RowKey(e.bookName, ctxRank, ctxPara))
                     } else if (sawContext) {
@@ -683,6 +699,55 @@ internal class LogGroups(
                     // 悬置行等不到开卡就渲染不出来（表现为「勾了朗读规则也搜不到」）；
                     // 卡内也不再吸收规则行，避免分析行挂在无关请求卡顶造成误导
                     e.isSpeechRuleLog -> raw.add(Item.Bare(i))
+                    // ===== 11-22 03:1x（用户实报「重试变成黑字独立行，跟以前不一样」）：重试行判据提到最前 =====
+                    //
+                    // 用户原话：「以前是第一张卡胶囊有失败+重试两个胶囊，下方再单独跟个成功记录。
+                    // 现在你把第一次重试文字表示出来了，还是黑色字，跟以前不一样。」
+                    //
+                    // ## 真因：576c9867 与 10-12 定案打架
+                    // 10-12 定案：重试行**不落行**，只在组头挂「重试N」小丸（它和失败是紧密联系的）。
+                    // 该判据原本写在下面的 `else` 分支里（configId==0 才轮得到）。
+                    // 但 11-21 22:5x 的 576c9867 给重试行补了**全套 MDC**（configId/书章/reqId/段号）——
+                    // 动机是好的：修「重启后重试落成无主裸行、看不出在重试哪句」。
+                    // 可副作用是重试行从此 `configId != 0`，被上面的
+                    // `(e.configId != 0L) -> openCard(i)` **抢先命中** ⇒ 它被当成一笔新请求开卡，
+                    // 于是变成「失败卡 + 重试卡（黑字正文）+ 成功裸行」——正是用户看到的走样。
+                    //
+                    // ## 修法：判据与分支位置解耦
+                    // 重试行的身份由**正文**判定（「第 N 次重试」），与它带不带 MDC 无关；
+                    // 那就必须排在 configId 分支**之前**，否则补 MDC 越多越坏。
+                    // 补 MDC 的收益（书章/段号归属）不受影响：仍挂进组头，组本身带着书章。
+                    // 判据用 `level == WARN && 含「次重试」`，与下面原实现完全一致，
+                    // 只是位置提前；下面 else 分支里的同名判断保留（== 不可能同时命中，
+                    // 但留着保证「其他主行」分支语义完整、读代码不迷惑）。
+                    e.level == LogLevel.WARN && e.message.contains("次重试") -> {
+                        if (head >= 0) {
+                            // ①本组还开着（失败行之后、收卡之前）：记在本次开卡上且**不关组**，
+                            //   后面那次失败与本次重试同属一条失败链。
+                            retryCount++
+                        } else {
+                            // ②上一次失败已收卡 → 挂到刚收的那张**失败组**上。
+                            // ⚠️ 验明身份（10-12 自审）：重试必然跟在一次失败之后，所以只认
+                            // failedHeads 记过的失败组，且与它最后一条相隔不超过 60 秒——
+                            // 否则请求行被筛选掉时，重试会挂到上一张不相干的组上（跨句错挂）。
+                            // 两条都不满足就退回裸行，宁可多一行也别错挂。
+                            val last = raw.lastOrNull()
+                            val lastIdx = (last as? Item.Group)?.let { g ->
+                                if (failedHeads.contains(g.head)) {
+                                    val tailIdx = if (g.absorbError >= 0) g.absorbError
+                                    else g.members.lastOrNull() ?: g.head
+                                    list[tailIdx].time
+                                } else null
+                            }
+                            if (last is Item.Group && lastIdx != null && withinSeconds(lastIdx, e.time, 60)) {
+                                raw[raw.size - 1] = Item.Group(
+                                    last.head, last.members, last.absorbError, last.retryCount + 1
+                                )
+                            } else {
+                                raw.add(Item.Bare(i))
+                            }
+                        }
+                    }
                     // configId 非 0 的其他主行：同样开新卡（历史遗留判据，保留兼容）。
                     // 请求行的主判据已提到 when 最前面（见该分支注释），这里只兜底
                     // 那些正文被包了 HTML、前缀判据没命中的少见情形。
@@ -690,37 +755,10 @@ internal class LogGroups(
                     // 其他主行（重试/备用TTS/兜底发音人/系统消息）：有卡归卡，ERROR=失败
                     // 终点收卡（标记 groupFailed）；无卡落裸行——失败链不再悬置并组（10-10 终案）
                     else -> {
-                        // ⚠️ 重试行先拦（10-12 用户令「重试没别的信息，单独占一行浪费空间，
-                        // 它和失败是紧密联系的」）：不落行、只把次数挂到组头做「重试N」小丸。
-                        // 两种落点：①本组还开着 → 记在本次开卡上且**不关组**（后面那次失败与
-                        // 本次重试同属一条失败链）；②上一次失败已收卡 → 挂到刚收的那张组上。
-                        // 前面既没开卡也没有组（头部被筛掉的孤儿）→ 退回裸行，不至于把日志吞掉
-                        val isRetryRow = e.level == LogLevel.WARN && e.message.contains("次重试")
-                        if (isRetryRow) {
-                            if (head >= 0) {
-                                retryCount++
-                            } else {
-                                // ⚠️ 挂到「上一张组」前要验明身份（10-12 自审）：重试必然跟在一次
-                                // 失败之后，所以只认**失败组**（failedHeads 记过），且与它最后一条
-                                // 相隔不超过 60 秒——否则请求行被筛选掉时，重试会挂到上一张不相干
-                                // 的组上（跨句错挂）。两条都不满足就退回裸行，宁可多一行也别错挂
-                                val last = raw.lastOrNull()
-                                val lastIdx = (last as? Item.Group)?.let { g ->
-                                    if (failedHeads.contains(g.head)) {
-                                        val tailIdx = if (g.absorbError >= 0) g.absorbError
-                                        else g.members.lastOrNull() ?: g.head
-                                        list[tailIdx].time
-                                    } else null
-                                }
-                                if (last is Item.Group && lastIdx != null && withinSeconds(lastIdx, e.time, 60)) {
-                                    raw[raw.size - 1] = Item.Group(
-                                        last.head, last.members, last.absorbError, last.retryCount + 1
-                                    )
-                                } else {
-                                    raw.add(Item.Bare(i))
-                                }
-                            }
-                        } else if (head >= 0) {
+                        // 重试行已在上面单独分支处理（11-22 03:1x 提到 configId 分支之前，
+                        // 否则补了 MDC 的重试行会被 openCard 抢走）。这里只剩
+                        // 「备用TTS/兜底发音人/系统消息」等其他主行。
+                        if (head >= 0) {
                             // ===== 11-15 用户令（恢复从前）：失败+重试一条卡，成功单独一条 =====
                             //
                             // 用户原话：「以前重试就是在失败日志加一个重试胶囊，跟成功胶囊类似那种」
@@ -1041,26 +1079,12 @@ internal fun LogScreen(
     // 非空且 playing=true 时：①头部进度行显示 ②复位浮钮启用 ③匹配卡加描边。
     // null = 没在朗读（U阅 停止/文件过期），全部相关 UI 隐藏，浮钮退回 ⇊ 跳底部。
     playingSnapshot: com.github.jing332.tts_server_android.service.systts.help.ReadProgressReader.Snapshot? = null,
-    // ===== 11-22 00:3x 用户令「日志最底部也要缓存提示」=====
+    // 11-22 02:2x 用户令「还是别要这个底部的悬浮窗了」：底部固定缓存提示整撤。
     //
-    // 为什么固定在屏幕底部（用户拍板 甲 案）：吸顶的「缓存：107/110」在**页面顶部**，
-    // 而翻日志时视线在列表末端——想确认「备货到哪了」得往上看一眼再滑回来。
-    // 底部这条钉在日志区下沿，翻到哪儿都能就地看到同一个读数。
-    //
-    // 数据与吸顶**同源**（同一个快照、缓存侧同一算法），不另算一份：
-    // 两处口径必须永远一致，否则一处说 107 一处说 105，比不显示更糟。
-    // 缓存数字为空 = 整条不渲染（没在朗读 / 合成侧还没上报），与吸顶进度行同门控。
-    //
-    // 11-22 00:4x 用户追加：「底部还得带当前进度吧，不然缓存超了几章也不知道」——
-    // 只有缓存读数看不出**领先多少**，而"领先几章"正是预加载唯一的价值。
-    // 故四段并排：缓存（章 107/110）· 当前（章 95/110），缓存 ≠ 当前章时一眼看出跨章备货。
-    // 用户同时拍板「纯文字不加图形」（问「会不会花里胡哨」）：底部常驻，
-    // 进度条会长期亮着抢眼；图形留给偶尔打开的面板才划算。
-    // 拆四段是因为缓存数字要染主题绿加粗（与吸顶同视觉语言），其余保持灰。
-    bottomCacheLabel: String = "",
-    bottomCacheCount: String = "",
-    bottomPlayLabel: String = "",
-    bottomPlayCount: String = "",
+    // 撤除理由（用户装机实测后的判断）：它压在日志正文上，且与吸顶进度行信息重复
+    //（吸顶第二行已经有「当前：… ｜ 缓存：…」）。用户 00:3x 要它时的动机是
+    //「翻到列表末端也能看到读数」，实测下来这条常驻浮层比多滑一下更碍眼。
+    // 数据源仍在吸顶进度行，读数不会因此丢失。
     // 「原文」定位键（用户 10-08 午后 甲方案）：非空=true=当前处于筛选/搜索态，
     // 卡右上角显示小键；点击回调把该条目交回上层（清筛选+跳完整流原位）
     showLocateKey: Boolean = false,
@@ -2568,98 +2592,12 @@ internal fun LogScreen(
                 }
             }
 
-        // ===== 11-22 00:3x 底部固定缓存提示（用户拍板：钉在最底部）=====
+        // 11-22 02:2x 用户令「还是别要这个底部的悬浮窗了」：底部固定缓存提示整撤。
         //
-        // 位置（11-22 00:5x 用户定稿：「浮钮上方太高了，浮钮下方还行」）：
-        //   **屏幕最底部、浮钮下方**，左右各 8dp 贴内容线。浮钮相应上移让位（见下）。
-        //
-        // 为什么曾经考虑过其他位置、又都否掉了：
-        //   · 贴右让出 88dp 给浮钮 → 可用宽度只剩 244dp，而「缓存：第254章 107/110 ｜
-        //     当前：第254章 95/110」约 282dp，会被省略号截断；
-        //   · 浮钮上方整行通栏 → 宽度够（334dp），但用户明确「太高了，不合适」——
-        //     它会把列表底部顶起一条，视觉上像页面多了一行；
-        //   · 现在贴屏底 → 可用约 344dp，文案完整放下，且与浮钮不抢位置。
-        //
-        // 为什么用「半透明底色 + 圆角」而不是纯文字：它浮在列表上，下面压着日志正文，
-        // 纯文字会与正文混读；给一层 92% surface 底形成独立信息带。
-        //
-        // 空串时不进组合（省一次布局），与吸顶进度行同门控。
-        if (bottomCacheCount.isNotBlank()) {
-            // 11-22 01:0x：圆点删除后只剩一段文字，Row 容器随之撤掉（Box 即可），
-            // 少一层布局节点也少一次测量。
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    // ===== 11-22 01:1x 用户澄清后的布局（浮钮不动，条自己缩）=====
-                    //
-                    // 用户原话：「放不下就缩字号我本来指的是那个向下箭头距离底栏比较低，
-                    // 这个可以缩字号」——即**别动浮钮，让提示条缩字号适应**。
-                    //
-                    // 所以：
-                    //   · ⇊ 浮钮回到原位 bottom=20dp（我曾误改成 48dp 给它让位，已撤回）；
-                    //   · 提示条右端让出 80dp（浮钮 72dp 触摸区 + 8dp 右边距）避开它；
-                    //   · 内衬 10 → 8dp 抠出余量；
-                    //   · 字号定 11sp（去「第」字后 251dp ≤ 252dp 可用，刚够）。
-                    .padding(start = 8.dp, end = 80.dp, bottom = 8.dp)
-                    .clip(AppShapes.sm)
-                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.92f))
-                    .padding(horizontal = 8.dp, vertical = 5.dp),
-            ) {
-                // ===== 11-22 01:0x 用户三问后定稿 =====
-                //
-                // ① 「跟吸顶区一样吗？只是顺序变了下」——**对，就该一样**。
-                //    此前我多写了「缓存在前、当前在后」，而吸顶是「当前在前、缓存在后」，
-                //    同一份数据在两个地方顺序相反，纯属我自找的不一致。已改为与吸顶同序：
-                //    「当前：… ｜ 缓存：…」。
-                //
-                // ② 「缓存前面还加圆点表示啥」——**啥也不表示，是废的**，已删。
-                //    吸顶那枚点有明确语义（呼吸绿=合成流水线活着，15s 活跃门），
-                //    而底部这条是常驻静态提示，复制一枚静止灰点纯属装饰，还会让用户
-                //    以为它跟吸顶的点有某种联动。删掉后文字直接起头，更干净。
-                //
-                // ③ 「放不下可以字号小一点」——采用两级自适应（见下方 fontSize）：
-                //    默认 12sp 与吸顶同档；章名特别长时自动降到 11sp，尽可能保住完整读数。
-                val cacheColor = MaterialTheme.colorScheme.primary
-                Text(
-                    text = buildAnnotatedString {
-                        // 顺序与吸顶完全一致：当前在前、缓存在后（用户 01:0x 令）
-                        if (bottomPlayCount.isNotBlank()) {
-                            append("当前：") // 灰色常规
-                            append(bottomPlayLabel) // 「第254章 」，灰色常规
-                            withStyle(
-                                SpanStyle(
-                                    fontFamily = SegNumberFont,
-                                    fontWeight = FontWeight.Medium,
-                                )
-                            ) { append(bottomPlayCount) } // 当前侧灰常规加粗（非完成态，不染绿）
-                            append(" ｜ ")
-                        }
-                        // 缓存：唯一染绿的段——绿在此页语义=「已完成可用」
-                        append("缓存：")
-                        append(bottomCacheLabel)
-                        withStyle(
-                            SpanStyle(
-                                fontFamily = SegNumberFont,
-                                fontWeight = FontWeight.SemiBold,
-                                color = cacheColor,
-                            )
-                        ) { append(bottomCacheCount) }
-                    },
-                    style = MaterialTheme.typography.labelSmall,
-                    // 11-22 01:0x 用户令「放不下可以字号变小一点」：两级自适应。
-                    // 12sp 与吸顶同档（默认）；文字长了降到 11sp 换回空间。
-                    // 用 length 估算而非 onTextLayout 测量：这里只需一个粗判，
-                    // 测量会在首帧引起一次额外布局（计数器抖动），不值得。
-                    // 11-22 01:1x：固定 11sp（原先的 12/11 两级自适应作废——
-                    // 现在可用宽度只有 252dp，12sp 无论怎么排都放不下，两级没有意义）。
-                    // 仍保留 maxLines=1 + Ellipsis：章名异常长时截断兜底。
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.78f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
+        // 撤除理由：它压在日志正文上，读数又与吸顶进度行（第二行「当前：… ｜ 缓存：…」）
+        // 完全重复。用户 00:3x 提它时的动机是「翻到列表末端也能就地确认备货到哪」，
+        // 装机实测后认为这块常驻浮层比多滑一下更碍眼。
+        // 信息未丢：读数仍在吸顶进度行，`bottomCacheParts` 同步删除。
 
         // ===== 11-14「正在朗读」吸顶条（用户第二次纠正，最终定稿）=====
         //
