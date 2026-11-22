@@ -951,6 +951,9 @@ internal class LogGroups(
             // 几乎所有卡都 isPreload=true，全部跳过的结果是 itemBookArr 恒停在
             // 「排序位置在 245 之前」的 244——用户视口里明明全是 245 的卡。
             // 现在吸顶跟随重新覆盖全部带书章的卡（含预加载卡）。
+            // 22:5x 补注：预加载卡已整卡不落日志页（SystemTtsService.dispatch 直接 return），
+            // 所以「含预加载卡」这句当前是**空操作**——留着是因为将来若放开备货卡，
+            // 吸顶跟随应当照旧覆盖它们，不必再改这里。
             val itemBookArr = Array(finalItems.size) { "" }
             val itemChapterArr = Array(finalItems.size) { "" }
             run {
@@ -1156,6 +1159,8 @@ internal fun LogScreen(
                 val e = renderList[i]
                 // 11-21 12:5x：预加载卡**永不**当「正在朗读」——跨章备货同段号/同章名
                 // 的卡会在备货时提前点亮朗读高亮、抢滚动锚点。
+                // 22:5x 补注：预加载卡已整卡不落日志页，这条判据现在是**二层防御**；
+                // 保留原因同上（将来若放开备货卡，这里不能再漏）。
                 return !e.isPreload &&
                     e.paraIndex == snap.segIndex &&
                     e.chapterTitle == snap.chapterTitle &&
