@@ -2084,9 +2084,29 @@ internal fun LogScreen(
                             // 修法：successMember 命中后再分一路——子行是**预合成**（旧前缀
                             // 「缓存/本地缓存/UTTS缓存」同样认）就画「预合成」丸；
                             // 其余照旧「成功」。失败/吸收分支不动。
+                            // 11-23（用户问「不是要用 isPreload 吗」）：**改用事件自带的
+                            // isPreload 字段**，不再只认消息前缀。
+                            //
+                            // 为什么必须换：前缀 `获取成功（预合成）` 由 SystemTtsService 的
+                            // `cacheMark = if (e.request.fromCache) ...` 拼出，而 fromCache 的
+                            // **唯一赋值点**（AbstractMixSynthesizer 缓存命中分支的
+                            // `request.copy(fromCache = true)`）已在 1d5bf6ea「缓存命中不出卡」
+                            // 里被整段删除 ⇒ fromCache 恒 false ⇒ 该前缀 11-22 18:59 之后
+                            // 再没产生过，两个判据都成了死代码。
+                            // 而 isPreload 是**活的**：主行走 MDC、子行走 logS 入参，两条路
+                            // 都一路带到 LogEntry（SysttsFilter:76 / TtsLogViewModel:664），
+                            // 真实反映「这笔是后台备货」。
+                            // 前缀判据保留作历史兜底（旧日志/旧包落盘的行只有前缀）。
                             fun isPreloadMember(m: com.github.jing332.common.LogEntry): Boolean =
-                                isPreloadMessage(m.message)
-                            val pill = remember(item.head, successMember, absorbed, currentGroups) {
+                                m.isPreload || isPreloadMessage(m.message)
+                            // remember 的 key 必须带上 isPreload：只 key 条目下标的话，
+                            // 回读/实时两条路径先后到达同一卡时会沿用旧结论。
+                            val headIsPreload = head.isPreload
+                            val successIsPreload = successMember?.isPreload == true
+                            val pill = remember(
+                                item.head, successMember, absorbed, currentGroups,
+                                headIsPreload, successIsPreload,
+                            ) {
                                 when {
                                     successMember != null && isPreloadMember(successMember) ->
                                         LogPill(LogPillKind.CACHE, "预合成")
@@ -2889,8 +2909,13 @@ private fun pillOf(e: LogEntry, entryIndex: Int, failedHeads: Set<Int> = emptySe
     val msg = e.message.replace(Regex("<[^>]*>"), "")
     return when {
         e.configId != 0L -> when {
+            // 11-23：**先认 isPreload 字段**（理由见组头丸处的大段注释）——
+            // 前缀判据自 1d5bf6ea 起恒不命中，只有 isPreload 是活的。
+            // 这里判的是「这笔请求本身就是后台备货」，与成功与否无关：
+            // 预加载的成功行、请求行、失败行都该带「预合成」丸。
+            e.isPreload -> LogPill(LogPillKind.CACHE, "预合成")
             // 11-15 晚：命中合成缓存的成功行单独一颗「缓存」丸——用户要「别加行」，
-            // 丸是唯一不占高度的区分位。
+            // 丸是唯一不占高度的区分位。前缀判据留作历史日志兜底。
             msg.contains("获取成功（预合成）") -> LogPill(LogPillKind.CACHE, "预合成")
             // 历史前缀兼容（丸统一显示「预合成」）：「（缓存）」「（本地缓存）」「（UTTS缓存）」
             msg.contains("获取成功（缓存）") || msg.contains("获取成功（本地缓存）") ||
@@ -3116,8 +3141,17 @@ internal fun cardCopyText(g: LogGroups, item: LogGroups.Item.Group): String {
             !it.message.replace(Regex("<[^>]*>"), "").startsWith(CANCEL_MARKER)
     }
     val absorbed = g.entries.getOrNull(item.absorbError)
+    // 11-23：与卡上丸同口径——isPreload 字段优先（活判据），前缀只作历史兜底。
+    // 三处（组头丸 / 裸行丸 / 复制文本）必须同源，否则会出现
+    // 「卡上写预合成、复制出去写成功」的口径分叉（这条铁律见 isPreloadMessage KDoc）。
+    val successIsPreload = success != null &&
+        (success.isPreload || isPreloadMessage(success.message))
+    val headIsPreload = head.isPreload
     val status = when {
-        success != null -> if (isPreloadMessage(success.message)) "预合成" else "成功"
+        success != null -> if (successIsPreload) "预合成" else "成功"
+        // 无成功子行但主行本身是备货（请求中/失败）→ 也标预合成
+        headIsPreload && (absorbed != null || item.head in g.failedHeads) -> "预合成失败"
+        headIsPreload -> "预合成"
         absorbed != null || item.head in g.failedHeads -> "失败"
         item.pending -> "请求中"
         else -> ""
