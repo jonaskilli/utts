@@ -668,6 +668,26 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
                     // 11-16：预热的失败链也不能在日志里冒成播放卡
                     isPreload = isPreload,
                     emitHitLog = emitHitLog,
+                    // ===== 22:5x：段序闸门必须**原样透传**（漏传 = 重试链事件绕过闸门直发）=====
+                    //
+                    // 现场（真机 20:48 段43 旁白+对话两笔并发）：同一 reqId 的三行
+                    // 落盘顺序变成「开始第 1 次重试(39.311) → 获取成功(42.258) →
+                    // 请求音频(42.626)」——请求行比自己的成功行晚 368ms。
+                    // 日志页按 reqId 归组后就成了「卡1 挂重试+成功、卡2 才是请求音频
+                    // 且永远显示请求中」。
+                    //
+                    // 根因：本函数的段序闸门靠**载荷透传**（RequestPayload.eventGate），
+                    // 而递归时只透了 reqId/paraIndex/paraTotal，eventGate/segmentKey
+                    // 吃默认值 null/-1 ⇒ 重试那笔事件 direct dispatch 直发；
+                    // 首次尝试的请求行还压在闸门里等该段回填（同段另一笔在重试，
+                    // 憋了 3.5 秒）⇒ 直发的成功行抢在请求行前面落盘。
+                    //
+                    // 本文件顶部 event() 的注释写着「重试/备用递归原样带（同一笔仍属
+                    // 同一段，事件必须仍排在同一位置）」——实现一直漏了这两个参数，
+                    // 本次补上。改完一条链的 Request/Error/成功全部同闸门同段位，
+                    // flush 时按真实发生顺序出：请求音频 → 失败 → 第N次重试 → 成功。
+                    eventGate = eventGate,
+                    segmentKey = segmentKey,
                 )
             } else {
                 val next = retries + 1
@@ -688,6 +708,10 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
                     paraIndex = paraIndex, paraTotal = paraTotal,
                     isPreload = isPreload,
                     emitHitLog = emitHitLog,
+                    // 22:5x：同上——重试递归必须带闸门与段位，否则重试链事件
+                    // 绕过段序闸门直发，落盘顺序与首次尝试错位（详见备用递归处注释）。
+                    eventGate = eventGate,
+                    segmentKey = segmentKey,
                 )
             }
         }
