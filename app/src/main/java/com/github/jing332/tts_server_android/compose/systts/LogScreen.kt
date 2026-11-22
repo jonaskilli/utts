@@ -1199,13 +1199,29 @@ internal fun LogScreen(
             val segKey = snap.segText.trim().take(12)
             fun matchesSeg(i: Int): Boolean {
                 val e = renderList[i]
-                // 11-21 12:5x：预加载卡**永不**当「正在朗读」——跨章备货同段号/同章名
-                // 的卡会在备货时提前点亮朗读高亮、抢滚动锚点。
-                // 23:2x 补注：跨章预加载卡已不落日志页，同章货卡仍在——这条判据继续生效：
-                // 同章货卡段号可能恰好等于播放段（备的就是正在听的那段），必须排除，
-                // 否则「正在朗读」会点亮一张备货卡而不是真正的播放卡。
-                return !e.isPreload &&
-                    e.paraIndex == snap.segIndex &&
+                // ===== 23:4x（用户令「预合成卡又回来了，你可以改了」）：允许同章预加载卡当锚 =====
+                //
+                // ## 为什么现在能放开（11-21 那条 `!e.isPreload` 排除已过时）
+                // 当初排除预加载卡的理由是「跨章备货卡同段号/同章名会在备货时提前点亮、
+                // 抢滚动锚点」。而 23:2x 起**跨章预加载卡已整卡不进日志页**（dispatch 按
+                // 「章名 ≠ 正在播放章」拦掉），日志里剩下的 isPreload 卡**全是同章货**——
+                // 章名就等于播放章，不存在跨章串位的前提。
+                //
+                // ## 为什么必须放开：命中缓存时压根没有播放卡
+                // 18:5x 定案「命中缓存不出卡」+ 22:5x 起同章货卡保留，于是：
+                //   · 播放笔现场合成 → 有播放卡 → 锚它；
+                //   · 播放笔命中缓存（很常见）→ **没有播放卡**，只有备货时那张同段卡
+                //     ⇒ 旧判据把唯一可锚的卡也排除掉，「正在朗读」高亮/跟随/复位键全部消失
+                //     （用户实报「日志栏有时候不显示，复位键也不出现」）。
+                // 放开后：命中缓存时锚到「备的就是这一段」的那张卡——段号、章名都精确相同，
+                // 不是猜的。
+                //
+                // ## 安全性（为什么不会点错）
+                // · 段号必须**相等**（不是范围）：预加载备的是后面的段，段号不等 ⇒ 不会提前点亮；
+                // · 章名必须相等 ⇒ 跨章卡（已不落页，这里再兜一层）也不可能命中；
+                // · 下面 ① 的「只认本轮」判据（遇到 paraIndex > segIndex 就停）继续生效，
+                //   重听同一章时不会同时点亮两轮。
+                return e.paraIndex == snap.segIndex &&
                     e.chapterTitle == snap.chapterTitle &&
                     boldBodyOf(e).isNotEmpty()
             }
@@ -1243,8 +1259,9 @@ internal fun LogScreen(
                 else {
                     val last = (renderList.lastIndex downTo 0).firstOrNull { i ->
                         val e = renderList[i]
-                        !e.isPreload &&
-                            e.chapterTitle == snap.chapterTitle &&
+                        // 23:4x：兜底路径同样放开 isPreload（理由见主判据处注释）——
+                        // 跨章货卡已不落页，留下的同章卡章名与播放章相同，不会串位。
+                        e.chapterTitle == snap.chapterTitle &&
                             boldBodyOf(e).startsWith(segKey)
                     }
                     if (last == null) emptyList() else listOf(last)
