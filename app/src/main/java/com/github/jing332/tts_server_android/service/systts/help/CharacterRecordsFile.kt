@@ -54,6 +54,65 @@ object CharacterRecordsFile {
         runCatching { File(d, "cunfang.txt").readText().trim() }.getOrDefault("")
 
     private fun recordsFile(tagRuleId: String) = File(File(BASE_DIR, tagRuleId), "characterRecords.json")
+
+    // ==================== 写后校验（11-23 竞态兜底）====================
+    //
+    // ## 为什么光加锁不够
+    // [synchronized] 只能串行**本进程内**的读-改-写。真正的对手是朗读规则 JS
+    // （`CharacterManager.prototype.saveRecords`）——它在**另一个进程**里持有一张
+    // 内存角色表，只要触发（建档 / moveRecordToTop / 别名合入 / 邮筒消费后回写）
+    // 就整表覆盖 `characterRecords.json`，不读我们刚写的那一份。
+    //
+    // 真机 11-23 01:21 那场留了痕：App 侧 rebind 与规则侧整表回写在 14 秒里交错
+    // 7 次，用户「连点了几次都不成功、隔一会儿又成功」正是这个窗口——谁后写谁赢。
+    //
+    // ## 兜底口径：写完必须回读确认
+    // 能赢的唯一办法是**发现自己没赢时再写一次**。所有改绑落盘后都走 [_verifyVoiceWritten]：
+    // 回读 `characterRecords.json`，该角色的 voice 仍是旧值（= 被规则覆盖了）就重写，
+    // 最多 [VOICE_WRITE_VERIFY_TRIES] 次、每次间隔 [VOICE_WRITE_VERIFY_GAP_MS]。
+    // 规则侧 `saveRecords` 是整表覆盖、不是定时任务，重写几次基本都能落在它两笔之间；
+    // 真到重试上限仍被覆盖，就把这行打进 debug.log——至少下次报障能对上账。
+    //
+    // ⚠️ 为什么不干脆改成「先读规则内存」：读不到。JS 的 characterManager 只活在
+    // 脚本运行时里，App 侧唯一通道是 `gengxin.json` 这个单向邮筒（规则读完即删），
+    // 而且它也是异步消费的。回读磁盘已经是 App 侧能拿到的最新事实。
+
+    /** 写后校验重试次数（规则侧整表回写的窗口通常 <200ms，3 次足够覆盖） */
+    private const val VOICE_WRITE_VERIFY_TRIES = 3
+
+    /** 写后校验重试间隔（毫秒） */
+    private const val VOICE_WRITE_VERIFY_GAP_MS = 80L
+
+    /**
+     * 回读磁盘确认 [characterName] 的 voice 已经是 [expectVoice]；不是就重写入一次。
+     *
+     * @param rewrite 重写入的动作（把同一份 json 再落一遍四写）
+     * @return true=最终确认已是新值；false=重试上限内一直被覆盖（已留痕）
+     */
+    private fun verifyVoiceWritten(
+        tagRuleId: String,
+        characterName: String,
+        expectVoice: String,
+        rewrite: () -> Unit,
+    ): Boolean {
+        repeat(VOICE_WRITE_VERIFY_TRIES) { attempt ->
+            val onDisk = runCatching { readCharacterVoice(tagRuleId, characterName) }.getOrNull()
+            if (onDisk == null || onDisk == expectVoice) return true
+            if (attempt < VOICE_WRITE_VERIFY_TRIES - 1) {
+                // 被规则侧整表覆盖了：等一下再重写（给它那笔落盘的时间）
+                runCatching { Thread.sleep(VOICE_WRITE_VERIFY_GAP_MS) }
+                runCatching { rewrite() }
+            } else {
+                fileLogger.warn {
+                    "写后校验失败: char=$characterName 期望=$expectVoice 磁盘=$onDisk " +
+                        "（重试 $VOICE_WRITE_VERIFY_TRIES 次仍被规则侧整表覆盖，请重开角色页确认）"
+                }
+                Log.w(TAG, "verifyVoiceWritten: $characterName 期望 $expectVoice 实为 $onDisk")
+                return false
+            }
+        }
+        return true
+    }
     private fun poolFile(tagRuleId: String) = File(File(BASE_DIR, tagRuleId), "fayinren.json")
 
     /** 发音人标签池（fayinren.json，规则运行时生成）；文件缺失/损坏返回空列表 */
@@ -119,6 +178,7 @@ object CharacterRecordsFile {
      * 从发音人标签池（fayinren.json）移除某标签，避免规则下次运行时重新生成该配置项
      *（与角色管理 v10 doDeleteVoiceInternal 第二步同源）。文件缺失/移除后为空也返回 true。
      */
+    @Synchronized
     fun removeFromPool(tagRuleId: String, tag: String): Boolean {
         val f = poolFile(tagRuleId)
         if (!f.exists() || tag.isBlank()) return true
@@ -146,6 +206,7 @@ object CharacterRecordsFile {
      * 插件音色模式改绑（11-17）：`voice` 存插件音色 id（如 Fish 的 32 位 hex），
      * `voiceName` 存显示名。换声面板在「插件音色」入口选中后走这里。
      */
+    @Synchronized
     fun rebindPluginVoice(
         tagRuleId: String,
         characterName: String,
@@ -153,6 +214,7 @@ object CharacterRecordsFile {
         voiceName: String,
     ): Boolean = rebind(tagRuleId, characterName, voiceId, voiceName)
 
+    @Synchronized
     fun rebind(
         tagRuleId: String,
         characterName: String,
@@ -199,6 +261,15 @@ object CharacterRecordsFile {
                 fileLogger.info { "rebind(book=$book, char=$characterName, n=$changed) -> shuming.$book+gengxin(信封)+backup 三写" }
             }
             Log.i(TAG, "rebind: $characterName -> $newVoiceTag ($changed records, 4 files)")
+            // 11-23 竞态兜底：回读确认没被规则侧整表覆盖，被覆盖就再写一遍（见 verifyVoiceWritten）
+            verifyVoiceWritten(tagRuleId, characterName, newVoiceTag) {
+                runCatching {
+                    f.writeText(json)
+                    File(dir, "shuming.$book.json").writeText(json)
+                    writeGengxinEnvelope(dir, json)
+                    File(dir, "characterRecords_backup.json").writeText(json)
+                }
+            }
             true
         } catch (e: Exception) {
             Log.w(TAG, "rebind failed: ${e.message}")
@@ -263,6 +334,7 @@ object CharacterRecordsFile {
      * 删除配置项联动：把当前书所有绑定 [oldTag] 的角色逐个改绑同类别新发音人
      *（同批边分边记、尽量不同声）。有改动才四写落盘。返回改动的记录数（0=未动，如整类删空）。
      */
+    @Synchronized
     fun reassignVoicesForTag(tagRuleId: String, oldTag: String, enabledTags: Collection<String>): Int {
         val records = readRecords(tagRuleId)
         if (records.isEmpty()) return 0
@@ -296,6 +368,7 @@ object CharacterRecordsFile {
      * @param name 角色名（显示层身份）
      * @param currentVoice 该角色当前的标签（同名多条时用于二次区分）
      */
+    @Synchronized
     fun rerollVoice(tagRuleId: String, name: String, currentVoice: String, enabledTags: Collection<String>): String? {
         val records = readRecords(tagRuleId)
         val idx = locateRecord(records, name, currentVoice) ?: run {
@@ -322,8 +395,23 @@ object CharacterRecordsFile {
             "rerollVoice: 角色=「${rec.name}」 fileIndex=$idx 标签 ${rec.voice} → $newVoice" +
                 "（请求方给的 name=$name voice=$currentVoice，记录数=${records.size}）"
         )
+        val oldVoice = rec.voice   // 必须先抓：put 之后 rec.voice 读到的就是新值了
         rec.obj.put("voice", newVoice)
         saveRecords(tagRuleId, records)
+        // 11-23 竞态兜底（同 rebind）：回读确认没被规则侧整表覆盖
+        val ok = verifyVoiceWritten(tagRuleId, rec.name, newVoice) {
+            runCatching { saveRecords(tagRuleId, records) }
+        }
+        if (!ok) {
+            // 被覆盖且重试到上限：把「长按随机」这条链也留痕到 debug.log
+            //（此前只走 android.util.Log，debug.log 里查不到任何痕迹）
+            fileLogger.warn { "rerollVoice 写后校验未通过: char=${rec.name} 期望=$newVoice" }
+        }
+        // 11-23：与 rebind 对齐——成功/落盘都留一行到 debug.log，
+        // 之前这里只有 android.util.Log（只进 logcat），失败在 debug.log 里完全查不到
+        fileLogger.info {
+            "rerollVoice(char=${rec.name}, $oldVoice -> $newVoice, n=${records.size}, verified=$ok)"
+        }
         return newVoice
     }
 
@@ -447,6 +535,7 @@ object CharacterRecordsFile {
      * 全量保存：characterRecords.json + 当前书籍存档 + gengxin.json + 备份，四写齐落。
      * （插件 saveCharacterData 同口径；落盘内容走 storedRecord 白名单。）
      */
+    @Synchronized
     fun saveRecords(tagRuleId: String, records: List<RoleRecord>): Boolean {
         val dir = File(BASE_DIR, tagRuleId)
         if (!dir.exists()) return false
@@ -495,6 +584,7 @@ object CharacterRecordsFile {
      * ③现按**身份**删，兼顾两者：同名不同标签能各删各的，同名同标签取第一条。
      * 成功返回删掉的条数。
      */
+    @Synchronized
     fun deleteRecordsBy(tagRuleId: String, identities: List<RoleIdentity>): Int {
         if (identities.isEmpty()) return 0
         val records = readRecords(tagRuleId).toMutableList()
@@ -515,6 +605,7 @@ object CharacterRecordsFile {
      * ⚠️ 11-19 改按**角色名**定位（不再用下标）：角色列表冻结显示顺序后，
      * 显示下标 ≠ 文件下标，按下标会改到别的角色（同 rerollVoice 的坑）。
      */
+    @Synchronized
     fun setMainCharacterAt(tagRuleId: String, name: String, currentVoice: String = ""): Boolean {
         val records = readRecords(tagRuleId)
         val idx = locateRecord(records, name, currentVoice) ?: return false
@@ -542,6 +633,7 @@ object CharacterRecordsFile {
      * 把「带别名 a1、a2 的角色」并进去之后，按 a1 朗读匹配/搜索都找不到目标了（别名丢了）。
      * 目标不存在返回 0；返回被并掉的记录数。
      */
+    @Synchronized
     fun mergeCharacters(tagRuleId: String, targetName: String, mergeNames: Set<String>): Int {
         if (targetName.isBlank() || mergeNames.isEmpty()) return 0
         val records = readRecords(tagRuleId)
@@ -605,6 +697,7 @@ object CharacterRecordsFile {
      *    按文件存在性清理会把多本书误删成一本）
      * 返回是否写回了 liebiao.json。
      */
+    @Synchronized
     fun initializeFileSystem(tagRuleId: String): Boolean {
         val d = File(BASE_DIR, tagRuleId)
         if (!d.exists()) return false
@@ -651,6 +744,7 @@ object CharacterRecordsFile {
      * 当前记录先落盘（saveRecords 四写）→ 读 shuming.<新书>.json（无存档=空表）→
      * 写 characterRecords/gengxin/backup 三份 → cunfang.txt=新书 → liebiao.json 补录新书。
      */
+    @Synchronized
     fun switchBook(tagRuleId: String, newBook: String): Boolean {
         if (newBook.isBlank()) return false
         val d = dir(tagRuleId)
@@ -817,6 +911,7 @@ object CharacterRecordsFile {
      * 字段与插入位置照插件 `+添加角色`（5288-5299）：`{name, aliases:"", voice, usageCount:100,
      * gender:"未知", age:"未知"}` 并 `unshift` 到**列表头部**（旧版 add 到尾部，新角色会掉到最底）。
      * 同名记录已存在返回 false（插件不查重，这条是本 App 自加的防呆，配 role_add_char_exists 提示）。 */
+    @Synchronized
     fun addCharacter(tagRuleId: String, name: String, voice: String): Boolean {
         val n = name.trim()
         if (n.isEmpty() || voice.isBlank()) return false
@@ -842,6 +937,7 @@ object CharacterRecordsFile {
      *   但 11-19 冻结显示顺序后显示下标 ≠ 文件下标，会改到别的角色——现按**身份**定位）
      * - 主名与其他记录重名（排除自己这条）返回 false
      */
+    @Synchronized
     fun editCharacterNames(tagRuleId: String, identity: RoleIdentity, names: List<String>): Boolean {
         val cleaned = names.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
         if (cleaned.isEmpty()) return false
@@ -867,6 +963,7 @@ object CharacterRecordsFile {
      * 早期走关键词弹窗时传的是裸关键词（如「女青年」），与本 App「voice=tag id」口径不符、
      * 朗读时匹配不上，已随关键词弹窗一并下线。
      */
+    @Synchronized
     fun releaseAndFix(tagRuleId: String, ownerName: String, name: String, voiceTag: String): Boolean {
         if (ownerName.isBlank() || name.isBlank() || voiceTag.isBlank()) return false
         val records = readRecords(tagRuleId).toMutableList()
@@ -906,6 +1003,7 @@ object CharacterRecordsFile {
     }
 
     /** 删除名字（照插件 doReleaseOperation「删除」）：从主名/别名移除，记录空了删除整个记录 */
+    @Synchronized
     fun removeNameFromRecord(tagRuleId: String, ownerName: String, name: String): Boolean {
         val records = readRecords(tagRuleId).toMutableList()
         val ownerIdx = records.indexOfFirst { norm(it.name) == norm(ownerName) }
@@ -1077,6 +1175,7 @@ object CharacterRecordsFile {
     }
 
     /** 从 fullBackup.json 完整还原；动手前自动把当前现场留一份；返回恢复文件数（无备份=-1） */
+    @Synchronized
     fun restoreAllFiles(tagRuleId: String): Int {
         val d = dir(tagRuleId)
         if (!d.exists() || !backupFile(tagRuleId).exists()) return -1
@@ -1092,6 +1191,7 @@ object CharacterRecordsFile {
      * 撤销上次还原：用还原前留的现场再还原一次；返回恢复文件数（无现场=-1）。
      * ⚠️ 这里**不再**留现场：再留会把现场本身写成"撤销前的状态"，现场就失去意义了。
      */
+    @Synchronized
     fun restoreFromBefore(tagRuleId: String): Int = applyBackup(tagRuleId, beforeRestoreFile(tagRuleId))
 
     /**
@@ -1106,6 +1206,7 @@ object CharacterRecordsFile {
      * 另：旧版这段还硬编码了绝对路径，没走 BASE_DIR。
      * 返回是否成功。
      */
+    @Synchronized
     fun importBook(tagRuleId: String, bookName: String, characterData: String): Boolean {
         val n = bookName.trim()
         if (n.isEmpty()) return false
