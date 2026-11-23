@@ -73,7 +73,9 @@ object SysttsLogger {
     private const val CHAPTER_READY_MARKER = "【书章就绪】"
 
     /** 这条规则行是否「章首宣告」行（`【书章就绪】<书> · <章>（来源）`）。 */
-    private fun isChapterReadyLine(message: String): Boolean =
+    // 11-23 23:4x：放开可见性——LogScreen 的正文序排序键要用它给章首行 sec=-1 的例外
+    //（用户实拍「【书章就绪】跑到章尾」）。判据只此一份，别在排序侧另写一套前缀匹配。
+    fun isChapterReadyLine(message: String): Boolean =
         message.removePrefix("[SpeechRule] ").trimStart().startsWith(CHAPTER_READY_MARKER)
 
     /**

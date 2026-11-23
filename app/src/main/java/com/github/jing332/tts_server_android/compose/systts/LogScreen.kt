@@ -127,6 +127,7 @@ import com.github.jing332.common.toLogLevelChar
 import com.github.jing332.compose.ComposeExtensions.toAnnotatedString
 import com.github.jing332.compose.widgets.ControlBottomBarVisibility
 import com.github.jing332.tts_server_android.R
+import com.github.jing332.tts_server_android.SysttsLogger
 import com.github.jing332.tts_server_android.compose.systts.role.softContainerColor
 // 11-13 晚：章首日志底色与书籍框/角色标签同款绿（用户令「还是那个书籍框那个填充率」）
 import com.github.jing332.tts_server_android.compose.systts.role.softFillBarColor
@@ -537,10 +538,19 @@ internal class LogGroups(
                     val bk = bookSeq.getOrPut(b) { bookSeq.size }
                     val ck = chapSeq.getOrPut("$b\u0000$c") { chapSeq.size }
                     val sc = "$b\u0000$c"
-                    val seg = if (e.paraIndex >= 0) {
-                        segCarry[sc] = e.paraIndex
-                        e.paraIndex
-                    } else segCarry[sc] ?: Int.MAX_VALUE
+                    val seg = when {
+                        e.paraIndex >= 0 -> {
+                            segCarry[sc] = e.paraIndex
+                            e.paraIndex
+                        }
+                        // ===== 11-23 23:4x（用户实拍「【书章就绪】跑到章尾」）=====
+                        // 章首宣告行由 stampBookChapter 置 paraIndex=-1，且自带权威书章；
+                        // 它**必须**排在段 0 之前，不能落进下面「沿用最近段号 / MAX」的兜底。
+                        // 真机 22:28:32.874 就绪行只比首卡（22:28:32.891）早 17ms，却被排到章末。
+                        // 判据用 SysttsLogger.isChapterReadyLine：与补书章那一处同源，别各判一套。
+                        SysttsLogger.isChapterReadyLine(e.message) -> -1
+                        else -> segCarry[sc] ?: Int.MAX_VALUE
+                    }
                     keys.add(intArrayOf(bk, ck, seg, i))
                 }
                 keys.sortWith(
