@@ -635,7 +635,16 @@ class TtsLogViewModel : ViewModel() {
         val isAcquiredSuffix = line.contains("获取成功：") ||
             line.contains("获取成功（预合成）：") ||
             line.contains("获取成功（UTTS缓存）：") ||
-            line.contains("获取成功（本地缓存）：") || line.contains("获取成功（缓存）：")
+            line.contains("获取成功（本地缓存）：") || line.contains("获取成功（缓存）：") ||
+            // ===== 11-23（真机 18:26 截图实锤）：子行文案族补全 =====
+            // 「开始第 N 次重试」（logW 落盘）与「〖已取消〗」（logCanceled → logS(indent=1)）
+            // 同样是子行，但上面的回读判据只认「获取成功」族 ⇒ 清空日志/重启回读后
+            // 它们全掉成 indent=0 的无主裸行：屏幕上就是一条「预合成 + 开始第 1 次重试」
+            // 悬在卡片外面，既看不出是哪一段的重试，也不属于任何卡。
+            // 只补这两种；失败行（源错误/获取失败）**不在此列**——它是卡片主体，
+            // 由 LogScreen 的 absorbError 单独吸收，标成子行反而会把老版式拆坏。
+            (line.contains("开始第 ") && line.contains("次重试")) ||
+            line.contains(com.github.jing332.tts_server_android.service.systts.SystemTtsService.CANCEL_CHILD_MARKER)
         // 11-13：带请求实例 id 的新格式（本次改造）——
         //   time | LEVEL | configId | roleName | §book | chapter | reqId | message
         // reqId 列可为空（旧行/无关联行）。判别：§ 段之后的第一个 " | " 分出的第 3 段
