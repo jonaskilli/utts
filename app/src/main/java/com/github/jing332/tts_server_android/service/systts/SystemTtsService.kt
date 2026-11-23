@@ -1863,6 +1863,27 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
     // 11-16 晚用户令：preloadBatchSummary 及其去重集合整体移除——成功的预热不再落页
     // （进度由 DEBUG 工程日志兜底，失败仍走 errorEvent 落红色行）。
 
+    /**
+     * 把请求上下文（书/章/角色/段号/reqId/预热标记）写进 MDC，供落盘行复用。
+     *
+     * 11-23 真机实锤（18:26:17）：请求行与重试行都写了 MDC，唯独**失败行**没写——
+     * `预合成失败（第 2 段）：朗读引擎失效…` 落盘成 `| | | § | | | …` 的无主裸行（V10），
+     * 日志页挂不回卡片、也看不出是哪本书哪一段。失败行与请求行必须是同一套口径，
+     * 所以统一走这里；调用方负责 `finally { MDC.clear() }` 防串值（MDC 是线程级的）。
+     */
+    private fun putRequestMdc(req: RequestPayload?) {
+        if (req == null) return
+        val configId = (req.config.tag as? SystemTtsV2)?.id ?: 0L
+        org.slf4j.MDC.put("configId", configId.toString())
+        if (req.roleName.isNotBlank()) org.slf4j.MDC.put("roleName", req.roleName)
+        if (req.bookName.isNotBlank()) org.slf4j.MDC.put("bookName", req.bookName)
+        if (req.chapterTitle.isNotBlank()) org.slf4j.MDC.put("chapterTitle", req.chapterTitle)
+        if (req.reqId.isNotBlank()) org.slf4j.MDC.put("reqId", req.reqId)
+        if (req.paraIndex >= 0) org.slf4j.MDC.put("paraIndex", req.paraIndex.toString())
+        if (req.paraTotal > 0) org.slf4j.MDC.put("paraTotal", req.paraTotal.toString())
+        if (req.isPreload) org.slf4j.MDC.put("isPreload", "true")
+    }
+
     private fun errorEvent(e: ErrorEvent) {
         // 11-16 用户令（「预热是辅助提速、不能拖后腿，失败了得看得见」）：
         // 预热失败**必须落一行**，但要与「正在听的这段失败」明确区分——
@@ -1877,6 +1898,17 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
             is ErrorEvent.ResultProcessor -> e.request
             else -> null
         }
+        // 11-23（真机 18:26:17 裸行实锤）：失败行也带请求上下文——与请求行/重试行同一套 MDC。
+        try {
+            putRequestMdc(preloadReq)
+            emitErrorEvent(e, preloadReq)
+        } finally {
+            org.slf4j.MDC.clear()
+        }
+    }
+
+    /** [errorEvent] 的实际落日志体（拆出来只为统一包一层 MDC，见 [putRequestMdc]）。 */
+    private fun emitErrorEvent(e: ErrorEvent, preloadReq: RequestPayload?) {
         if (preloadReq?.isPreload == true) {
             val seg = if (preloadReq.paraIndex >= 0) "第 ${preloadReq.paraIndex + 1} 段" else "某段"
             // 11-18 用户令：失败原因要写真——「无响应」吞掉了底层异常

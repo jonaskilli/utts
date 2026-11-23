@@ -103,6 +103,24 @@ open class TtsPluginEngineV2(val context: Context, var plugin: Plugin) {
     protected val pluginJsObj: ScriptableObject
         get() = (engine.get(OBJ_PLUGIN_JS) as? ScriptableObject) ?: throw IllegalStateException("Object `$OBJ_PLUGIN_JS` not found")
 
+    /**
+     * 引擎实例是否仍可服务（作用域还在、且作用域里仍有 PluginJS）。
+     *
+     * 11-23 真机两场实锤（02:37:22 / 18:26:17）：请求发出 5~8ms 就抛
+     * `IllegalStateException: Object `PluginJS` not found`，**没有任何网络往返**——
+     * 说明拿到的引擎在请求开始前就已经是死的。成因是缓存/持有方留着一个
+     * 已 `destroy()` 的实例（destroy 只把 Rhino `scope` 置空，对象本身仍在缓存里），
+     * 而外层 provider 的 `state` 仍是 Initialized，不会再去 onInit 重建。
+     *
+     * 判据必须**两个都看**：
+     *   · scope == null ⇒ 实例已被销毁（`get()` 会回退到 globalScope，那里没有插件
+     *     定义的 PluginJS，取到的只是 NOT_FOUND 标记）；
+     *   · 只判 scope 不够：eval() 半途失败时 scope 存在但 PluginJS 缺位，同样秒炸。
+     */
+    fun isUsable(): Boolean = runCatching {
+        engine.scope != null && engine.get(OBJ_PLUGIN_JS) is ScriptableObject
+    }.getOrDefault(false)
+
     protected var engine: RhinoScriptEngine = RhinoScriptEngine(runtime)
 
     open protected fun execute(script: String): Any? = engine.execute(script.toScriptSource(sourceName = plugin.pluginId))

@@ -9,6 +9,7 @@ import com.github.jing332.tts.speech.TextToSpeechProvider
 import com.github.jing332.tts.speech.plugin.engine.TtsPluginEngineV2
 import com.github.jing332.tts.synthesizer.SystemParams
 import kotlinx.coroutines.CancellationException
+import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.TimeoutCancellationException
 import java.io.InputStream
 
@@ -23,6 +24,8 @@ open class PluginTtsProvider(
     val engineSlot: Int = 0,
 ) : TextToSpeechProvider<PluginTtsSource>() {
 
+    private val logger = KotlinLogging.logger("PluginTtsProvider")
+
     private var mEngine: TtsPluginEngineV2? = null
 
     var engine: TtsPluginEngineV2?
@@ -32,6 +35,33 @@ open class PluginTtsProvider(
         }
 
     override var state: EngineState = EngineState.Uninitialized()
+
+    /**
+     * 取一个**能用**的引擎实例；手里这个已经死了就当场作废重建。
+     *
+     * 11-23（真机 02:37:22 / 18:26:17 两场实锤，两个不同插件/插件版本都中）：
+     * 有一类失败是「请求发出 5~8ms 就抛 Object `PluginJS` not found，没有任何网络往返」。
+     * 这不是网络也不是插件逻辑，而是 provider 手里握着一个**已被销毁**的 Rhino 实例
+     *（destroy() 只把 scope 置空，对象还在），而 `state` 早在 onInit 时被置成
+     * Initialized ⇒ 后面的请求不会再走 onInit，于是每笔都在同一个死实例上秒炸，
+     * 只能靠整笔失败 + 重试链重建引擎来脱身（用户侧就是一句「朗读引擎失效」）。
+     *
+     * 修法：**用之前先验活**（scope 在、PluginJS 在），不活就地从管理器重建。
+     * 代价只在真正坏掉时付一次重建（1~4s），换来的是不再冒出假的失败行。
+     */
+    private fun ensureUsableEngine(): TtsPluginEngineV2? {
+        val current = mEngine
+        if (current != null && current.isUsable()) return current
+        if (current != null) {
+            logger.warn {
+                "engine unusable at use time, rebuilding: ${plugin.pluginId} slot=$engineSlot"
+            }
+        }
+        state = EngineState.Uninitialized()
+        mEngine = TtsPluginEngineManager.get(context, plugin, engineSlot)
+        state = EngineState.Initialized
+        return mEngine
+    }
 
     override suspend fun getStream(params: SystemParams, source: PluginTtsSource): InputStream {
         val route = parameterRoute(
@@ -50,7 +80,8 @@ open class PluginTtsProvider(
         // 2026-11-15（引擎实例池）改为随 getAudio 传入、在引擎锁内赋值。
         // 原来在这里（锁外）赋值，池化后同一实例被不同音色复用时会被后一路覆盖 → 串音。
         return try {
-            mEngine?.getAudio(
+            val engine = ensureUsableEngine()
+            engine?.getAudio(
                 text = params.text,
                 locale = source.locale,
                 voice = source.voice,

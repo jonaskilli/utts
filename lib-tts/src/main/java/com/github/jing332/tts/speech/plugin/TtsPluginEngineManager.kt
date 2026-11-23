@@ -4,11 +4,13 @@ import android.content.Context
 import com.github.jing332.database.entities.plugin.Plugin
 import com.github.jing332.tts.speech.plugin.engine.TtsPluginUiEngineV2
 import com.github.jing332.tts.util.AbstractCachedManager
+import io.github.oshai.kotlinlogging.KotlinLogging
 
 object TtsPluginEngineManager : AbstractCachedManager<String, TtsPluginUiEngineV2>(
     timeout = 1000L * 60L * 10L, // 10 min
     delay = 1000L * 60L * 1L, // 1 min
 ) {
+    private val logger = KotlinLogging.logger("TtsPluginEngineManager")
     /**
      * 取插件引擎（2026-11-15 加 slot，引擎实例池）。
      *
@@ -25,11 +27,24 @@ object TtsPluginEngineManager : AbstractCachedManager<String, TtsPluginUiEngineV
 
         // 检查缓存的引擎是否使用了相同的代码
         val cachedEngine = cache.get(key)
-        if (cachedEngine != null && cachedEngine.plugin.code == plugin.code) {
+        // 11-23（真机 02:37:22 / 18:26:17 两场实锤）：**缓存里的引擎可能是死的**——
+        // destroy() 只把 Rhino scope 置空，对象还躺在缓存里；只比 code 会把它原样交出去，
+        // 下一笔请求就在 5~8ms 内抛 `Object PluginJS not found`（无网络往返）。
+        // 所以先验活：不可用等同于「代码不匹配」，一律重建。
+        val usable = cachedEngine != null && cachedEngine.isUsable()
+        if (cachedEngine != null && usable && cachedEngine.plugin.code == plugin.code) {
             return cachedEngine
         }
+        if (cachedEngine != null) {
+            // 留痕：这是「引擎被从脚下撤走」家族的最后一块拼图，下次复现能直接看到
+            // 是「缓存里躺了死实例」还是「插件代码变了」，不用再靠猜。
+            logger.warn {
+                (if (!usable) "cached engine unusable (destroyed/scope lost), rebuilding: $key"
+                else "plugin code changed, rebuilding: $key")
+            }
+        }
 
-        // 代码已更改，销毁旧引擎并创建新引擎
+        // 代码已更改或实例已失效，销毁旧引擎并创建新引擎
         cachedEngine?.destroy()
 
         val engine = TtsPluginUiEngineV2(context, plugin)
