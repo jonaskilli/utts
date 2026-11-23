@@ -923,10 +923,28 @@ class TtsLogViewModel : ViewModel() {
         return if (hasBook) {
             // 11-21 22:5x：第 7 段（0-based 6）可选为段号列——persistConsole 落盘
             // 「…§book | chapter | para | message」。判别：纯数字即段号，message 从
-            // 第 8 段起重组；非数字（旧格式 message 直接在此）按旧口径从第 6 段起。
-            // 历史行无段号 → para=-1，渲染层按「继承前行段号」兜底，老文件照样归位。
+            // 第 8 段起重组。
+            // ===== 11-24 04:0x（用户实拍「【书章就绪】第7章 那行跑到第7章章末」）=====
+            // 上面这条判据漏了**段号列存在但为空**的形态：persistConsole 对「无段号」的行
+            //（就绪行 paraIndex=-1、跨章预标注、无段号时的姓名分析等）写的是空串，
+            // 落盘成 `… | 第7章 陪衬 |  | [SpeechRule] …`。旧代码只看「能否解析成数字」，
+            // 空串解析失败 ⇒ 退回 drop(6) ⇒ 正文前面多粘一段 " | "，message 变成
+            // `" | [SpeechRule] 【书章就绪】…"`。两个后果都要命：
+            //   ① 界面上这条消息开头多一根竖线（截图里 `|[SpeechRule] …` 就是它）；
+            //   ② SysttsLogger.isChapterReadyLine 要求以 `[SpeechRule] ` 开头 ⇒ 回读后的
+            //      就绪行认不出来，LogScreen 排序拿不到 seg=-1 的章首例外，按
+            //      「沿用同章最近段号 / MAX」兜底 ⇒ **排到本章末尾**。用户看到的正是
+            //      「第7章 就绪行夹在第7章末段与第8章开头之间」。
+            // 判据改成三档：段号列有数字 → 新格式(带段号)，第 8 段起；
+            //              段号列为空且总段数 > 7 → 新格式(无段号)，正文仍在第 8 段；
+            //              其余 → 11-11 起的旧新格式（无段号列），正文在第 7 段。
             val paraSeg = parts.getOrNull(6) ?: ""
             val para = paraSeg.toIntOrNull()
+            val msgStart = when {
+                para != null -> 7
+                paraSeg.isEmpty() && parts.size > 7 -> 7
+                else -> 6
+            }
             LogEntry(
                 level = level,
                 time = time,
@@ -934,8 +952,7 @@ class TtsLogViewModel : ViewModel() {
                 chapterTitle = parts.getOrNull(5) ?: "",
                 paraIndex = para ?: -1,
                 // message 从段号列之后起，可含 " | "，全量重组
-                message = if (para != null) parts.drop(7).joinToString(" | ")
-                          else parts.drop(6).joinToString(" | "),
+                message = parts.drop(msgStart).joinToString(" | "),
                 isPluginLog = isPlugin,
                 isSpeechRuleLog = !isPlugin,
             )
