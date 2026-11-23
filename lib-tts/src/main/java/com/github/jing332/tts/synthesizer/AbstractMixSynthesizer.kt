@@ -1130,6 +1130,12 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
     }
 
     private val mutex = Mutex()
+    // ===== 11-24 00:5x（用户实报「跳段时有时候不能立马出声」）=====
+    // 记「上一笔真正拿到合成锁的是谁」：synthesize() 整段持锁，播放请求若排在后面会干等
+    //（真机 23:40:39 那笔等了 42s——前一笔卡在插件 30s 超时里）。以前日志里只有时间戳，
+    // 看不出"等了多久、被谁挡的"。只在等待 ≥500ms 时打一行，串行播放不刷屏。
+    @Volatile
+    private var lastLockHolderDesc: String = ""
 
     /**
      * 11-16 用户报障（13:01:37 真机实证）：**跨批次**同插件撞车。
@@ -1189,15 +1195,28 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
         // 11-21（书章随请求走）：调用方带来的书名/章名，见 Synthesizer 接口注释。
         bookName: String,
         chapterTitle: String,
-    ): Result<Unit, SynthesisError> = mutex.withLock {
-        logger.atTrace {
-            message = "synthesize"
-            payload = mapOf(
-                "forceConfigId" to forceConfigId,
-                "params" to params,
-                "batchSize" to (batchSegments?.size ?: 0),
-            )
-        }
+    ): Result<Unit, SynthesisError> = run {
+        val lockWaitStartedAt = SystemClock.elapsedRealtime()
+        mutex.withLock {
+            // ===== 11-24 00:5x（用户实报「跳段时有时候不能立马出声」）=====
+            // 本函数整段持锁：播放请求若排在后面会干等（真机 23:40:39 那笔等了 42s——
+            // 前一笔卡在插件 30s 超时里）。以前只有时间戳，看不出"等了多久、被谁挡的"。
+            val lockWaitMs = SystemClock.elapsedRealtime() - lockWaitStartedAt
+            if (lockWaitMs >= 500) {
+                logger.warn {
+                    "播放等待合成锁: ${lockWaitMs}ms（本笔=${if (isPreload) "预合成" else "播放"}" +
+                        " text=${params.text.take(12)}；上一笔持锁=${lastLockHolderDesc.ifBlank { "无" }}）"
+                }
+            }
+            lastLockHolderDesc = "${if (isPreload) "预合成" else "播放"} text=${params.text.take(12)}"
+            logger.atTrace {
+                message = "synthesize"
+                payload = mapOf(
+                    "forceConfigId" to forceConfigId,
+                    "params" to params,
+                    "batchSize" to (batchSegments?.size ?: 0),
+                )
+            }
 
         initError?.let {
             return@withLock Err(it)
@@ -1214,6 +1233,7 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
             withContext(NonCancellable) {
                 withMain { bgmPlayer.stop() }
             }
+        }
         }
     }
 
