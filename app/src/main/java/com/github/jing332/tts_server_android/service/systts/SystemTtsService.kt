@@ -656,7 +656,7 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                     // logS 的书章/reqId 由调用方显式传入（事件自带 request），才是可靠来源。
                     runCatching {
                         logS(
-                            "获取成功（预合成）：让路——播放优先，该段播放时现场合成",
+                            "获取成功（备货）：让路——播放优先，该段播放时现场合成",
                             indent = 1,
                             reqId = currentReqId,
                             bookName = currentReqBook,
@@ -786,7 +786,7 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                         // 才能把这行挂回它自己那张卡（详见上一个分支的注释）。
                         runCatching {
                             logS(
-                                "获取成功（预合成）：让路——播放优先，该段播放时现场合成",
+                                "获取成功（备货）：让路——播放优先，该段播放时现场合成",
                                 indent = 1,
                                 reqId = currentReqId,
                                 bookName = currentReqBook,
@@ -1936,7 +1936,7 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
             }
             // 11-18 用户令（二改）：尾缀保持原文案——「重试中」是未证实的预设
             //（谁重试、重试几次都说不了），且丢了「该段播放时会现场合成」这条关键信息。
-            logW("预合成失败（$seg）：$why<br>该段播放时会现场合成，不影响朗读")
+            logW("备货失败（$seg）：$why<br>该段播放时会现场合成，不影响朗读")
             return
         }
 
