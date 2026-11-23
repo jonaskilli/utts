@@ -670,7 +670,21 @@ internal class LogGroups(
                     // 连续同文源错误去重（真机实锤：重试风暴同一句错误+正文原样刷两轮）：
                     // 与上一条 ERROR 同文（去 HTML 后）则整条丢弃——重试必然同死法零新信息，
                     // 文案变了（超时→401）照常显示。
-                    e.indent > 0 && e.level == LogLevel.ERROR -> {
+                    // ===== 11-23 00:2x（用户实拍：超时卡「先成功后重试再超时」、超时还是黑字）=====
+                    // 超时/源错误行走 logE，带了全套 MDC（configId/reqId/段号）⇒ 正文不以
+                    // 「请求音频」开头、indent 又是 0（前缀判据不含「超时：」）⇒ 原先被
+                    // `(e.configId != 0L) -> openCard` 当成一笔新请求，把一张卡劈成两张：
+                    //   卡① 请求行（永远等不到结局 → 挂「请求中」）
+                    //   卡② 超时行当卡头（时间在重试/成功之后 → 读成"先成功后超时"，
+                    //        且头行按普通正文渲染 = 黑字，没有失败红样式）。
+                    // 修法：ERROR 且含 <br>（老版式失败全文条，判据与 configId==0 那条完全同源）
+                    // 且 reqId 就是当前开着的这笔 ⇒ 走失败终点吸收（失败丸 + 红字主体）。
+                    // 开卡顺序不动：只吸收「同 reqId」的，别的请求的失败仍照旧走 configId 分支。
+                    e.level == LogLevel.ERROR && (
+                        e.indent > 0 ||
+                            (e.message.contains("<br>") && head >= 0 &&
+                                e.reqId.isNotEmpty() && e.reqId == list[head].reqId)
+                        ) -> {
                         val hadHead = head >= 0
                         if (hadHead) {
                             groupFailed = true
@@ -716,7 +730,11 @@ internal class LogGroups(
                         }
                     }
                     // 结果/子行：有卡归卡（SUCCESS 顺带收卡）；无卡=头部被筛掉的孤儿 → 裸行
-                    e.indent > 0 -> {
+                    e.indent > 0 && !(e.level == LogLevel.WARN && e.message.contains("次重试")) -> {
+                        // 11-23 00:2x：「开始第 N 次重试」回读后 indent=1，会抢在下面 WARN 分支
+                        // 之前落到这条 → 无卡时成裸行（11-22 03:1x 用户报过的「重试变黑字独立行」
+                        // 在 indent 分支里又出现一次）。这里把它让给 WARN 分支：那边负责
+                        //「有卡→加重试丸 / 无卡→按 reqId 找回失败卡」。
                         // 11-13「不显示」档：取消子行永不渲染。有卡时先挂进去让
                         // closeCard 把整组丢弃；无卡（组已关/头被筛掉）也直接跳过，
                         // 否则会退化成一条显示「〖已取消〗」的裸行
@@ -738,7 +756,13 @@ internal class LogGroups(
                             // 而它的正文在别处也找不回来）；其余孤儿（重试行等）照旧落裸行，
                             // 因为重试文案本身有信息、且下面 WARN 分支还要靠它挂失败卡。
                             val plainOrphan = e.message.replace(Regex("<[^>]*>"), "")
-                            val isPlainSuccess = e.level == LogLevel.SUCCESS &&
+                            // 只吞「请求行整个不在列表里」的（清空日志/回读剩孤儿）；
+                            // 失败卡之后补上来的成功行（同 reqId 的请求行还在）是**老版式
+                            // 正常观感**（失败+重试一条卡，成功单独一条），不许当孤儿吞掉。
+                            val noRequestRow = e.reqId.isEmpty() || list.none {
+                                it.reqId == e.reqId && it.indent == 0
+                            }
+                            val isPlainSuccess = noRequestRow && e.level == LogLevel.SUCCESS &&
                                 (plainOrphan.contains("获取成功") || plainOrphan.contains("获取失败"))
                             if (!isPlainSuccess) raw.add(Item.Bare(i))
                         }
