@@ -2197,7 +2197,7 @@ internal fun LogScreen(
                             ) {
                                 when {
                                     successMember != null && isPreloadMember(successMember) ->
-                                        LogPill(LogPillKind.CACHE, "备货")
+                                        LogPill(LogPillKind.OK, "预合成")
                                     successMember != null -> LogPill(LogPillKind.OK, "成功")
                                     // 丸只报状态（10-12 用户令）：原来写「源错误」——那是**原因**，
                                     // 不该占丸位。现在一律「失败」，原因交给正文首行（服务端
@@ -3001,20 +3001,17 @@ private fun pillOf(e: LogEntry, entryIndex: Int, failedHeads: Set<Int> = emptySe
             // 前缀判据自 1d5bf6ea 起恒不命中，只有 isPreload 是活的。
             // 这里判的是「这笔请求本身就是后台备货」，与成功与否无关：
             // 预加载的成功行、请求行、失败行都该带「预合成」丸。
-            // ===== 11-24 00:2x（用户：「预合成换个名字，我还是不懂这啥意思」）=====
-            // 用户看的字从「预合成」改成「备货」：吸顶与预加载日志本来就叫「已备 N 段」，
-            // 「预合成」像在说"预先合成好的成品"，看不出"这条不是你现在听的那段"。
-            // 判据一律不动（仍是 isPreload 字段 + 历史前缀），只改文案。
-            e.isPreload -> LogPill(LogPillKind.CACHE, "备货")
+            // ===== 11-24 00:3x（用户定稿）：「还是叫预合成吧，但把样式改得跟成功丸一样」=====
+            // 文案保持「预合成」（上一轮试过改叫「备货」，用户否了）；观感的问题靠**样式**解决：
+            // 备货卡丸从 CACHE（蓝灰）改成 OK（与「成功」丸同色同底），页面上不再一片灰。
+            // 判据一律不动（仍是 isPreload 字段 + 历史前缀）。
+            e.isPreload -> LogPill(LogPillKind.OK, "预合成")
             // 11-15 晚：命中合成缓存的成功行单独一颗「缓存」丸——用户要「别加行」，
             // 丸是唯一不占高度的区分位。前缀判据留作历史日志兜底。
-            // 11-24 00:4x：文案统一成「备货」；旧前缀（预合成/缓存/本地缓存/UTTS缓存）
-            // 一律继续认——历史日志回读不能因为改文案就丢子行。
-            msg.contains("获取成功（备货）") -> LogPill(LogPillKind.CACHE, "备货")
-            msg.contains("获取成功（预合成）") -> LogPill(LogPillKind.CACHE, "备货")
+            msg.contains("获取成功（预合成）") -> LogPill(LogPillKind.OK, "预合成")
             // 历史前缀兼容（丸统一显示「预合成」）：「（缓存）」「（本地缓存）」「（UTTS缓存）」
             msg.contains("获取成功（缓存）") || msg.contains("获取成功（本地缓存）") ||
-                msg.contains("获取成功（UTTS缓存）") -> LogPill(LogPillKind.CACHE, "备货")
+                msg.contains("获取成功（UTTS缓存）") -> LogPill(LogPillKind.OK, "预合成")
             e.level == LogLevel.SUCCESS -> LogPill(LogPillKind.OK, "成功")
             entryIndex in failedHeads -> LogPill(LogPillKind.FAIL, "失败")
             else -> null
@@ -3176,7 +3173,6 @@ private fun tailTextOfRow(e: LogEntry): String? {
     // 11-15 晚：缓存命中行前缀是「获取成功（缓存）：」，先归一化再取尾段，
     // 否则首行的「耗时，大小」会丢。
     val msg = e.message.replace(Regex("<[^>]*>"), "")
-        .replace("获取成功（备货）：", "获取成功：")
         .replace("获取成功（预合成）：", "获取成功：")
         .replace("获取成功（UTTS缓存）：", "获取成功：")
         .replace("获取成功（本地缓存）：", "获取成功：").replace("获取成功（缓存）：", "获取成功：")
@@ -3208,8 +3204,7 @@ private fun tailTextOfRow(e: LogEntry): String? {
  */
 internal fun isPreloadMessage(message: String): Boolean {
     val msg = message.replace(Regex("<[^>]*>"), "")
-    return msg.contains("获取成功（备货）") ||
-        msg.contains("获取成功（预合成）") ||
+    return msg.contains("获取成功（预合成）") ||
         msg.contains("获取成功（UTTS缓存）") ||
         msg.contains("获取成功（本地缓存）") ||
         msg.contains("获取成功（缓存）")
@@ -3245,10 +3240,10 @@ internal fun cardCopyText(g: LogGroups, item: LogGroups.Item.Group): String {
         (success.isPreload || isPreloadMessage(success.message))
     val headIsPreload = head.isPreload
     val status = when {
-        success != null -> if (successIsPreload) "备货" else "成功"
+        success != null -> if (successIsPreload) "预合成" else "成功"
         // 无成功子行但主行本身是备货（请求中/失败）→ 也标预合成
-        headIsPreload && (absorbed != null || item.head in g.failedHeads) -> "备货失败"
-        headIsPreload -> "备货"
+        headIsPreload && (absorbed != null || item.head in g.failedHeads) -> "预合成失败"
+        headIsPreload -> "预合成"
         absorbed != null || item.head in g.failedHeads -> "失败"
         item.pending -> "请求中"
         else -> ""

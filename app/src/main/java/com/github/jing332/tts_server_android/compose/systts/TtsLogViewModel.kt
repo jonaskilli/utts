@@ -633,7 +633,6 @@ class TtsLogViewModel : ViewModel() {
         // 「（UTTS缓存）」一并认——旧日志文件里的成功行也要能还原成子行
         //（否则「请求中」误挂复发）
         val isAcquiredSuffix = line.contains("获取成功：") ||
-            line.contains("获取成功（备货）：") ||
             line.contains("获取成功（预合成）：") ||
             line.contains("获取成功（UTTS缓存）：") ||
             line.contains("获取成功（本地缓存）：") || line.contains("获取成功（缓存）：") ||
