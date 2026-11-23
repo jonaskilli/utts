@@ -284,7 +284,8 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                         else -> list.filter { it.bookName == b && it.chapterTitle == c }
                     }
                 }
-            if (q.isNotEmpty()) base.filter { it.matchesQuery(q) } else base
+            val filtered = if (q.isNotEmpty()) base.filter { it.matchesQuery(q) } else base
+            partitionPlaybackFirst(filtered)
         }
     }
 
@@ -3433,4 +3434,76 @@ private fun PinnedSwitchKey(label: String, onClick: () -> Unit) {
             .clickable(onClick = onClick)
             .padding(horizontal = 8.dp, vertical = 1.dp),
     )
+}
+
+// ==================== 日志流分区：播放流 → 备货流（11-23 用户选 B）====================
+//
+// ## 为什么不再靠「排序」解决
+// 第一版正式包（11-20 UTTS 0719a119）顺序天然正确，不是因为排序写得好，而是因为
+// **当时只有一条链**：跨章预加载 11-20 21:43 才诞生，日志页里 `预热/preload/备货`
+// 零命中。播放逐段往后提交，到达顺序就是段序。
+//
+// 现在多了一条**并行**的备货链（同章滚动补货 + 跨章预加载），它故意跑在播放前面
+//（真机 11-23 18:24 场：播放走到第 19 段时，下一章已备到 82/93）。两个写方往同一个
+// 列表里塞，到达顺序不再等于段序 ⇒ 任何"按时间排"都会让段号跳。
+//
+// 11-21/11-22 试过两条补救，都不成立：
+//   · 按「书→章→段」正文序重排（0eb26471 / 8148a4a1）：新卡会插到列表上方，滚动时
+//     页面往下跳，正是用户「看着乱」的第二个来源；
+//   · 整卡拦掉备货卡（a760677c / 6a2c1552）：用户明确要「看得见备货」，且日志页
+//     不再是全部日志。
+//
+// ## 现行口径（用户 11-23 20:4x 拍板 B：分区，全部显示、一条不藏）
+// 列表拆成两段，**段内各自按时间升序**，段与段之间插一行分隔：
+//     [ 播放流（时间升序） ] → [ 分隔行 ] → [ 备货流（时间升序） ]
+// 三个性质同时成立：
+//   ① 全部显示——不筛、不折、不藏，两个段的条目相加 == 原列表；
+//   ② 段内有序——播放段号单调、备货段号单调，不再互相插花；
+//   ③ 不跳——新播放卡追加在播放段末尾、新备货卡追加在列表最末，
+//      两者都不在对方的可视区上方插入（播放流在前 ⇒ 跟着播放看时视野零位移）。
+//
+// ## 为什么不拆成两个独立滚动区
+// LogScreen 的滚动锚点/多选/复位浮钮/吸顶书章全绑在**单一 listState + 单一 items 下标**
+// 上（listItemFor、entryToList、playingMatch.listItem）。拆两块等于把 3700 行里那套
+// 下标映射整体复制一遍，风险远大于收益。
+//
+// ## 分隔行为什么用一条「裸行」而不是新增 Item 类型
+// 裸行（Item.Bare）渲染就是一行灰字，插一条合成 LogEntry 即可，零改动 LogGroups 与
+// 渲染层——这是本轮唯一不碰下标映射的插法。代价：它会被当成一条普通条目（可被多选、
+// 复制时带一行）。可接受，且它带 bookName/chapterTitle/reqId 全空，不参与书条/章节签/
+// 归组/吸顶/正在朗读匹配（这些判据都要求对应字段非空）。
+private val PRELOAD_SECTION_SEPARATOR: LogEntry = LogEntry(
+    level = LogLevel.INFO,
+    message = "────── 以上为播放流 · 以下为备货流（预合成，不进播放队列）──────",
+    // 显式钉死：不参与书条/章节签/归组/吸顶/正在朗读
+    time = "",
+    bookName = "",
+    chapterTitle = "",
+    reqId = "",
+    paraIndex = -1,
+    isPreload = false,
+)
+
+/**
+ * 把一条**已按时间升序**的日志列表拆成「播放流 + 分隔行 + 备货流」。
+ *
+ * 任一段为空时**原样返回**（不插分隔行）：只读一章且没开预加载时，列表与改前逐字相同，
+ * 老用户的行为零变化，也避免出现「分隔行下面是空的」。
+ *
+ * 分区是稳定划分（filter 保序），段内时间序不变。
+ */
+private fun partitionPlaybackFirst(list: List<LogEntry>): List<LogEntry> {
+    if (list.isEmpty()) return list
+    var hasPlay = false
+    var hasPreload = false
+    for (e in list) {
+        if (e.isPreload) hasPreload = true else hasPlay = true
+        if (hasPlay && hasPreload) break
+    }
+    if (!hasPlay || !hasPreload) return list
+    val out = ArrayList<LogEntry>(list.size + 1)
+    for (e in list) if (!e.isPreload) out.add(e)
+    out.add(PRELOAD_SECTION_SEPARATOR)
+    for (e in list) if (e.isPreload) out.add(e)
+    return out
 }
