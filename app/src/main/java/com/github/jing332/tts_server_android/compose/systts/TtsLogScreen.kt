@@ -193,10 +193,36 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
     // 20:0x 曾短暂用于吸顶「停底部=朗读章」，同日终裁撤回；保留快照来源——
     // 日志尾含预加载笔，会被备货探头带成下一章（20:08 实拍），快照才是
     // 「正在朗读」的可靠口径。停读时快照 null → 空串，提示条自然隐藏。
-    val readingBookChapter by remember {
+    // 11-23 22:0x（用户 18:35 截图实锤「黄条说正在朗读 A 书，实际在听 B 书」）：
+    // 快照的书名会跟「正在朗读的那一段」打架——同一份 readProgress.json 里
+    // book=旧书、chapterTitle/segIndex=新书。U阅 侧已改成书名与章名同源落盘
+    // （ReadProgressFile.report 收 bookName/chapterTitle 两个入参），这里再加一道
+    // **显示侧自洽校验**：拿快照的 (章名, 段号) 去日志里找那一段，日志的书名是
+    // 合成请求时随 MDC 落的标（与章名/段号同源，可信），对不上就以日志为准。
+    // 查不到（该段命中缓存、没有卡）就保持快照值——不比改前更差。
+    // 只扫末尾 400 条：日志可能上万条，段切换会频繁触发本 derivedStateOf。
+    val readingBookChapter by remember(vm) {
         derivedStateOf {
             val snap = com.github.jing332.tts_server_android.service.systts.help.ReadProgressReader.read()
-            (snap?.book.orEmpty()) to (snap?.chapterTitle.orEmpty())
+            if (snap == null) return@derivedStateOf "" to ""
+            var book = snap.book
+            val chapter = snap.chapterTitle
+            if (book.isNotBlank() && chapter.isNotBlank() && snap.segIndex >= 0) {
+                val logs = vm.logs
+                val from = (logs.size - 400).coerceAtLeast(0)
+                var i = logs.lastIndex
+                while (i >= from) {
+                    val e = logs[i]
+                    if (e.bookName.isNotBlank() && e.chapterTitle == chapter &&
+                        e.paraIndex == snap.segIndex
+                    ) {
+                        if (e.bookName != book) book = e.bookName
+                        break
+                    }
+                    i--
+                }
+            }
+            book to chapter
         }
     }
     val readingBook = readingBookChapter.first
