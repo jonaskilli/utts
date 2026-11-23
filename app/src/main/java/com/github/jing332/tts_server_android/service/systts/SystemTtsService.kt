@@ -1590,7 +1590,14 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                 val crossChapter = lastPlayChapter.isNotBlank() &&
                     req.chapterTitle.isNotBlank() &&
                     req.chapterTitle != lastPlayChapter
-                if (crossChapter) return
+                // ===== 11-23 19:5x（用户令，推翻 11-22 22:5x「跨章备货卡整卡不落页」）：=====
+                // 用户原话「希望书籍各段按顺序合成的日志都显示，关键是按正文顺序」。
+                // 当时拦它的唯一理由是「时间序插流把吸顶带跑」；日志页已改成按
+                // 书→章→段 排（LogScreen.build 11-23 19:5x），备下一章的卡会规矩地
+                // 落在下一章那一段下面，吸顶跟着可见卡片走，不会串位。
+                // 因此这里**不再整卡丢弃**；crossChapter 仍算出来，留给失败行归类用。
+                @Suppress("UNUSED_VARIABLE")
+                val crossChapterKept = crossChapter
             }
         }
 

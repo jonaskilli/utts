@@ -507,7 +507,48 @@ internal class LogGroups(
             // · `regroupByReqId` 保留：它把同一次请求的多行聚成一张卡，是本页核心版式，
             //   与排序无关；时间序下同 reqId 的行本就相邻，聚组命中率不降。
             // · 输入 `input` 由 TtsLogViewModel.filteredLogs 给出，已是 sortedBy { time }。
-            val sortedInput = input
+            // ===== 11-23 19:5x（用户令，推翻 11-22 11:0x「一律时间序」）：**按正文顺序** =====
+            //
+            // 用户原话：「希望书籍各段按顺序合成的日志都显示，关键是按正文顺序。
+            // 自己跳来跳去导致日志的变化那正常。」⇒ 排序键 = 书 → 章 → 段；
+            // 用户自己跳段/跳章造成的先后变化是事实，不做纠正。
+            //
+            // 11-21 那版正文序为什么炸、这次为什么不会（三条前提逐条换掉）：
+            //   ① 旧版章序来自 ChapterOrderFile（只有当前一本书）⇒ 旧书章全部塌成 MAX；
+            //      本次章序**从日志自身首见顺序推**（同书内该章第一次出现的位置），
+            //      不依赖外部文件，旧书/新书各自有序。
+            //   ② 旧版 rank 相同时只按段号排 ⇒ 两章段号都从 0 起、逐段交错；
+            //      本次段序按「书+章」分桶取 paraIndex，不同章的段号永不互相比较。
+            //   ③ 旧版拿书名字符串当首键 ⇒ 新书按码点大小跳到顶部；
+            //      本次书序取**首见顺序**（先读的书在前），新书自然落在后面。
+            // 缺段号的行（子行/无段号的规则日志）沿用同章最近一次出现的段号，
+            // 于是它们贴着自己的上下文，不会被甩到章首或章尾。
+            val sortedInput = run {
+                val n = input.size
+                if (n <= 1) return@run input
+                val bookSeq = HashMap<String, Int>()
+                val chapSeq = HashMap<String, Int>()
+                val segCarry = HashMap<String, Int>()
+                val keys = ArrayList<IntArray>(n)
+                for (i in 0 until n) {
+                    val e = input[i]
+                    val b = e.bookName.ifBlank { fallbackBook }
+                    val c = e.chapterTitle.ifBlank { fallbackChapter }
+                    val bk = bookSeq.getOrPut(b) { bookSeq.size }
+                    val ck = chapSeq.getOrPut("$b\u0000$c") { chapSeq.size }
+                    val sc = "$b\u0000$c"
+                    val seg = if (e.paraIndex >= 0) {
+                        segCarry[sc] = e.paraIndex
+                        e.paraIndex
+                    } else segCarry[sc] ?: Int.MAX_VALUE
+                    keys.add(intArrayOf(bk, ck, seg, i))
+                }
+                keys.sortWith(
+                    compareBy<IntArray> { it[0] }.thenBy { it[1] }.thenBy { it[2] }
+                        .thenBy { input[it[3]].time }.thenBy { it[3] }
+                )
+                keys.map { input[it[3]] }
+            }
 
             val list = regroupByReqId(sortedInput)
             val raw = ArrayList<Item>(list.size)
