@@ -2132,12 +2132,11 @@ internal fun LogScreen(
                             // onRemoveEntry 参数与 VM.removeEntry 已于 10-11 一并清干净。
                             bareContent()
                             // 条目间分隔线（10-10 用户令「分隔线需要加」）：行流撤卡后行间只剩
-                            // 空白，加发丝线恢复条目边界；日期签前不画（签自带灰底已是边界）。
-                            // 口径沿用顶栏分隔线 outlineVariant@50%。
+                            // 空白，加发丝线恢复条目边界。
+                            // 11-24（方案 A，用户拍板）：换书/换章处线升级，判据与取值统一收进
+                            // entryDivider（两处调用共用一份，别在渲染层各判一套）。
                             // 11-19：末项不画（见 itemsIndexed 处 isLastItem 注释）。
-                            if (!isLastItem) HorizontalDivider(
-                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                            )
+                            if (!isLastItem) entryDivider(currentGroups, index)
                         }
 
                         is LogGroups.Item.Group -> {
@@ -2660,10 +2659,9 @@ internal fun LogScreen(
                                 }
                             }
                             // 条目间分隔线（10-10 用户令）：与裸行分支同款，组与组之间画线
+                            // 11-24：升级为 entryDivider（换书/换章分级，判据见函数处注释）。
                             // 11-19：末项不画（见 itemsIndexed 处 isLastItem 注释）。
-                            if (!isLastItem) HorizontalDivider(
-                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                            )
+                            if (!isLastItem) entryDivider(currentGroups, index)
                         }
                     }
                 }
@@ -3745,6 +3743,46 @@ private fun ChapterBarRow(
                 )
             }
         }
+    }
+}
+
+/**
+ * 条目间分隔线（11-24 方案 A，用户拍板）：「每更换一次书或者章节分隔线就有所区分」。
+ *
+ * 判据：画在第 i 条后面时，看**第 i+1 条**所属的书章——分隔线的语义是「分开相邻两条」，
+ * 边界属于下一条的开头，不是上一条的结尾。书章取值复用吸顶跟随现成的
+ * bookChapterAt（build 逐项扫出的「每个列表项属于哪本书哪章」，含无书章项的继承），
+ * 不另建表。正文序排序下同章必连续，相邻对比天然可靠。
+ *
+ * 三档取值（粗细只有两档，靠颜色分层；普通行间维持 10-10 定稿的发丝线不动）：
+ *   · 换书 = 2dp 主题绿（primary）——全书唯一一条彩线，最高边界，一眼锁定换书处；
+ *   · 换章 = 2dp outlineVariant 实色——即 11-13 章节签定稿用过的那条「硬边界」灰，
+ *     比发丝线深一档（不去 50% 透明），用户当时认过这个视觉；
+ *   · 都没变 = 1dp outlineVariant@50%，原样。
+ *
+ * 边界情况：
+ *   · **两侧都须有书章才升级**：列表首项之前没有「上一本」，无从比较，走发丝线
+ *     （否则筛选/清空后列表顶的第一本书也会背上彩线）；同章内的无书章行（插件/规则
+ *     行经继承游标本就带书章，不受影响）。
+ *   · 换章要求上一项章名非空：章名为空（书确实无章）时不猜边界，宁缺勿滥。
+ *   · 末条后面不画（调用处 isLastItem 已挡），此函数不重复判。
+ */
+@Composable
+private fun entryDivider(groups: LogGroups, index: Int) {
+    val (pb, pc) = groups.bookChapterAt(index)
+    val next = index + 1
+    val (nb, nc) = if (next < groups.items.size) groups.bookChapterAt(next) else ("" to "")
+    when {
+        // 换书：上一项与下一项的书都非空且不同
+        pb.isNotBlank() && nb.isNotBlank() && pb != nb ->
+            HorizontalDivider(thickness = 2.dp, color = MaterialTheme.colorScheme.primary)
+        // 换章：同书、两侧章名都非空且不同
+        pb.isNotBlank() && pc.isNotBlank() && nb.isNotBlank() && nc.isNotBlank() && pc != nc ->
+            HorizontalDivider(thickness = 2.dp, color = MaterialTheme.colorScheme.outlineVariant)
+        // 普通行间：原发丝线（10-10 口径 outlineVariant@50%）
+        else -> HorizontalDivider(
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+        )
     }
 }
 
