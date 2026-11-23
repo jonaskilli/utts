@@ -935,7 +935,15 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                         vm.scopeBook.value = b
                         vm.scopeChapter.value = null
                     },
-                    onSwitchChapter = { b, c -> jumpToChapter(b, c) },
+                    // ===== 11-23 23:5x（用户：「如果我切书籍或者章节，那就是要查看那一章的日志」）=====
+                    // 章菜单从「只滚动跳转」改成「只看本章（书一并锁住）+ 回到该章首条」。
+                    // 为什么不再用 jumpToChapter 算下标：写 scope 的下一帧列表就缩成这一章了，
+                    // 拿旧列表算出的条目下标去滚会越界；过滤后整张列表=这一章，滚到 0 即章首。
+                    onSwitchChapter = { b, c ->
+                        vm.scopeBook.value = b
+                        vm.scopeChapter.value = c
+                        scope.launch { runCatching { listState.animateScrollToItem(0) } }
+                    },
                     knownBooks = vm.knownBooks,
                     chaptersOf = { b -> vm.chaptersOf(b) },
                     // 筛选条件（与"视野"分开）：null=不限
@@ -1856,7 +1864,7 @@ private fun PinnedLogHeader(
     onClearScope: () -> Unit = {},
     /**
      * 11-22 22:1x：只清**章**筛选、保留书筛选（章菜单里「全部章节」那一项）。
-     * 与 [onClearScope]（书+章一起清，书菜单「全部书籍」用）分开——
+     * 与 [onClearScope]（书+章一起清，胶囊右端「取消」用）分开——
      * 同一件事在两条菜单里语义不同，混用一个回调就会误删另一层的筛选。
      */
     onClearChapterScope: () -> Unit = {},
@@ -1988,6 +1996,13 @@ private fun PinnedLogHeader(
                 else -> viewChapter.ifBlank { chapter }
             }
             val chapLabel = shortChapterLabel(shownChapter).let { if (it.isBlank()) "" else " $it" }
+            // ===== 11-23 23:5x（用户实报「选了书籍，章节名区域就被挡了」）=====
+            // 根因：筛选态下章名框是「章名非空才画」，而选书时 scopeChapter 被清成 null
+            // ⇒ 章名空 ⇒ 框整块不画 ⇒ 再想「在这本书里挑一章」就没有入口了。
+            // 修法：筛选态下章名框**永远在**，未选章时以「全部章节」占位（点开仍能挑章，
+            // 菜单里「全部章节」自动打勾——判据是 items 无当前项，见 BookChapterPickerMenu）。
+            // 占位串参与宽度测量，免得框宽为 0 点不着。
+            val chapLabelShown = if (filtered && chapLabel.isBlank()) " 全部章节" else chapLabel
             // 11-14 用户第二次改口：章名后的「（1/25）」**挪到第二行的进度行**去
             //（「我想把章节名后的（1/25）换到第二行」）。
             // 理由很实在：书章行本来就挤（长书名 + 章名 + 两个下拉箭头），再挂一个
@@ -2029,8 +2044,8 @@ private fun PinnedLogHeader(
             val gapPx = with(density) { 2.dp.toPx() }
             val wBookText = if (shownBook.isBlank()) 0f
             else textMeasurer.measure(shownBook, chapTextStyle).size.width.toFloat()
-            val wChapText = if (chapLabel.isBlank()) 0f
-            else textMeasurer.measure(chapLabel.trim(), chapTextStyle).size.width.toFloat()
+            val wChapText = if (chapLabelShown.isBlank()) 0f
+            else textMeasurer.measure(chapLabelShown.trim(), chapTextStyle).size.width.toFloat()
             val bookNeeded = wBookText + bookChrome
             val chapNeeded = wChapText + chapChrome
 
@@ -2042,7 +2057,7 @@ private fun PinnedLogHeader(
             BoxWithConstraints(Modifier.weight(1f)) {
             val rowW = constraints.maxWidth.toFloat()
             // 两框能否同时完整放下（各自内容宽 + 2dp 间距）
-            val bothFit = chapLabel.isBlank() || (bookNeeded + chapNeeded + gapPx <= rowW)
+            val bothFit = chapLabelShown.isBlank() || (bookNeeded + chapNeeded + gapPx <= rowW)
             // 章名框上限（动态，不是写死 1/3）：
             //   · 放得下 → 不限，章名完整显示（剩余空白全归书名框，用户 11-14 选定）；
             //   · 放不下 → 取「行宽 − 间距 − 书名需要宽」与「行宽/3」中的**较大**者。
@@ -2050,7 +2065,7 @@ private fun PinnedLogHeader(
             //     只在书名很长、把章名挤到不足 1/3 时才生效。
             // 这样 1/3 不再是"天花板"，不会再出现「书名只要 65dp、章名却被切在 115dp」。
             val chapCapPx = when {
-                chapLabel.isBlank() -> 0f
+                chapLabelShown.isBlank() -> 0f
                 bothFit -> rowW
                 else -> maxOf(rowW - gapPx - bookNeeded, rowW / 3f)
             }
@@ -2071,9 +2086,11 @@ private fun PinnedLogHeader(
                         // 往往只有 1~2 本，菜单里没有「全部」这一项 ⇒ 看着像被一个窗卡住、
                         // 退不回不限书籍，把下面的章节框也挡住了。
                         //
-                        // ## 修法：**菜单里补「全部」项**（见 BookChapterPickerMenu 的
-                        // allItemLabel 注释）。书菜单那颗叫「全部书籍」、章菜单叫「全部章节」，
-                        // 置顶、当前项打勾；点了就退出这一层筛选。
+                        // ## 修法沿革：11-22 22:1x 曾在菜单里补「全部」项（书=「全部书籍」、
+                        // 章=「全部章节」）；11-23 23:5x 用户实报「全部书籍啥意思也没看懂」⇒
+                        // **书菜单那颗已删**，退出书筛选只走胶囊右端「取消」；
+                        // 章菜单保留「全部章节」（"这本书里不限哪一章"是有意义的状态），
+                        // 且未选章时章名框以「全部章节」占位（见 chapLabelShown）。
                         //
                         // ⚠️ 没做「返回键/Esc 退回全部」：Compose 的 key 事件只送给**有焦点**
                         // 的节点，给这条胶囊挂 onKeyEvent 收不到任何键，写了也是假功能
@@ -2171,22 +2188,22 @@ private fun PinnedLogHeader(
                                         bookMenu = false
                                         onClearBook(b)
                                     },
-                                    // 11-22 22:1x：补「全部书籍」出口（见 BookChapterPickerMenu 签名注释）
-                                    allItemLabel = "全部书籍",
-                                    onPickAll = {
-                                        bookMenu = false
-                                        onClearScope()
-                                    },
+                                    // ===== 11-23 23:5x（用户：「全部书籍啥意思也没看懂」）=====
+                                    // 删掉「全部书籍」这一项：它和胶囊右端的「取消」是同一件事，
+                                    // 名字又不像退出键，留着只会让人以为还有个"全部书籍"模式。
+                                    // 退出筛选只走「取消」一个出口（章菜单保留「全部章节」，
+                                    // 因为"这本书里不限定哪一章"是**一个有意义的状态**）。
                                 )
                             }
-                            if (chapLabel.isNotBlank()) {
+                            if (shownBook.isNotBlank()) {
+                                // 23:5x 起恒画：未选章时以「全部章节」占位（见 chapLabelShown 注释）
                                 // 章名下拉同理：锚点只贴触发框，菜单从它右缘展开
                                 // 章名宽度上限 1/3（与未筛选分支同口径，见那边注释）：
                                 // 两态切换时章名框不会忽然宽窄跳一格
                                 var chapTriggerW by remember { mutableStateOf(0.dp) }
                                 Box {
                                     PickerTrigger(
-                                        text = chapLabel.trim() + playingProgressSuffix,
+                                        text = chapLabelShown.trim() + playingProgressSuffix,
                                         onClick = { chapMenu = true },
                                         // 同上：筛选态与未筛选态同色
                                         textColor = MaterialTheme.colorScheme.onSurface,
@@ -2227,7 +2244,7 @@ private fun PinnedLogHeader(
                                         },
                                         // 11-22 22:1x：章菜单补「全部章节」出口
                                         // ⚠️ 只清章、**不碰书**：章的菜单出口是「本章不限」，
-                                        // 不是「全部日志」。清书是书菜单那颗「全部书籍」的事，
+                                        // 不是「全部日志」。清书走胶囊右端的「取消」（书菜单已无该项），
                                         // 两者混用会让用户点章菜单把书筛选也丢了。
                                         allItemLabel = "全部章节",
                                         onPickAll = {
@@ -2324,10 +2341,11 @@ private fun PinnedLogHeader(
                                     bookMenu2 = false
                                     onClearBook(b)
                                 },
-                                // 11-22 22:1x：没有筛选时这一项只是入口说明其存在，
-                                // 点了不产生任何变化（已经=全部），所以只关菜单。
-                                allItemLabel = "全部书籍",
-                                onPickAll = { bookMenu2 = false },
+                                    // ===== 11-23 23:5x（用户：「全部书籍啥意思也没看懂」）=====
+                                    // 删掉「全部书籍」这一项：它和胶囊右端的「取消」是同一件事，
+                                    // 名字又不像退出键，留着只会让人以为还有个"全部书籍"模式。
+                                    // 退出筛选只走「取消」一个出口（章菜单保留「全部章节」，
+                                    // 因为"这本书里不限定哪一章"是**一个有意义的状态**）。
                             )
                             }
                             if (chapLabel.isNotBlank()) {

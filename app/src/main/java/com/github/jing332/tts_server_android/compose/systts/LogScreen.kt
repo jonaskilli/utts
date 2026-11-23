@@ -728,7 +728,20 @@ internal class LogGroups(
                         } else if (e.reqId.isNotEmpty() && droppedReqIds.contains(e.reqId)) {
                             // 11-16：所属请求已被「取消不显示」整组丢弃，尾巴上的结果子行
                             // 不再落成孤立裸行（见 droppedReqIds 上方真机实锤）
-                        } else if (!isCancelRow) raw.add(Item.Bare(i))
+                        } else if (!isCancelRow) {
+                            // ===== 11-23 23:5x（用户实报「清空日志后重新朗读，出现很多
+                            // 只有『获取成功』的残留行，正文档好像被吞了」）=====
+                            // 孤儿结果行 = 结果行在、它的「请求音频」行不在列表里（清空时把
+                            // 在途请求的请求行清掉了、结果行随后才到；或回读时文件里只剩结果行）。
+                            // 旧实现一律落成 Bare 裸行 ⇒ 屏幕上一串无主的「获取成功：N KB」。
+                            // 现在：**成功类孤儿整行不显示**（脱离卡的 KB/耗时对用户没有信息量，
+                            // 而它的正文在别处也找不回来）；其余孤儿（重试行等）照旧落裸行，
+                            // 因为重试文案本身有信息、且下面 WARN 分支还要靠它挂失败卡。
+                            val plainOrphan = e.message.replace(Regex("<[^>]*>"), "")
+                            val isPlainSuccess = e.level == LogLevel.SUCCESS &&
+                                (plainOrphan.contains("获取成功") || plainOrphan.contains("获取失败"))
+                            if (!isPlainSuccess) raw.add(Item.Bare(i))
+                        }
                     }
                     // 规则日志一律落裸行（10-10 用户令：不进卡）。原「卡外悬置→下一张卡
                     // 做前置区」的机制整拆：搜索/筛选时收窄列表里经常没有跟得上的请求行，
