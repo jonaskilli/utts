@@ -55,6 +55,29 @@ object CharacterRecordsFile {
 
     private fun recordsFile(tagRuleId: String) = File(File(BASE_DIR, tagRuleId), "characterRecords.json")
 
+    /**
+     * 换声面板「点了等于没点」的静默出口留痕（11-23，用户实报「第一次点确定还是聆小珊，
+     * 后来几次都成功」——拿 18:36 场日志反推半天，只能确认 18:36:45 之前零写入，
+     * 到底卡在哪一条出口查不出来）。
+     *
+     * 面板上有几条路径只弹一句 Toast 就 return：没选中音色（只切了分类）、
+     * 所选正是当前绑定那条、rebind 返回 false（角色定位不到/规则文件缺失）、
+     * 换分类时该分类无可随机候选。它们不写盘，原先也**不进 debug.log**，
+     * 于是「第一次为什么没换成」在日志里完全无痕。统一从这个入口补一行：
+     * 原因 + 角色 + 当前标签 + 分类/候选数。
+     */
+    fun traceVoiceNoop(
+        reason: String,
+        character: String,
+        currentVoice: String,
+        extra: String = "",
+    ) {
+        fileLogger.info {
+            "换声未落库: $reason char=$character current=${currentVoice.ifBlank { "?" }}" +
+                (if (extra.isBlank()) "" else " $extra")
+        }
+    }
+
     // ==================== 写后校验（11-23 竞态兜底）====================
     //
     // ## 为什么光加锁不够

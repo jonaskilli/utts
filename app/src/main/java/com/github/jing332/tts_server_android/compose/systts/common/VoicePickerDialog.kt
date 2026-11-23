@@ -776,6 +776,14 @@ fun VoicePickerDialog(
                                 onClick = {
                                     val selected = pendingVoice
                                     if (selected == null) {
+                                        // 11-23：静默出口留痕。只切分类不点候选行，确认键
+                                        // 只弹一句提示就 return，不写盘——事后无从判定是它。
+                                        CharacterRecordsFile.traceVoiceNoop(
+                                            "未选中音色（只切了分类、没点候选行）",
+                                            bindingKey,
+                                            boundVoice,
+                                            "mode=${if (isBindingMode) "binding" else "apply"} tab=$panelTab",
+                                        )
                                         Toast.makeText(
                                             context,
                                             context.getString(R.string.voice_picker_need_pick),
@@ -784,6 +792,12 @@ fun VoicePickerDialog(
                                         return@TextButton
                                     }
                                     if (addMode && inputName.isBlank()) {
+                                        CharacterRecordsFile.traceVoiceNoop(
+                                            "新增/释放角色但名字为空",
+                                            inputName,
+                                            boundVoice,
+                                            "selected=$selected",
+                                        )
                                         Toast.makeText(
                                             context,
                                             context.getString(R.string.voice_picker_need_name),
@@ -795,6 +809,12 @@ fun VoicePickerDialog(
                                     // 落库会打空（更新不存在的行=静默无操作，却弹「已应用」）——拦住并说清。
                                     // 绑定/添加分支改写 characterRecords 里的角色记录，不依赖锚点，照常放行。
                                     if (anchorMissing && !isBindingMode && !addMode) {
+                                        CharacterRecordsFile.traceVoiceNoop(
+                                            "锚点配置项已删、无同标签配置（非绑定分支拒写）",
+                                            bindingKey,
+                                            boundVoice,
+                                            "selected=$selected",
+                                        )
                                         Toast.makeText(
                                             context,
                                             context.getString(R.string.voice_picker_anchor_deleted),
@@ -821,6 +841,15 @@ fun VoicePickerDialog(
                                                         effectiveRuleId, releaseOwnerName, n, selected,
                                                     ) else CharacterRecordsFile.addCharacter(
                                                         effectiveRuleId, n, selected,
+                                                    )
+                                                }
+                                                if (!ok) {
+                                                    CharacterRecordsFile.traceVoiceNoop(
+                                                        if (isRelease) "释放并固定失败（releaseAndFix=false）"
+                                                        else "新增角色失败（addCharacter=false，同名已存在？）",
+                                                        n,
+                                                        boundVoice,
+                                                        "selected=$selected",
                                                     )
                                                 }
                                                 if (ok) {
@@ -851,6 +880,12 @@ fun VoicePickerDialog(
                                         // 选的还是当前绑定的那条：原来静默 return（看着像点了没反应），
                                         // 改给一句 Toast 说明——角色卡第一行自带 ✓，很容易点到它
                                         if (selected == boundVoice) {
+                                            CharacterRecordsFile.traceVoiceNoop(
+                                                "所选即当前绑定（点到带 ✓ 的那条）",
+                                                bindingKey,
+                                                boundVoice,
+                                                "selected=$selected",
+                                            )
                                             pendingVoice = null
                                             Toast.makeText(
                                                 context,
@@ -871,6 +906,17 @@ fun VoicePickerDialog(
                                                 }
                                             }
                                             val ok = okCount > 0
+                                            if (!ok) {
+                                                // 11-23：rebind 全灭的静默出口——角色名在文件里
+                                                // 定位不到（改名/合并后过期）或规则目录/文件缺失。
+                                                // 以前只有一句 Toast，debug.log 里零痕迹。
+                                                CharacterRecordsFile.traceVoiceNoop(
+                                                    "rebind 返回 false（角色定位不到/规则文件缺失）",
+                                                    bindingKey,
+                                                    boundVoice,
+                                                    "selected=$selected targets=${targets.size} okCount=$okCount",
+                                                )
+                                            }
                                             if (ok) {
                                                 boundVoice = selected
                                                 onChanged?.invoke("applied", selected)
@@ -1107,6 +1153,11 @@ fun VoicePickerDialog(
             // 换分类触发时范围空属正常（该分类只有当前这一个），静默不打扰
             fun applyRandomPick(pick: String?, silentIfEmpty: Boolean) {
                 if (pick == null) {
+                    // 11-23：留痕（这里原先只有一句 Toast，且换分类触发时连 Toast 都没有）
+                    CharacterRecordsFile.traceVoiceNoop(
+                        "随机无候选", bindingKey, boundVoice,
+                        "搜索=「$tagSearch」 分类=${selectedCategory ?: "全部"}",
+                    )
                     if (!silentIfEmpty) Toast.makeText(
                         context, "当前范围没有可随机候选", Toast.LENGTH_SHORT
                     ).show()
@@ -1493,10 +1544,25 @@ fun VoicePickerDialog(
                                     // 静默不打扰；结果落暂存，顶部名字跟显，点「确认」才落库
                                     if (changed) {
                                         tagSearch = ""
-                                        applyRandomPick(
-                                            pickRandomIn(newCat, "", boundVoice),
-                                            silentIfEmpty = true,
-                                        )
+                                        // 11-23：换分类=范围内随机取一个落暂存。范围空（该分类只有
+                                        // 当前绑定这一个）原先静默跳过——用户分不清「本来就没得选」
+                                        // 和「点了没生效」，所以这里不再静默：留痕 + 一句提示。
+                                        val pick = pickRandomIn(newCat, "", boundVoice)
+                                        if (pick == null) {
+                                            CharacterRecordsFile.traceVoiceNoop(
+                                                "换分类后无可随机候选（暂存仍空，确认键不会落库）",
+                                                bindingKey,
+                                                boundVoice,
+                                                "cat=${newCat ?: "全部"} 该分类项数=${categoryCounts[newCat] ?: 0}",
+                                            )
+                                            Toast.makeText(
+                                                context,
+                                                "该分类没有其他可选发音人，请手动选一个",
+                                                Toast.LENGTH_SHORT,
+                                            ).show()
+                                        } else {
+                                            applyRandomPick(pick, silentIfEmpty = false)
+                                        }
                                     }
                                 },
                             )
