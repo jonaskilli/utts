@@ -507,7 +507,24 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
             )
             // 状态更新后重组出完整列表再滚：等一帧让 displayLogs 生效
             withFrameNanos { }
-            val target = freshGroups.listItemFor(idx)
+            // ===== 11-28（用户实报「搜索正文后点回原位回不到原位」）=====
+            //
+            // ## 根因：idx 与 entryToList 处在**两个不同的下标空间**
+            //   · idx = fullList.indexOfFirst{...}      ← fullList 是**原始顺序**
+            //   · entryToList 由 LogGroups.build 内部建立，而它先跑
+            //       `regroupByReqId(sortedInput)`（按 reqId 把同行聚拢 + 正文序重排
+            //       + 取消组整组丢弃）和 `sortedInput` 的「书→章→段」排序。
+            //     所以 map 是按**重排后**的 list 建的，下标与 fullList 完全不是一回事。
+            //
+            // 旧代码 `freshGroups.listItemFor(idx)` 把原始下标当重排后下标用：
+            // 只要日志里同时有多个 reqId（几乎必然），顺序就会错位，
+            // 于是滚到别的卡上——这正是用户看到「回不到原位」的机械原因。
+            // 11-18 那次只补了「滚两帧再校正」，locate 的是**错的 target**，
+            // 校正得再准也只是稳稳停在错误位置。
+            //
+            // ## 修法：用 LogGroups.itemForEntry 按条目身份反查（见该函数注释）
+            val target = freshGroups.itemForEntry(entry).takeIf { it >= 0 }
+                ?: freshGroups.listItemFor(idx)
             listState.animateScrollToItem(target)
             // 11-18 校正（用户实测「回原位只到附近，前后翻翻才找到」）：LazyColumn 对
             // 远距离目标的落点是**按估算偏移**滚的——日志行高差好几倍（一行正文 vs 一张卡），
@@ -531,11 +548,13 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
     // 用户嫌弹窗离触发点远且复杂，点章名 ▾ 的菜单选完直接滚，不再二次弹窗）。
     // 只滚动不改筛选（原弹窗口径保留）。
     fun jumpToChapter(book: String, chapter: String) {
-        val idx = displayLogs.indexOfFirst {
+        val entry = displayLogs.firstOrNull {
             it.bookName == book && it.chapterTitle == chapter
         }
-        if (idx >= 0) {
-            val item = logGroups.listItemFor(idx)
+        // 11-28：与 locateOriginal 同病同治——下标必须按**条目**反查，
+        // 不能拿 displayLogs 的下标直接查 logGroups（两者下标空间不同，见 itemForEntry 注释）
+        val item = entry?.let { logGroups.itemForEntry(it) } ?: -1
+        if (item >= 0) {
             scope.launch {
                 runCatching { listState.animateScrollToItem(item) }
             }
@@ -550,9 +569,11 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
         val q = searchQuery.trim()
         if (q.isNotEmpty()) {
             // 11-18：优先跳「正文命中」的最后一处；没有正文命中才退回全部命中
-            val idx = displayLogs.indexOfLast { it.matchesBody(q) }
-                .let { if (it >= 0) it else displayLogs.indexOfLast { it.matchesQuery(q) } }
-            if (idx >= 0) listState.animateScrollToItem(logGroups.listItemFor(idx))
+            // 11-28：下标必须按条目反查（见 itemForEntry 注释），不能直接查 logGroups
+            val entry = displayLogs.lastOrNull { it.matchesBody(q) }
+                ?: displayLogs.lastOrNull { it.matchesQuery(q) }
+            val item = entry?.let { logGroups.itemForEntry(it) } ?: -1
+            if (item >= 0) listState.animateScrollToItem(item)
         }
     }
 
@@ -1184,12 +1205,12 @@ internal fun TtsLogScreen(vm: TtsLogViewModel = viewModel()) {
                                     // 曾想过「点章=只看本章」（写 scopeChapter），但那会让列表立刻
                                     // 重排、刚滚到的位置当场错位；而且用户要的是「跳过去看」，
                                     // 不是「把它从全流里摘出来」。故只滚动。
-                                    val idx = displayLogs.indexOfFirst {
+                                    // 11-28：与 jumpToChapter/locateOriginal 同病同治（见 itemForEntry 注释）
+                                    val entry = displayLogs.firstOrNull {
                                         it.bookName == pickBook && it.chapterTitle == name
                                     }
-                                    if (idx >= 0) {
-                                        // 归组后条目下标 ≠ 列表项下标，必须经 logGroups 换算
-                                        val item = logGroups.listItemFor(idx)
+                                    val item = entry?.let { logGroups.itemForEntry(it) } ?: -1
+                                    if (item >= 0) {
                                         scope.launch {
                                             runCatching {
                                                 listState.animateScrollToItem(item)

@@ -359,6 +359,37 @@ internal class LogGroups(
         if (entryIndex in entryToList.indices && entryToList[entryIndex] >= 0) entryToList[entryIndex]
         else entryIndex
 
+    /**
+     * 11-28（用户实报「搜索正文后点回原位回不到原位」）：**按条目反查列表项下标**。
+     *
+     * ## 为什么必须用这个，不能再用 `listItemFor(原始下标)`
+     * `entryToList` 与 [items] 都是在 `LogGroups.build` **内部**按最终列表建立的，
+     * 而那个最终列表经过两道重排：
+     *   ① `sortedInput`：按「书→章→段」正文序排序；
+     *   ② `regroupByReqId`：把同一 reqId 的行聚拢（并整组丢弃取消的请求）。
+     * 调用方手里的下标（`displayLogs.indexOfFirst{...}`）属于**重排前**的空间，
+     * 拿它去查 `entryToList` 必然错位——日志里只要同时存在多个 reqId（几乎必然），
+     * 就会滚到别的卡上。
+     *
+     * ## 反查策略（逐级降级，尽量不落空）
+     *   1. 按 LogEntry 相等找同一条（最准）；
+     *   2. 找不到（该行被取消组丢弃等）⇒ 退回**同 reqId 的首条**，
+     *      落到那张卡上比完全不动更有用；
+     *   3. 再找不到 ⇒ -1，调用方自行决定提示。
+     */
+    fun itemForEntry(entry: LogEntry): Int {
+        entries.indexOfFirst { it == entry }
+            .takeIf { it >= 0 }
+            ?.let { return listItemFor(it) }
+        val rid = entry.reqId
+        if (rid.isNotEmpty()) {
+            entries.indexOfFirst { it.reqId == rid }
+                .takeIf { it >= 0 }
+                ?.let { return listItemFor(it) }
+        }
+        return -1
+    }
+
     fun entriesOf(item: Item): List<Int> = when (item) {
         is Item.Header -> emptyList()
         // 书条/章节签是纯装饰性分隔头，不带可复制条目（多选/复制不把它们算进去）
