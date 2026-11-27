@@ -530,6 +530,34 @@ internal class LogGroups(
                 val bookSeq = HashMap<String, Int>()
                 val chapSeq = HashMap<String, Int>()
                 val segCarry = HashMap<String, Int>()
+                // ===== 11-28（用户实报「朗读规则日志都堆在最末尾，这一点都不符合逻辑」）=====
+                //
+                // ## 现场
+                // 规则日志（speech_rule.log）里段号列**时有时无**：
+                //   19:44:59 第9章 段87   ✅ 带段号
+                //   19:27:59 第7章 （空）  ❌ 不带段号
+                // 不带段号的那些走进 `segCarry[sc] ?: Int.MAX_VALUE` ⇒ 取 MAX ⇒
+                // **被排到该章最末尾**。用户读到的就是「不知道哪来的失败日志全堆在后面」。
+                //
+                // ## 根因
+                // `segCarry` 是**正向扫描**的：只记住「已经出现过」的段号。
+                // 若某章开头的规则日志出现在该章第一个带段号的行**之前**（非常常见：
+                // 姓名分析、书章就绪都在段 0 之前产出），此时 carry 还是空 ⇒ 取 MAX。
+                //
+                // ## 修法：先预扫一遍，把每章**最早出现的段号**记下来当章首默认值
+                // 于是「章首的规则日志」落在 `firstSeg - 1`——紧跟章首、
+                // 在第一个真正带段号的行之前，而不是被甩到章尾。
+                // 完全不改正向扫描的语义：有 carry 时照旧用 carry（那是更精确的就近位置）。
+                val firstSegOfChapter = HashMap<String, Int>()
+                for (i in 0 until n) {
+                    val e = input[i]
+                    if (e.paraIndex < 0) continue
+                    val b = e.bookName.ifBlank { fallbackBook }
+                    val c = e.chapterTitle.ifBlank { fallbackChapter }
+                    val key = "$b\u0000$c"
+                    val cur = firstSegOfChapter[key]
+                    if (cur == null || e.paraIndex < cur) firstSegOfChapter[key] = e.paraIndex
+                }
                 val keys = ArrayList<IntArray>(n)
                 for (i in 0 until n) {
                     val e = input[i]
@@ -549,7 +577,13 @@ internal class LogGroups(
                         // 真机 22:28:32.874 就绪行只比首卡（22:28:32.891）早 17ms，却被排到章末。
                         // 判据用 SysttsLogger.isChapterReadyLine：与补书章那一处同源，别各判一套。
                         SysttsLogger.isChapterReadyLine(e.message) -> -1
-                        else -> segCarry[sc] ?: Int.MAX_VALUE
+                        // 11-28：没有段号时**不要甩到章尾**（用户实报「都堆在最末尾」）。
+                        // 优先沿用同章最近一次出现的段号（就近贴合上下文）；
+                        // 若此前尚未出现过带段号的行（章首的规则日志就是这种），
+                        // 落到「本章第一个段号 - 1」——紧跟章首之前，符合产出顺序。
+                        // 只有整章都没有任何段号行时才退到 0（而不是 MAX）。
+                        else -> segCarry[sc]
+                            ?: ((firstSegOfChapter[sc] ?: 0) - 1)
                     }
                     keys.add(intArrayOf(bk, ck, seg, i))
                 }
@@ -3003,6 +3037,23 @@ private fun pillOf(e: LogEntry, entryIndex: Int, failedHeads: Set<Int> = emptySe
             // 文案保持「预合成」（上一轮试过改叫「备货」，用户否了）；观感的问题靠**样式**解决：
             // 备货卡丸从 CACHE（蓝灰）改成 OK（与「成功」丸同色同底），页面上不再一片灰。
             // 判据一律不动（仍是 isPreload 字段 + 历史前缀）。
+            // ===== 11-28（用户实报「预合成失败这种黑字提示不合适，应该参考
+            // 失败-重试-成功那种卡」）：**失败行必须先判，不能被 isPreload 吞成绿丸** =====
+            //
+            // 旧顺序的错误：`e.isPreload -> OK("预合成")` 排在最前，于是
+            // 「预合成失败（第 N 段）：超时」这类 WARN 行**也拿到一颗绿色成功丸**，
+            // 只有正文黑字能看出失败。用户读到的观感是「一片绿里混着黑字」，
+            // 既不像失败卡，也不像成功卡。
+            //
+            // 新顺序：先认「这条本身就是失败」（ERROR 级 / 带失败前缀），
+            // 给它 FAIL 丸；再轮到 isPreload 的成功/请求行。
+            // 与组头丸（cardCopyText 里 headIsPreload && failedHeads -> "预合成失败"）
+            // 同口径：**失败优先于备货身份**，两处别各拍一个数。
+            e.level == LogLevel.ERROR || msg.startsWith("预合成失败") ->
+                LogPill(
+                    LogPillKind.FAIL,
+                    if (e.isPreload || msg.startsWith("预合成失败")) "预合成失败" else "失败"
+                )
             e.isPreload -> LogPill(LogPillKind.OK, "预合成")
             // 11-15 晚：命中合成缓存的成功行单独一颗「缓存」丸——用户要「别加行」，
             // 丸是唯一不占高度的区分位。前缀判据留作历史日志兜底。
