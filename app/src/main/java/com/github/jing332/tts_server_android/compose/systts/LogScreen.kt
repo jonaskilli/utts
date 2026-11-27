@@ -2229,52 +2229,43 @@ internal fun LogScreen(
                                     !it.message.replace(Regex("<[^>]*>"), "").startsWith(CANCEL_MARKER)
                             }
                             // 11-16（用户实报「命中了却只显示成功丸，没有预合成」）：
-                            // 组头丸的推导**抢在 pillOf 之前**——只要组里有 SUCCESS 子行
-                            // 就返回「成功」，pillOf 里「获取成功（预合成）→ 预合成丸」的
-                            // 判定根本轮不到。缓存命中卡同样有 SUCCESS 子行
-                            //（「获取成功（预合成）：」indent=1 是成员行），于是永远画「成功」。
-                            // 修法：successMember 命中后再分一路——子行是**预合成**（旧前缀
-                            // 「缓存/本地缓存/UTTS缓存」同样认）就画「预合成」丸；
-                            // 其余照旧「成功」。失败/吸收分支不动。
-                            // 11-23（用户问「不是要用 isPreload 吗」）：**改用事件自带的
-                            // isPreload 字段**，不再只认消息前缀。
+                            // ===== 11-28 定稿：组头丸只判「成功 / 失败」，不再区分预合成 =====
                             //
-                            // 为什么必须换：前缀 `获取成功（预合成）` 由 SystemTtsService 的
-                            // `cacheMark = if (e.request.fromCache) ...` 拼出，而 fromCache 的
-                            // **唯一赋值点**（AbstractMixSynthesizer 缓存命中分支的
-                            // `request.copy(fromCache = true)`）已在 1d5bf6ea「缓存命中不出卡」
-                            // 里被整段删除 ⇒ fromCache 恒 false ⇒ 该前缀 11-22 18:59 之后
-                            // 再没产生过，两个判据都成了死代码。
-                            // 而 isPreload 是**活的**：主行走 MDC、子行走 logS 入参，两条路
-                            // 都一路带到 LogEntry（SysttsFilter:76 / TtsLogViewModel:664），
-                            // 真实反映「这笔是后台备货」。
-                            // 前缀判据保留作历史兜底（旧日志/旧包落盘的行只有前缀）。
-                            fun isPreloadMember(m: com.github.jing332.common.LogEntry): Boolean =
-                                m.isPreload || isPreloadMessage(m.message)
-                            // remember 的 key 必须带上 isPreload：只 key 条目下标的话，
-                            // 回读/实时两条路径先后到达同一卡时会沿用旧结论。
-                            val headIsPreload = head.isPreload
-                            val successIsPreload = successMember?.isPreload == true
+                            // ## 为什么把「预合成」这条线整体撤掉
+                            // 曾经这里有一整套「子行是预合成就画预合成丸」的推导
+                            //（先靠消息前缀、11-23 改用 isPreload 字段）。撤掉的理由：
+                            //它要解决的是「同一张卡分不清是播放还是备货」，而这个信息
+                            //**已经不需要在卡上表达**了——
+                            //   · 让路（唯一高频来源）已改为不建卡（见 SystemTtsService）；
+                            //   · 预合成成功在用户看来就是「这段提前备好了」，
+                            //     与播放时命中缓存的观感一致，没有区分的必要；
+                            //   · 预合成有没有用，看吸顶「缓冲 N 段」是否在涨更直接。
+                            // 留着的代价则很实在：三处口径（组头丸/裸行丸/复制文本）要同步，
+                            // 历史上已经分叉过（「卡上写预合成、复制出去写成功」）。
+                            //
+                            // ⚠️ isPreloadMessage / isPreload 字段仍保留：历史日志
+                            //（旧包落盘的行没有 isPreload 字段）还要靠前缀识别，
+                            // 但**不再决定丸的颜色与文案**，只用于旧格式兼容判定。
                             val pill = remember(
                                 item.head, successMember, absorbed, currentGroups,
-                                headIsPreload, successIsPreload,
                             ) {
                                 when {
-                                    successMember != null && isPreloadMember(successMember) ->
-                                        LogPill(LogPillKind.OK, "预合成")
+                                    // ===== 11-28 定稿（用户「都照你推荐」）：不再区分预合成 =====
+                                    //
+                                    // 丸文案统一回「成功」/「失败」两态，与预合成标签撤除配套。
+                                    // 理由链（三笔提交的沿革，别再反复改）：
+                                    //   · 11-22 曾把备货卡放回日志页、加「预合成」丸；
+                                    //   · 11-28 早先纠偏「预合成失败应该黄字不是红字」→ 改 WARN；
+                                    //   · 11-28 定稿：让路率实测 **92%**，若让路也出卡，
+                                    //     4.5 分钟就是 11 张卡，全是正确行为 ⇒ 用户会以为坏了。
+                                    //   所以：让路**不建卡**（SystemTtsService 分支已撤 logS），
+                                    //   预合成成功并入「成功」、真失败并入「失败」。
+                                    //   预合成到底有没有用，看吸顶「缓冲 N 段」在不在涨。
                                     successMember != null -> LogPill(LogPillKind.OK, "成功")
                                     // 丸只报状态（10-12 用户令）：原来写「源错误」——那是**原因**，
                                     // 不该占丸位。现在一律「失败」，原因交给正文首行（服务端
                                     // 已改成「源错误：…」开头，见 SystemTtsService.errorEvent）
-                                    //
-                                    // 11-28（用户纠偏「预合成失败不应该红字吗？应该黄字吧」）：
-                                    // **预合成失败走 WARN 琥珀黄，不用红**——后台备货没成功
-                                    // 不等于你正听的那段挂了（日志原文写着「该段播放时会
-                                    // 现场合成，不影响朗读」）。红色只留给真影响播放的失败。
-                                    absorbed != null ->
-                                        if (headIsPreload || successIsPreload)
-                                            LogPill(LogPillKind.WARN, "预合成失败")
-                                        else LogPill(LogPillKind.FAIL, "失败")
+                                    absorbed != null -> LogPill(LogPillKind.FAIL, "失败")
                                     else -> pillOf(head, item.head, currentGroups.failedHeads)
                                 }
                             }
@@ -3075,39 +3066,27 @@ private fun pillOf(e: LogEntry, entryIndex: Int, failedHeads: Set<Int> = emptySe
     val msg = e.message.replace(Regex("<[^>]*>"), "")
     return when {
         e.configId != 0L -> when {
-            // 11-23：**先认 isPreload 字段**（理由见组头丸处的大段注释）——
-            // 前缀判据自 1d5bf6ea 起恒不命中，只有 isPreload 是活的。
-            // 这里判的是「这笔请求本身就是后台备货」，与成功与否无关：
-            // 预加载的成功行、请求行、失败行都该带「预合成」丸。
-            // ===== 11-24 00:3x（用户定稿）：「还是叫预合成吧，但把样式改得跟成功丸一样」=====
-            // 文案保持「预合成」（上一轮试过改叫「备货」，用户否了）；观感的问题靠**样式**解决：
-            // 备货卡丸从 CACHE（蓝灰）改成 OK（与「成功」丸同色同底），页面上不再一片灰。
-            // 判据一律不动（仍是 isPreload 字段 + 历史前缀）。
-            // ===== 11-28（用户实报「预合成失败这种黑字提示不合适，应该参考
-            // 失败-重试-成功那种卡」）＋同轮纠偏「不应该黄字吗」=====
+            // ===== 11-28 定稿（用户「都照你推荐」）：撤除「预合成」丸，只留成功/失败 =====
             //
-            // 旧顺序的错误：`e.isPreload -> OK("预合成")` 排在最前，于是
-            // 「预合成失败（第 N 段）：超时」这类 WARN 行**也拿到一颗绿色成功丸**，
-            // 只有正文黑字能看出失败。用户读到的观感是「一片绿里混着黑字」。
+            // ## 沿革（三笔提交，别再反复改）
+            //   11-22 备货卡放回日志页、加「预合成」丸（蓝灰→与成功同色）；
+            //   11-28 早先纠偏「预合成失败应黄字不应红字」→ WARN 琥珀黄；
+            //   11-28 定稿：让路率实测 **92%**（12 次提交 11 次让路），
+            //     若让路也出卡，4.5 分钟 11 张卡全是正确行为 ⇒ 用户以为坏了。
             //
-            // 颜色纠偏（用户第二轮）：**不能用红色 FAIL**——
-            // 后台备货失败不等于你正在听的那段失败，日志原文自己写着
-            // 「该段播放时会现场合成，不影响朗读」，红色会让人以为朗读挂了。
-            // 用 WARN 琥珀黄：有异常但已兜住。
-            //
-            // 与组头丸（cardCopyText 里 headIsPreload && failedHeads -> "预合成失败"）
-            // 同口径：**失败优先于备货身份**，两处别各拍一个数。
-            e.level == LogLevel.ERROR || msg.startsWith("预合成失败") ->
-                if (e.isPreload || msg.startsWith("预合成失败"))
-                    LogPill(LogPillKind.WARN, "预合成失败")
-                else LogPill(LogPillKind.FAIL, "失败")
-            e.isPreload -> LogPill(LogPillKind.OK, "预合成")
-            // 11-15 晚：命中合成缓存的成功行单独一颗「缓存」丸——用户要「别加行」，
-            // 丸是唯一不占高度的区分位。前缀判据留作历史日志兜底。
-            msg.contains("获取成功（预合成）") -> LogPill(LogPillKind.OK, "预合成")
-            // 历史前缀兼容（丸统一显示「预合成」）：「（缓存）」「（本地缓存）」「（UTTS缓存）」
-            msg.contains("获取成功（缓存）") || msg.contains("获取成功（本地缓存）") ||
-                msg.contains("获取成功（UTTS缓存）") -> LogPill(LogPillKind.OK, "预合成")
+            // ## 定稿口径
+            //   · 让路：**不建卡**（SystemTtsService 已撤 logS，只留 logcat 的 Log.d）；
+            //   · 预合成成功：并入「成功」（绿）；
+            //   · 真失败：并入「失败」（红）——不再有「预合成失败」这个中间态，
+            //     因为让路（唯一的高频黄卡来源）已经不出卡了，
+            //     剩下的失败都是真影响备货的（网络/插件错）。
+            //   · 预合成到底有没有用？看吸顶「缓冲 N 段」是否在涨，不靠日志页区分。
+            e.level == LogLevel.ERROR -> LogPill(LogPillKind.FAIL, "失败")
+            // 历史前缀兼容：旧包落盘的日志只有前缀、没有 isPreload 字段。
+            // 这些行**已经合成成功**（前缀就是「获取成功」），一律算成功。
+            msg.contains("获取成功（预合成）") ||
+                msg.contains("获取成功（缓存）") || msg.contains("获取成功（本地缓存）") ||
+                msg.contains("获取成功（UTTS缓存）") -> LogPill(LogPillKind.OK, "成功")
             e.level == LogLevel.SUCCESS -> LogPill(LogPillKind.OK, "成功")
             entryIndex in failedHeads -> LogPill(LogPillKind.FAIL, "失败")
             else -> null
@@ -3329,17 +3308,13 @@ internal fun cardCopyText(g: LogGroups, item: LogGroups.Item.Group): String {
             !it.message.replace(Regex("<[^>]*>"), "").startsWith(CANCEL_MARKER)
     }
     val absorbed = g.entries.getOrNull(item.absorbError)
-    // 11-23：与卡上丸同口径——isPreload 字段优先（活判据），前缀只作历史兜底。
+    // ===== 11-28 定稿：复制文本与卡上丸同口径，撤销「预合成」三态 =====
     // 三处（组头丸 / 裸行丸 / 复制文本）必须同源，否则会出现
-    // 「卡上写预合成、复制出去写成功」的口径分叉（这条铁律见 isPreloadMessage KDoc）。
-    val successIsPreload = success != null &&
-        (success.isPreload || isPreloadMessage(success.message))
-    val headIsPreload = head.isPreload
+    // 「卡上写成功、复制出去写预合成」的口径分叉（铁律见 isPreloadMessage KDoc）。
+    // 现在只有 成功 / 失败 / 请求中 三态：预合成不再是独立的可见状态
+    //（让路已不建卡，见 SystemTtsService 让路分支；预合成效果看吸顶缓冲段数）。
     val status = when {
-        success != null -> if (successIsPreload) "预合成" else "成功"
-        // 无成功子行但主行本身是备货（请求中/失败）→ 也标预合成
-        headIsPreload && (absorbed != null || item.head in g.failedHeads) -> "预合成失败"
-        headIsPreload -> "预合成"
+        success != null -> "成功"
         absorbed != null || item.head in g.failedHeads -> "失败"
         item.pending -> "请求中"
         else -> ""

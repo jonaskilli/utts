@@ -679,9 +679,9 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
             // 撞上在途备货笔的概率大增，播放开头等 2~3s 的抖动会频繁。跳过分支
             // 覆盖两类预加载请求：合成器正忙（在途播放或备货笔在跑）就立刻让位。
             //
-            // ⚠️ 11-28 修正：本分支旧文案写「回一段极短静音让调用方正常收尾」，
+            // ⚠️ 11-28 定稿：本分支旧文案写「回一段极短静音让调用方正常收尾」，
             // 现在**不再回静音**（静音会被客户端收编成正式缓存，详见下方注释）。
-            // 改为回 ERROR_SYNTHESIS，如实告知「本轮没合成」。
+            // 改为回 **ERROR_INVALID_REQUEST**，与「真失败」区分开。
             if (reqSnapshot.isPreload && mTtsManager?.isSynthesizing == true) {
                 // 11-21 20:1x（用户令「预热让路日志直接不要」）：整行撤除。
                 // 让路是高频正常行为（单链补货密度下每几分钟一打），对用户零信息——
@@ -717,17 +717,32 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                 // ⚠️ 绝不回静音文件：静音会被客户端收编成**正式缓存**，
                 // 该段以后每次播放都命中静音，重读/清缓存都救不回来
                 //（11-13 已实锤过同类事故：index=1/29 被写坏）。
-                runCatching {
-                    logS(
-                        "获取失败（预合成）：让路——合成器忙，本轮未合成，下轮重试",
-                        indent = 1,
-                        reqId = currentReqId,
-                        bookName = currentReqBook,
-                        chapterTitle = currentReqChapter,
-                        isPreload = true,
-                    )
-                }
-                callback.error(TextToSpeech.ERROR_SYNTHESIS)
+                // ===== 11-28 定稿（用户拍板）：让路**不建卡、不进日志页** =====
+                //
+                // ## 为什么要撤掉上一版那行 logS
+                // 上一版为「不谎报」而打了一行 logS「获取失败（预合成）：让路…」，
+                // 方向对但做过头了：真机让路率 **92%**（12 次预加载提交里 11 次撞上
+                // 合成器忙）——4.5 分钟就是 11 张黄卡，全是「你那一段正在播，所以
+                // 本轮备货让路了」这种**正确行为**。用户会以为坏了。
+                //
+                // ## 定稿口径（用户 11-28「都照你推荐」）
+                //   · 让路 = **正常调度**，不是失败 ⇒ 不出卡、不进日志页、不落盘；
+                //   · 只在 logcat 留一行（Log.d），排障时 adb 可见；
+                //   · 但**必须回 error 让客户端知道没合成**（否则又回到 44B 空壳谎报）。
+                //
+                // ## 为什么用 ERROR_INVALID_REQUEST 而不是 ERROR_SYNTHESIS
+                // 客户端要能区分两种结果，处置完全不同：
+                //   · 让路（本分支）⇒ 本轮跳过、**不计失败**、下一轮立刻重试同一段；
+                //   · 真失败（网络/插件错）⇒ 计失败次数、退避重试、连续 3 次才跳过。
+                // 若两者都用 ERROR_SYNTHESIS，92% 的让路率会让同一段迅速累积到
+                // 「连续失败 3 次」而被**永久跳过** ⇒ 真的漏段。
+                // 故让路专用一个「这不是合成失败、只是本轮没轮到」的码。
+                //
+                // ⚠️ 绝不回静音文件：静音会被客户端收编成**正式缓存**，
+                // 该段以后每次播放都命中静音，重读/清缓存都救不回来
+                //（11-13 已实锤过同类事故：index=1/29 被写坏）。
+                Log.d(TAG, "预热让路：合成器忙，本轮预合成跳过（不建卡、不计失败）")
+                callback.error(TextToSpeech.ERROR_INVALID_REQUEST)
                 callback.done()
                 return@runBlocking
             }
