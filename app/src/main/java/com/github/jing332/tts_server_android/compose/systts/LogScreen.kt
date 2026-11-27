@@ -2266,7 +2266,15 @@ internal fun LogScreen(
                                     // 丸只报状态（10-12 用户令）：原来写「源错误」——那是**原因**，
                                     // 不该占丸位。现在一律「失败」，原因交给正文首行（服务端
                                     // 已改成「源错误：…」开头，见 SystemTtsService.errorEvent）
-                                    absorbed != null -> LogPill(LogPillKind.FAIL, "失败")
+                                    //
+                                    // 11-28（用户纠偏「预合成失败不应该红字吗？应该黄字吧」）：
+                                    // **预合成失败走 WARN 琥珀黄，不用红**——后台备货没成功
+                                    // 不等于你正听的那段挂了（日志原文写着「该段播放时会
+                                    // 现场合成，不影响朗读」）。红色只留给真影响播放的失败。
+                                    absorbed != null ->
+                                        if (headIsPreload || successIsPreload)
+                                            LogPill(LogPillKind.WARN, "预合成失败")
+                                        else LogPill(LogPillKind.FAIL, "失败")
                                     else -> pillOf(head, item.head, currentGroups.failedHeads)
                                 }
                             }
@@ -2479,9 +2487,16 @@ internal fun LogScreen(
                                                 text = tailText,
                                                 style = MaterialTheme.typography.bodySmall,
                                                 fontSize = LOG_AUX_SIZE,
-                                                color = if (pillShown?.kind == LogPillKind.FAIL)
-                                                    Color(if (darkTheme) 0xFFE57373 else 0xFFF44336)
-                                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                // 11-28：预合成失败走 WARN ⇒ 尾串也用琥珀黄，
+                                                // 与丸同色（否则丸黄、原因灰，两截对不上）。
+                                                // 真失败仍是旧正宗红 #F44336（10-10 用户令）。
+                                                color = when (pillShown?.kind) {
+                                                    LogPillKind.FAIL ->
+                                                        Color(if (darkTheme) 0xFFE57373 else 0xFFF44336)
+                                                    LogPillKind.WARN ->
+                                                        Color(if (darkTheme) 0xFFD9A93F else 0xFF8A5B00)
+                                                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                                },
                                                 modifier = Modifier.padding(start = 8.dp)
                                             )
                                         }
@@ -3069,22 +3084,23 @@ private fun pillOf(e: LogEntry, entryIndex: Int, failedHeads: Set<Int> = emptySe
             // 备货卡丸从 CACHE（蓝灰）改成 OK（与「成功」丸同色同底），页面上不再一片灰。
             // 判据一律不动（仍是 isPreload 字段 + 历史前缀）。
             // ===== 11-28（用户实报「预合成失败这种黑字提示不合适，应该参考
-            // 失败-重试-成功那种卡」）：**失败行必须先判，不能被 isPreload 吞成绿丸** =====
+            // 失败-重试-成功那种卡」）＋同轮纠偏「不应该黄字吗」=====
             //
             // 旧顺序的错误：`e.isPreload -> OK("预合成")` 排在最前，于是
             // 「预合成失败（第 N 段）：超时」这类 WARN 行**也拿到一颗绿色成功丸**，
-            // 只有正文黑字能看出失败。用户读到的观感是「一片绿里混着黑字」，
-            // 既不像失败卡，也不像成功卡。
+            // 只有正文黑字能看出失败。用户读到的观感是「一片绿里混着黑字」。
             //
-            // 新顺序：先认「这条本身就是失败」（ERROR 级 / 带失败前缀），
-            // 给它 FAIL 丸；再轮到 isPreload 的成功/请求行。
+            // 颜色纠偏（用户第二轮）：**不能用红色 FAIL**——
+            // 后台备货失败不等于你正在听的那段失败，日志原文自己写着
+            // 「该段播放时会现场合成，不影响朗读」，红色会让人以为朗读挂了。
+            // 用 WARN 琥珀黄：有异常但已兜住。
+            //
             // 与组头丸（cardCopyText 里 headIsPreload && failedHeads -> "预合成失败"）
             // 同口径：**失败优先于备货身份**，两处别各拍一个数。
             e.level == LogLevel.ERROR || msg.startsWith("预合成失败") ->
-                LogPill(
-                    LogPillKind.FAIL,
-                    if (e.isPreload || msg.startsWith("预合成失败")) "预合成失败" else "失败"
-                )
+                if (e.isPreload || msg.startsWith("预合成失败"))
+                    LogPill(LogPillKind.WARN, "预合成失败")
+                else LogPill(LogPillKind.FAIL, "失败")
             e.isPreload -> LogPill(LogPillKind.OK, "预合成")
             // 11-15 晚：命中合成缓存的成功行单独一颗「缓存」丸——用户要「别加行」，
             // 丸是唯一不占高度的区分位。前缀判据留作历史日志兜底。
@@ -3351,7 +3367,7 @@ internal fun cardCopyText(g: LogGroups, item: LogGroups.Item.Group): String {
 // 11-15 新增 PENDING（「请求中」）：用户令「不想要被误标，你可以显示请求中，
 // 然后他的结果是取消或者是成功，或者是怎么样？」——即卡片**没有结果行**时
 // 就如实报「请求中」，绝不去猜它是不是被掐掉的；等成功/失败行到达自然换丸。
-internal enum class LogPillKind { OK, FAIL, RETRY, STANDBY, CANCELED, PENDING, PLAYING, CACHE }
+internal enum class LogPillKind { OK, FAIL, RETRY, STANDBY, CANCELED, PENDING, PLAYING, CACHE, WARN }
 internal data class LogPill(val kind: LogPillKind, val text: String)
 
 /**
@@ -3489,6 +3505,13 @@ private fun StatusPill(pill: LogPill) {
         // 缓存：中性青灰，比「成功」的主色淡一档——它不是「合成成功」，
         // 是「这轮没合成」，用绿色会被读成同样一件事
         LogPillKind.CACHE -> if (dark) Color(0xFF7FA6C8) else Color(0xFF47708A)
+        // ===== 11-28（用户纠偏「预合成失败不应该红字吗？应该黄字吧」）=====
+        //
+        // 后台备货失败 ≠ 你正听的那段失败。日志原文自己就写着
+        // 「该段播放时会现场合成，不影响朗读」——用红色 FAIL 会让人以为朗读挂了。
+        // 用琥珀黄：**有异常但已兜住**，与 STANDBY（切备用）同一语义层。
+        // 取值与 STANDBY 同色系但更深一档，避免两枚丸在同一页上分不出。
+        LogPillKind.WARN -> if (dark) Color(0xFFD9A93F) else Color(0xFF8A5B00)
     }
     val bg = when (pill.kind) {
         // 成功底随主色：页底混 8% 主色，自动带当前主题色相（原固定淡绿 #F2F8F4 在
@@ -3501,6 +3524,8 @@ private fun StatusPill(pill: LogPill) {
         LogPillKind.CANCELED -> if (dark) Color(0xFF2B2E33) else Color(0xFFF0F2F4)
         LogPillKind.PENDING -> if (dark) Color(0xFF2B2E33) else Color(0xFFF0F2F4)
         LogPillKind.CACHE -> if (dark) Color(0xFF232B33) else Color(0xFFEAF1F5)
+        // 与 STANDBY 同底（淡琥珀），配上一档更深的字
+        LogPillKind.WARN -> if (dark) Color(0xFF3A3226) else Color(0xFFFDF7E7)
     }
     // Box 居中（10-12 用户令「字一定要居中对齐」）：Text 直接挂 padding 时字形上下留白
     // 随字重/基线浮动，视觉偏上；Box(contentAlignment=Center) + 内衬给 Box 才几何居中。
