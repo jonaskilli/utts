@@ -3785,11 +3785,36 @@ private fun LogEntryBody(
         // 自身绿未动过），SUCCESS 正文行维持原口径=石板灰 metaColor——上版把正文也
         // 染成 INFO 正绿是理解偏了，回退
         entry.level == LogLevel.SUCCESS -> metaColor
+        // ===== 11-28 晚（用户实拍「预合成失败这个提示现在是黑色的，都不合适吧？」）=====
+        // **WARN/ERROR 的级别色必须优先于 isRequestHead**。
+        //
+        // ## 现象
+        // `预合成失败（第 N 段）：…` 落盘是 **WARN**，本该琥珀色 #FFC107，
+        // 实机却是黑字，级别信号完全丢失，跟普通正文混在一起。
+        //
+        // ## 根因
+        // 这类过程行带 configId，被 build 里的 `(e.configId != 0L) -> openCard(i)`
+        // 当成了「请求卡片头」⇒ 渲染走组头分支传 `isRequestHead = true` ⇒
+        // 命中下面那条 1008 排版口径 `isRequestHead -> onSurface`（黑），把级别色吃掉。
+        //
+        // ## 为什么在这里让级别色优先（而不是改归组判据）
+        // 试过的另一条路 `(configId != 0L && level == INFO) -> openCard` 有副作用：
+        // WARN 会落进 else 分支，而那里 `if (head >= 0) members.add(i)`——
+        // 卡片开着时它会被塞成**成员行**，版式从独立行变成卡内行，改动更大。
+        // 而「过程行带 configId」本身没法靠归组区分（超时/源错误/预合成失败都带）。
+        // ⇒ 病根只是上色顺序：**级别是含义固定的信号色（黄=警告、红=错误），
+        //    任何版式口径都不该覆盖它**。这正好符合 theme/LogColors.kt 顶部立的原则
+        //    「WARN/ERROR 是信号色，跟主题无关，一律不动」。
+        //
+        // 影响面：只改 WARN/ERROR 两种级别，**INFO 请求行完全不受影响**
+        // （它的正文仍走 isRequestHead → onSurface 黑，1008 排版口径照旧成立）。
+        (entry.level == LogLevel.WARN || entry.level == LogLevel.ERROR) ->
+            logLevelColor(entry.level)
         // 排版实验 1008（C）：请求主行正文回默认色（前缀已单独染色），其余行照旧级别色
         isRequestHead -> MaterialTheme.colorScheme.onSurface
         // 11-10 主题化（范围已收紧到只有 INFO）：旧版走 lib-common 的 toArgb()，
         // INFO 恒为 #4CAF50（白底 2.78:1）且换什么主题都是绿的——只把这一级改成主题主色。
-        // DEBUG/TRACE/WARN/ERROR/SUCCESS 保持各自原色，见 theme/LogColors.kt 顶部判据。
+        // DEBUG/TRACE/INFO/SUCCESS 保持各自原色，见 theme/LogColors.kt 顶部判据。
         else -> logLevelColor(entry.level)
     }
     val bodyStyle = MaterialTheme.typography.bodyMedium.copy(
