@@ -33,7 +33,8 @@ import com.github.jing332.common.utils.longToast
 import com.github.jing332.common.utils.registerGlobalReceiver
 import com.github.jing332.common.utils.runOnUI
 import com.github.jing332.common.utils.toParamText
-import com.github.jing332.common.utils.sizeToReadable
+// 11-28：撤「获取成功」行的大小显示后本文件不再用 sizeToReadable，import 一并删掉
+// （留着是 unused warning，CI 的 Kotlin 编译会当警告刷屏）
 import com.github.jing332.common.utils.startForegroundCompat
 import com.github.jing332.common.utils.toHtmlBold
 import com.github.jing332.common.LogEntry
@@ -750,6 +751,11 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
             // 现在干脆不赋值——预热只记 [preloadJob]，synthesizerJob 一律留给播放。
             val newJob = mScope.launch(exceptionHandler) {
                 var isAudioOutputted = false
+                // 11-28：本笔协程自己的 Job。写音频的存活判据必须看它，不能看
+                // synthesizerJob——预热笔刻意不占那个槽位（见 writeToCallBack 头注释）。
+                // 用 currentCoroutineContext() 而不是 newJob：lambda 内引用不到正在定义的变量。
+                // 写法与 TtsPluginEngineV2 第 80 行同源。
+                val selfJob = kotlinx.coroutines.currentCoroutineContext()[Job]
                 try {
                     // 确保引擎初始化完成后再合成，避免首次播放等待异步预热
                     awaitReady()
@@ -792,7 +798,9 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
 
                                 override fun onSynthesizeAvailable(audio: ByteArray) {
                                     isAudioOutputted = true
-                                    writeToCallBack(callback, audio)
+                                    // 11-28：传本笔自己的 Job。预热笔不占 synthesizerJob，
+                                    // 旧判据会在预热时恒假 ⇒ 一个字节都不写 ⇒ 44B 空壳。
+                                    writeToCallBack(callback, audio, selfJob)
                                 }
 
                             }
@@ -900,9 +908,35 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
     }
 
     // 【核心修改】对暗号 + 强制抛出异常
+    //
+    // ===== 11-28 二修（真机 05:09–13:16 场次实锤：预加载 1373 次拿到 44B 空壳）=====
+    //
+    // ## 现场
+    // 预热笔（preload_only）在 UTTS 侧**合成完全正常**（system_tts.log 同一 reqId
+    // 有「获取成功：287.9 KB · 1.5s」），可 U阅 收到的临时文件是 **44 字节裸 WAV 头**
+    // （只有文件头、零采样），于是判「空壳」失败。整场 1373 次，只备成 10 段。
+    // 表面看像「让路没合成」，实际全程只让路 1 次（-8）——**根本不是让路**。
+    //
+    // ## 根因：写音频的存活判据挂在播放专属的槽位上
+    // 旧代码 `while (offset < pcmData.size && synthesizerJob?.isActive == true)`。
+    // 而 11-16 起预热笔**刻意不写 synthesizerJob**（那个槽位只留给播放，否则预热会
+    // 让播放请求破不到窗）。于是预热笔进来时 `synthesizerJob` 为 null 或已结束
+    // ⇒ 循环一次都不进 ⇒ **一个采样字节都不写** ⇒ 只剩 WAV 头。
+    //
+    // 更巧的是预加载设计里「等播放落定再抢跑」（让路转为等待），恰好保证提交时
+    // 没有播放笔占着 synthesizerJob ⇒ 几乎 100% 中招。反向验证也成立：
+    // 整场备成的 10 段里 8 段都有播放笔在飞（槽位活着 ⇒ 判据放行）。
+    //
+    // ## 修法
+    // 判据不再看「哪个槽位有 Job」，而是看**本笔自己的 Job 还活着吗**——
+    // 调用方把 newJob 传进来（播放传 synthesizerJob、预热传 preloadJob，在协程内
+    // 直接引用 newJob 即可）。语义完全不变（被破窗/掐掉时立刻停写），
+    // 但不再把预热笔误判成「已死」。
+    // 传 null 时保留旧行为（回落到 synthesizerJob），兼容其它可能的调用方。
     private fun writeToCallBack(
         callback: android.speech.tts.SynthesisCallback,
         pcmData: ByteArray,
+        ownerJob: Job? = null,
     ) {
         try {
             if (pcmData.size < 512) { 
@@ -917,7 +951,10 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
 
             val maxBufferSize: Int = callback.maxBufferSize
             var offset = 0
-            while (offset < pcmData.size && synthesizerJob?.isActive == true) {
+            // 11-28：本笔自己的 Job（预热=preloadJob、播放=synthesizerJob）。
+            // 不能用 synthesizerJob 判预热的死活——预热刻意不占那个槽位（见方法头注释）。
+            val aliveJob = ownerJob ?: synthesizerJob
+            while (offset < pcmData.size && aliveJob?.isActive == true) {
                 val bytesToWrite = maxBufferSize.coerceAtMost(pcmData.size - offset)
                 val ret = callback.audioAvailable(pcmData, offset, bytesToWrite)
                 if (ret == TextToSpeech.ERROR) {
@@ -1839,13 +1876,37 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                     // 理由：预合成的大小是解码后 PCM，与现场合成的压缩流不可比，写了反而误读；
                     // 且「这段是提前做好的」已由行首「（预合成）」+「预合成」丸两处表达，
                     // 大小对判断「这段能不能直接播」没有信息量。现场合成行照旧「大小 · 耗时」。
+                    // ===== 11-28 九改（用户令「如果是 pcm 的话，音频大小不能显示，
+                    // 因为不准确，不是耗费的流量大小」）：**大小一律不显示，只留耗时** =====
+                    //
+                    // ## 为什么大小必须撤（不是"多余"，是**答错了问题**）
+                    // 用户看「287.9 KB」时想问的是「这段花了我多少流量/多少存储」。
+                    // 而 `e.size` 是**音频数据字节**（`getAudioStream` 里 `readBytes()`
+                    // 拿到的流长度，即插件交给解码器的那批数据），它：
+                    //   · 与压缩后的网络包不是同一口径（解码/重采样前后体积会变，
+                    //     PCM 尤其大；同一段与 mp3 差一个数量级）；
+                    //   · 与旁边的「1.5s」也不是同一维度——那个 1.5s 是**请求耗时**
+                    //     （发起→数据到手），不是音频时长。两个数并排写，
+                    //     用户会本能地算出"码率"，而那个码率是错的。
+                    // 数字本身没算错，但**它回答的不是用户的问题**，且一定会被误读。
+                    // ⇒ 撤掉，问题不再存在。
+                    //
+                    // ## 沿革（别再往回加）
+                    // 11-16 缓存行去掉大小耗时 → 六改恢复「大小 +（预）标识」→
+                    // 七改去掉「（预）」后缀 → 11-17 八改预合成行大小耗时全不显示 →
+                    // **11-28 九改：现场合成行的大小也撤**，只留耗时。
+                    // 反复了四轮，根子就是「音频字节 ≠ 流量」这件事没被接受。
+                    //
+                    // ## 耗时为什么留着
+                    // 耗时是**真实的墙钟时间**，不会被误读成流量，
+                    // 且是判断"这段是不是卡了"的唯一线索（>8s 要警觉）。
+                    // 0.0s（预合成命中）照旧不显示——见下方判据。
                     val detail = if (e.request.fromCache) {
                         ""
+                    } else if (e.costTime > 0L) {
+                        costText
                     } else {
-                        buildString {
-                            append(e.size.sizeToReadable())
-                            if (e.costTime > 0L) append(" · ").append(costText)
-                        }
+                        ""
                     }
                     // 11-16 终稿（用户定「预合成」）：前缀定为「（预合成）」。
                     // 沿革：「（缓存）」歧义（U阅 也有缓存）→「（本地缓存）」仍歧义
