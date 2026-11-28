@@ -857,10 +857,45 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                                 org.slf4j.MDC.put("reqId", currentReqId)
                             if (reqSnapshot.isPreload)
                                 org.slf4j.MDC.put("isPreload", "true")
-                            logE(
-                                "Synthesize Interrupted: ${e.javaClass.simpleName}: ${e.message}",
-                                e
-                            )
+                            // ===== 11-28 晚（用户问「这个是什么？」——`SynthesisCallback.audioAvailable ERROR`）=====
+                            //
+                            // ## 这条异常的真实含义：下游已经不要这段音频了
+                            // `writeToCallBack` 里 `callback.audioAvailable(...)` 返回 ERROR
+                            // ＝ Android TTS 框架拒收 —— 唯一成因是**调用方已放弃这笔请求**
+                            // （U阅 取消预热并 stop 掉回调）。不是我们的合成坏了。
+                            //
+                            // ## 真机实锤（2026-11-28 17:48:39.758 / 18:11:08.553）
+                            // 两笔都是**预热笔**，且都是「成功行在前、报错在后 8ms」：
+                            //   18:11:08.545 请求音频 r39ab9qyd3c6x（isPreload=true）
+                            //   18:11:08.545 获取成功（音频已写进缓存）
+                            //   18:11:08.553 ERROR audioAvailable        ← 只是收尾时又被打了一下
+                            // U阅 侧同刻有 `onError PRELOAD_xxx code=-3` —— 它主动取消了。
+                            // 所以这**连失败都不是**：音频早已备成（U阅 侧还能看到缓存命中）。
+                            //
+                            // ## 为什么单独降级这一种，而不是整段静音
+                            // 与之相邻的另一条 `StreamResetException: stream was reset: CANCEL`
+                            // （真机 18:29:01）**是真失败**：没合成出来、走了重试链，
+                            // 0.1 秒后就打「开始第 1 次重试」、3 秒后重试成功。
+                            // 那种必须留 WARN —— 用户要能看见「这段重试过」。
+                            // 两者靠**异常类型**区分最准（不看文案）：
+                            //   · CallbackClosedException ⇒ 收尾噪声（成功在前）⇒ 降 DEBUG
+                            //   · 其它异常（网络/插件/引擎）⇒ 真失败、会重试 ⇒ 保持 ERROR
+                            // 另外**播放笔一律不降级**：用户在听的那段真写不进去必须看见。
+                            val isCallbackClosedNoise =
+                                reqSnapshot.isPreload && e is CallbackClosedException
+                            if (isCallbackClosedNoise) {
+                                // 只进 logcat：落盘会变成一条无信息的红字，用户无从处理
+                                Log.d(
+                                    TAG,
+                                    "预热回调已关闭，停止写入（音频已成功，属收尾噪声）：" +
+                                        "seg=${reqSnapshot.paraIndex}"
+                                )
+                            } else {
+                                logE(
+                                    "Synthesize Interrupted: ${e.javaClass.simpleName}: ${e.message}",
+                                    e
+                                )
+                            }
                         }
                         // 清理面必须与 put 面完全对齐（MDC 是线程级，漏一个就跨请求串值）
                         org.slf4j.MDC.clear()
@@ -991,7 +1026,9 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                 val bytesToWrite = maxBufferSize.coerceAtMost(pcmData.size - offset)
                 val ret = callback.audioAvailable(pcmData, offset, bytesToWrite)
                 if (ret == TextToSpeech.ERROR) {
-                    throw RuntimeException("SynthesisCallback.audioAvailable ERROR")
+                    // 11-28：专用的异常类型，供上层按**类型**（而不是比对文案字符串）
+                    // 识别「回调已被调用方关闭」这一种情况——见 catch 里的分级判据。
+                    throw CallbackClosedException("SynthesisCallback.audioAvailable ERROR")
                 }
                 offset += bytesToWrite
             }
@@ -999,6 +1036,22 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
             throw e 
         }
     }
+
+    /**
+     * 11-28：调用方已关闭 TTS 回调后仍尝试写入时抛出。
+     *
+     * 成因只有一种：`callback.audioAvailable()` 返回 `TextToSpeech.ERROR`，
+     * 即 Android 框架拒收 —— 说明下游（U阅）已经放弃/取消这笔请求并 stop 掉回调。
+     *
+     * 真机实锤（2026-11-28 17:48:39.758 / 18:11:08.553）：两笔都是**预热笔**，
+     * 且都是「获取成功行在前、本异常在后 8ms」——音频早已写进缓存，
+     * 这只是收尾阶段回调被关掉后又被打了一下，**根本不算失败**。
+     *
+     * ⚠️ 与 `StreamResetException` 严格区分：那是**真失败**（没合成出来、
+     * 会走「开始第 N 次重试」链路），必须保留 ERROR 让用户看见。
+     * 故上层按本类型精确匹配降级，不能顺带把其它异常一起静音。
+     */
+    private class CallbackClosedException(message: String) : RuntimeException(message)
 
     private fun reNewWakeLock() {
         if (mWakeLock != null && mWakeLock?.isHeld == false) {
