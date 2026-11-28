@@ -167,6 +167,22 @@ private val LOG_RAW_TEXT_SIZE = 12.sp
 private val MetaColorSentinel = Color(0xFFFF00FF)       // 获取成功前缀 → 石板灰
 
 /**
+ * 11-28（用户实报「书章日志整块跑到最前」）：**无书章系统行**的排序哨兵。
+ *
+ * 系统行（initialize / service destroy / close / 兜底发音人）书与章都为空，
+ * 旧逻辑用 `ifBlank { fallbackBook/fallbackChapter }` 把它们塞回回落章
+ *（= 最后一条带书章的行），于是那个章凭空拿到章 rank 0、整块被顶到页首。
+ *
+ * 现在系统行不写真实 bookSeq/chapSeq，改用本哨兵：
+ *   · 取值必须**大于任何真实书 rank**（bookSeq 从 0 递增，本场含多本书也只有个位数）
+ *     ⇒ 整组沉到列表末尾，正文完整在前；
+ *   · 组内仍按 `time` 升序（比较器最后两档是 time 和输入下标）⇒ 会话事件保持时间顺序。
+ *
+ * 用 Int.MAX_VALUE/2 而不是 MAX_VALUE：后续若有人对 rank 做 +1 运算不会溢出。
+ */
+private const val SYSTEM_ROW_BOOK_RANK = Int.MAX_VALUE / 2
+
+/**
  * 11-13 取消标记（灰丸档，用户选定）：服务端在一次合成被跳段/停止打断时，
  * 往该请求行下发一条以此开头的子行。与失败明确区分——取消是用户主动操作，
  * 标灰不标红。用方头括号包裹避免与正文撞词。
@@ -592,8 +608,49 @@ internal class LogGroups(
                 val keys = ArrayList<IntArray>(n)
                 for (i in 0 until n) {
                     val e = input[i]
+                    // ===== 11-28（用户实报「书章日志整块跑到最前」）：系统行不参与章排名 =====
+                    //
+                    // ## 现场
+                    // 「全部日志」里 05:09 那条 `initialize or load configruation`（启动行）
+                    // 本身不带书章，却排在**最早**；下面 `ifBlank { fallbackBook }` 把它
+                    // 硬塞给回落章（= 全量日志最后一条带书章的行，本场是第29章）
+                    // ⇒ 第29章拿到章 rank 0 ⇒ 整块被顶到页面最前，之后才是第22章。
+                    // 无书章的 38 行（initialize/service destroy/close/兜底发音人）
+                    // 散在三处，把页面切成「第29章 → 第22章 → …」，看着像顺序全乱。
+                    //
+                    // ## 修法
+                    // 系统行**不写 bookSeq/chapSeq**，用哨兵 rank 单独成一组、
+                    // 内部再按时间排。哨兵取 [SYSTEM_ROW_BOOK_RANK]（大于任何真实书 rank）
+                    // ⇒ 整组沉到列表末尾，而不是跟着回落章跑去占据某个章的首位。
+                    //
+                    // 为什么沉底而不是置顶：这 38 行是会话级事件（启动/销毁/引擎重建/
+                    // 兜底发音人/close），对"读到哪、备了多少"零信息量。用户打开日志页
+                    // 第一眼要看的是正文，把它们堆在页顶等于把有效内容往下推一屏。
+                    // 沉底后仍可搜到、可勾选，功能不减。
+                    //
+                    // 为什么不追求"按时间散进各章之间"：本页排序是**章优先**的
+                    //（书→章→段，11-22 用户定稿「卡片按正文顺序出现」），
+                    // 系统行没有章，塞进任何章内部都会破坏那个结构；独立成组最不误导。
+                    // 判据：书与章**同时**为空，且**不是 console 日志**（插件/朗读规则）。
+                    //
+                    // 为什么排除 console：console 行的书章是靠 stampBookChapter 用
+                    // "当前上下文"现补的，冷启动最初几条还没有上下文 ⇒ 书章为空。
+                    // 它们不是会话级系统事件，而是「正文还没来时先到的规则分析」，
+                    // 必须留在原位（那里本就是页首），不能被沉到列表末尾。
+                    // 系统行只可能是主日志里那几种固定文案（initialize / destroy / close），
+                    // 它们都由主通道产生，isPluginLog/isSpeechRuleLog 均为 false。
+                    if (e.bookName.isBlank() && e.chapterTitle.isBlank() &&
+                        !e.isPluginLog && !e.isSpeechRuleLog
+                    ) {
+                        keys.add(intArrayOf(SYSTEM_ROW_BOOK_RANK, 0, 0, i))
+                        continue
+                    }
                     val b = e.bookName.ifBlank { fallbackBook }
                     val c = e.chapterTitle.ifBlank { fallbackChapter }
+                    // 补充：console 行书章为空时仍走回落（= 让它按当前章落位，
+                    // 旧行为不变）。它们数量极少（只在冷启动最初几秒），且本页
+                    // 记忆里"有正文才叫一章"，塞回落比沉底更贴近直觉。
+                    // 真正需要挪走的是系统行——它们对正文零信息量，见上面的分支。
                     val bk = bookSeq.getOrPut(b) { bookSeq.size }
                     val ck = chapSeq.getOrPut("$b\u0000$c") { chapSeq.size }
                     val sc = "$b\u0000$c"

@@ -19,6 +19,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.io.File
 import java.io.FileWriter
+import java.text.SimpleDateFormat
+import java.util.Locale
 
 class TtsLogViewModel : ViewModel() {
     companion object {
@@ -47,6 +49,15 @@ class TtsLogViewModel : ViewModel() {
 
         // 独立缓冲字符总量熔断线（message 字符数合计；超限按最旧裁，UTF-16 下约 0.6MB/缓冲）
         const val AUX_CHAR_BUDGET = 300_000L
+
+        /**
+         * 11-28：console 日志与主日志对齐时间窗时的**向前余量**。
+         *
+         * 同一秒内正文行与规则行谁先落盘不确定（规则跑在合成前，但落盘线程不同），
+         * 硬按毫秒切会把「正文在、它对应的规则行被切掉」这种边界切反。
+         * 2 秒足够覆盖落盘抖动，又不会把上一章的旧规则行放回来。
+         */
+        const val CONSOLE_WINDOW_SLACK_MS = 2_000L
 
         // 主流程日志监听器是否已全局注册（见 RouteSink 注释：防重复注册导致同一条日志多份）
         private val registered = java.util.concurrent.atomic.AtomicBoolean(false)
@@ -807,13 +818,33 @@ class TtsLogViewModel : ViewModel() {
 
     @Suppress("DEPRECATION")
     suspend fun pull() {
+        // ===== 11-28（用户实报「全部日志里朗读规则日志都挤在顶部」）：三份日志**同一时间窗** =====
+        //
+        // ## 现场
+        // 主日志 system_tts.log 846KB/2927 行、规则日志 speech_rule.log 42KB/230 行。
+        // 两条回读各用「尾 1500 行」：主日志被截到 06:42 起，而规则日志只有 230 行
+        // ⇒ **全量**装入，回到 05:13。于是规则日志凭空多出 1.5 小时的历史，
+        // 而第22/23/25 章的主日志正文早被截掉 ⇒ 那几章只剩规则行，
+        // 排序成「书→章→段」后就成了页顶三块纯规则堆叠（复现：首页 60 行里 60 条全是
+        // 第22/23 章的规则日志，正文要到第 181 行才出现）。
+        //
+        // ## 修法：先定主日志的窗口起点，规则/插件行早于它的**丢掉**
+        // 规则日志不是独立内容，它的意义是「解释当时的合成」——没有对应正文的规则行
+        // 留着只会误导。丢掉旧的那部分，剩下的自然贴着正文落位。
+        // 留 [CONSOLE_WINDOW_SLACK_MS] 的余量：同一秒内正文可能比规则行晚落盘几十毫秒，
+        // 硬切会把「正文在、规则行没了」的边界切反。
+        var windowStartMs = 0L
         runCatching {
             if (file.exists()) {
                 // 最多读取最近 1500 行，解析后按类型路由批量添加，避免逐条触发多次重组
                 // 11-19：先合并多行消息再逐条解析（堆栈/多行异常不再被拆成散条目）
-                val entries = mergeContinuationLines(readTailLines(file, 1500)).mapNotNull { line ->
+                val lines = mergeContinuationLines(readTailLines(file, 1500))
+                val entries = lines.mapNotNull { line ->
                     runCatching { toLogEntry(line) }.getOrNull()
                 }
+                // 窗口起点 = 主日志实际装入的最早一秒（按解析后的时间算，不看行文本，
+                // 多行续行/时间戳异常的行走不到这里就已经被 toLogEntry 判掉了）
+                windowStartMs = entries.firstOrNull()?.let { parseLogTimeMs(it.time) } ?: 0L
                 withMain {
                     entries.forEach { routeEntry(it) }
                 }
@@ -837,8 +868,27 @@ class TtsLogViewModel : ViewModel() {
         // 插件 / 朗读规则日志回读（11-10 用户令「希望能够保存下来」）：
         // 这两个文件由 SysttsLogger.persistConsole 追加，格式 time | LEVEL | message
         //（无 configId/roleName，也不带 § 书章段）。单独解析成本很低，不必并进上面的主解析。
-        consoleFile(isPlugin = true)?.let { pullConsoleFile(it, isPlugin = true) }
-        consoleFile(isPlugin = false)?.let { pullConsoleFile(it, isPlugin = false) }
+        consoleFile(isPlugin = true)?.let { pullConsoleFile(it, isPlugin = true, windowStartMs = windowStartMs) }
+        consoleFile(isPlugin = false)?.let { pullConsoleFile(it, isPlugin = false, windowStartMs = windowStartMs) }
+    }
+
+    /**
+     * 把「yyyy-MM-dd HH:mm:ss.SSS」解析成毫秒时间戳。
+     *
+     * 只为 [pull] 算「主日志窗口起点」用。**解析失败返回 0 = 不限窗口**（退回旧行为），
+     * 宁可多显示也不误删——这个函数只用来做「同窗对齐」这一层优化，不能成为丢数据的原因。
+     *
+     * 只认完整格式：主日志（SysttsFilter 的 dateFormatter）与 console 落盘
+     * （SysttsLogger 的 consoleTimeFmt）都是 `yyyy-MM-dd HH:mm:ss.SSS`，两处同源。
+     */
+    private fun parseLogTimeMs(time: String): Long {
+        val t = time.trim()
+        if (t.length < 19 || t[4] != '-') return 0L
+        return runCatching {
+            SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US)
+                .apply { isLenient = false }
+                .parse(t)?.time ?: 0L
+        }.getOrDefault(0L)
     }
 
     /**
@@ -887,12 +937,36 @@ class TtsLogViewModel : ViewModel() {
         File(file.parentFile, if (isPlugin) "plugin.log" else "speech_rule.log")
     }.getOrNull()
 
-    private suspend fun pullConsoleFile(f: File, isPlugin: Boolean) {
+    /**
+     * 回读 plugin.log / speech_rule.log。
+     *
+     * @param windowStartMs 主日志这次装入的最早时间（ms）。>0 时**丢掉早于它的行**，
+     *   与主日志共用同一时间窗——这是 11-28「朗读规则日志都挤在顶部」的修法。
+     *   0 = 主日志没读到/解析不出时间 ⇒ 不裁（退回旧行为，宁可多显示）。
+     */
+    private suspend fun pullConsoleFile(f: File, isPlugin: Boolean, windowStartMs: Long = 0L) {
         if (!f.exists()) return
         runCatching {
             // 11-19：先合并多行消息（规则打的 AI 原始 JSON 是多行，散开后会变成一堆残条目）
-            val entries = mergeContinuationLines(readTailLines(f, 1500)).mapNotNull { line ->
+            var entries = mergeContinuationLines(readTailLines(f, 1500)).mapNotNull { line ->
                 runCatching { toConsoleEntry(line, isPlugin) }.getOrNull()
+            }
+            // ===== 11-28（用户实报「朗读规则日志都挤在顶部」）=====
+            //
+            // 主日志被「尾 1500 行」截断（本场 846KB/2927 行 ⇒ 只回到 06:42），
+            // 而规则日志只有 230 行 ⇒ 全量装入、回到 05:13。规则日志于是比正文**多出
+            // 1.5 小时历史**，其中第22/23/25 章连一条正文都没有 ⇒ 排序后成了页顶
+            // 三块纯规则堆叠（复现：首页 60 行全是规则日志，正文到第 181 行才出现）。
+            //
+            // 这里丢掉「正文窗口之前的规则行」：规则日志的意义是解释当时的合成，
+            // 没有对应正文的规则行留着只会误导。剩下的自然贴着正文落位。
+            if (windowStartMs > 0L) {
+                val slack = CONSOLE_WINDOW_SLACK_MS
+                entries = entries.filter { e ->
+                    val ms = parseLogTimeMs(e.time)
+                    // ms==0（没时间戳，理论上不该有）一律保留：不因解析失败丢日志
+                    ms == 0L || ms >= windowStartMs - slack
+                }
             }
             withMain { entries.forEach { routeEntry(it) } }
         }.onFailure {
