@@ -842,9 +842,15 @@ class TtsLogViewModel : ViewModel() {
                 val entries = lines.mapNotNull { line ->
                     runCatching { toLogEntry(line) }.getOrNull()
                 }
-                // 窗口起点 = 主日志实际装入的最早一秒（按解析后的时间算，不看行文本，
-                // 多行续行/时间戳异常的行走不到这里就已经被 toLogEntry 判掉了）
-                windowStartMs = entries.firstOrNull()?.let { parseLogTimeMs(it.time) } ?: 0L
+                // 窗口起点 = 主日志这次装入的**最早**时间（不是首条时间）。
+                //
+                // 为什么取 min 而不是 firstOrNull：主日志由并发合成线程写，
+                // 严格说不能保证文件内时间单调（本场 1500 行实测 0 处乱序，
+                // 但并发度>1 时理论上可能出现）。若首条恰是一条时间略晚的行，
+                // 窗口起点就会偏晚 ⇒ 规则行被多切掉几条。取 min 成本可忽略，
+                // 且语义正确：窗口就是「这次装入了哪些时间范围的行」。
+                val times = entries.map { parseLogTimeMs(it.time) }.filter { it > 0L }
+                windowStartMs = times.minOrNull() ?: 0L
                 withMain {
                     entries.forEach { routeEntry(it) }
                 }
@@ -885,6 +891,9 @@ class TtsLogViewModel : ViewModel() {
         val t = time.trim()
         if (t.length < 19 || t[4] != '-') return 0L
         return runCatching {
+            // SimpleDateFormat 非线程安全 ⇒ 每次新建；但只在 pull() 的两个循环里用
+            // （主日志 ≤1500 + console ≤1500），且都是同一线程，开销可忽略。
+            // 不做 ThreadLocal 缓存：为这一点收益加一层间接不值得。
             SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US)
                 .apply { isLenient = false }
                 .parse(t)?.time ?: 0L
@@ -953,19 +962,32 @@ class TtsLogViewModel : ViewModel() {
             }
             // ===== 11-28（用户实报「朗读规则日志都挤在顶部」）=====
             //
-            // 主日志被「尾 1500 行」截断（本场 846KB/2927 行 ⇒ 只回到 06:42），
-            // 而规则日志只有 230 行 ⇒ 全量装入、回到 05:13。规则日志于是比正文**多出
+            // 主日志被「尾 1500 行」截断（本场 846KB/2927 行 ⇒ 只回到 06:43），
+            // 而规则日志只有 233 行 ⇒ 全量装入、回到 05:13。规则日志于是比正文**多出
             // 1.5 小时历史**，其中第22/23/25 章连一条正文都没有 ⇒ 排序后成了页顶
             // 三块纯规则堆叠（复现：首页 60 行全是规则日志，正文到第 181 行才出现）。
             //
             // 这里丢掉「正文窗口之前的规则行」：规则日志的意义是解释当时的合成，
             // 没有对应正文的规则行留着只会误导。剩下的自然贴着正文落位。
+            //
+            // ⚠️ 必须是**掐掉连续前缀**，不能 `filter` 掉所有旧行。
+            // `routeEntry` 有「屏幕上相邻且同指纹 ⇒ 合并成 ×N」的折叠逻辑（见该方法注释），
+            // 若从中间掏掉若干行，本来不相邻的两条同因行会**变成相邻**而被误合并成
+            // 「同样原因 ×N」——凭空造出一次不存在的重复。规则日志本就按时间追加，
+            // 旧行必然集中在文件头部，掐前缀即可，既不造假相邻也不会漏新行。
+            // （本场实测：233 条全量 / 80 条保留，相邻同指纹对数前后都是 0；
+            //   但这是数据侥幸，不构成可以偷懒的理由。）
+            var startIdx = 0
             if (windowStartMs > 0L) {
-                val slack = CONSOLE_WINDOW_SLACK_MS
-                entries = entries.filter { e ->
-                    val ms = parseLogTimeMs(e.time)
-                    // ms==0（没时间戳，理论上不该有）一律保留：不因解析失败丢日志
-                    ms == 0L || ms >= windowStartMs - slack
+                val cutoff = windowStartMs - CONSOLE_WINDOW_SLACK_MS
+                while (startIdx < entries.size) {
+                    val ms = parseLogTimeMs(entries[startIdx].time)
+                    // ms==0（没时间戳）视为无法判断 ⇒ 停在这里，剩下的全保留
+                    if (ms == 0L || ms >= cutoff) break
+                    startIdx++
+                }
+                if (startIdx > 0) {
+                    entries = entries.subList(startIdx, entries.size)
                 }
             }
             withMain { entries.forEach { routeEntry(it) } }

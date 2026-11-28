@@ -928,10 +928,10 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
     // 整场备成的 10 段里 8 段都有播放笔在飞（槽位活着 ⇒ 判据放行）。
     //
     // ## 修法
-    // 判据不再看「哪个槽位有 Job」，而是看**本笔自己的 Job 还活着吗**——
-    // 调用方把 newJob 传进来（播放传 synthesizerJob、预热传 preloadJob，在协程内
-    // 直接引用 newJob 即可）。语义完全不变（被破窗/掐掉时立刻停写），
-    // 但不再把预热笔误判成「已死」。
+    // 判据不再看「哪个槽位有 Job」，而是看**本笔自己的 Job 还活着吗**。
+    // 调用点在 launch 的协程体开头取 `currentCoroutineContext()[Job]` 得到 selfJob
+    // （不能直接写 newJob——val 定义到一半，lambda 内引用不到），随回调传给本方法。
+    // 语义完全不变（被破窗/掐掉时立刻停写），但不再把预热笔误判成「已死」。
     // 传 null 时保留旧行为（回落到 synthesizerJob），兼容其它可能的调用方。
     private fun writeToCallBack(
         callback: android.speech.tts.SynthesisCallback,
