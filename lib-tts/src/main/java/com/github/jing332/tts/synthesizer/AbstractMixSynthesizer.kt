@@ -57,6 +57,18 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
         const val PROCUDE_CAPACITY: Int = 128
 
         /**
+         * 11-29：引擎实例池的**下限**（用户令「只能靠并发解决」）。
+         *
+         * 为什么需要这个常量：`prefetchConcurrency` 默认 1，池大小直接取它的话
+         * 只有 1 个引擎实例 ⇒ 同插件只有一把 `TtsPluginEngineV2.mMutex` ⇒
+         * 预热两路并发会在插件锁上排成一条线，本次改造全部空转。
+         *
+         * 取 2：与 [preloadLane] 的 2 路、U阅 `preloadSlots` 的 2 槽三处对齐。
+         * 三处必须是同一个数——任一处更小，并发就在那里被掐回 1。
+         */
+        private const val DEFAULT_POOL_FLOOR: Int = 2
+
+        /**
          * 生成静音 PCM 音频数据（不含 WAV 头）
          *
          * 注意：TTS 回调已通过 onSynthesizeStart(sampleRate) 声明了音频格式，
@@ -150,6 +162,39 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
         batchSegments: List<BatchSegment>? = null,
         // 11-20：后台预加载（单段）。规则侧按「预热」对待——不加赛，省一次请求。
         isPreload: Boolean = false,
+    ): Result<List<TextSegment>, SynthesisError> = ruleGate.withLock {
+        // ===== 11-29：规则引擎独占门（并发安全的**唯一**前提）=====
+        //
+        // 为什么必须单独一把锁：TextProcessor 是**单实例共享**的
+        //（SystemTtsService 把同一个 mTextProcessor 交给 MixSynthesizer.global），
+        // 内部只有一个 Rhino 引擎（`private lateinit var engine: SpeechRuleEngine`）。
+        // 而规则 JS 带大量模块级内存态——书章去重、角色表、慢钥统计、分析缓存。
+        // 两个线程同时进 process() ⇒ 这些状态互相覆盖（角色表串、书章乱报、
+        // 最坏 Rhino 直接崩）。
+        //
+        // 以前这把"串行"是靠 synthesize() 的全局 mutex 顺带保证的。本版要把
+        // 预热和播放分成两条车道并发，全局锁不再覆盖预热 ⇒ 必须把规则段
+        // 单独锁住，否则并发立刻踩上面那排雷。
+        //
+        // 粒度选择：只锁「跑规则」这一小段，锁外才做网络合成。
+        // 规则分析是固定支出（AI 分析跟着平台模型速度，改不了），
+        // 而插件合成是真正的耗时大头——把两者拆开，才能让网络段真并行。
+        textProcessLocked(params, presetConfigId, paraIndex, paraTotal, batchSegments, isPreload)
+    }
+
+    /**
+     * [textProcess] 的实现体：**必须在 [ruleGate] 锁内调用**。
+     *
+     * 拆出来只为一件事：让"加锁"这个约束在签名上看得见（调用方想绕也绕不过去），
+     * 同时不打乱原函数的断点/日志行号。
+     */
+    private suspend fun textProcessLocked(
+        params: SystemParams,
+        presetConfigId: Long?,
+        paraIndex: Int,
+        paraTotal: Int,
+        batchSegments: List<BatchSegment>?,
+        isPreload: Boolean,
     ): Result<List<TextSegment>, SynthesisError> {
         val presetConfig: TtsConfiguration? = presetConfigId?.run { repo.getTts(this) }
         if (presetConfigId != null && presetConfig == null) {
@@ -1130,6 +1175,31 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
     }
 
     private val mutex = Mutex()
+
+    // ===== 11-29：预热/播放分车道 =====
+    //
+    // 用户口径（11-29）：「AI 分析都看平台模型的速度，改不了，算固定支出；
+    // 插件合成速度也改不了。只能靠并发解决。」
+    //
+    // 起因而非猜测：单段合成 2.8 秒、产能 21.4 段/分、消耗 20.1 段/分，
+    // 余量只有 6.5%。插件一慢（4 秒/段）产能掉到 15 段/分 ⇒ 播放必然要等。
+    // 唯一的解法就是让**几笔预热同时在飞**。
+    //
+    // 三层锁，各管一件事，别再合并：
+    //   · [mutex]     —— 播放车道。播放笔独占，破窗/让路/BP 语义全靠它，
+    //                     语义一个字都不许改（11-21「播放即掐」的定案）。
+    //   · [ruleGate]  —— 规则引擎。单 Rhino 引擎，**全域串行**，谁都别想并发。
+    //   · [preloadLane] —— 预热车道。只限预热笔之间的并发度；播放来了照旧让路。
+    //
+    // 为什么预热不能直接复用 mutex：`synthesize()` 一开头就 `mutex.withLock` 整段
+    // 持锁到合成结束，而预热笔自己也在锁里 ⇒ **下一笔预热必然看到 isSynthesizing=true**
+    // ⇒ 走「预热让路：合成器忙」直接回 ERROR_INVALID_REQUEST。真机让路率 92%
+    // （12 次提交 11 次让路）就是这条自锁链的产物，也是"产能只剩 6.5%"的直接原因。
+    // 换个角度说：以前那个"串行"，本质是预热在**自己堵自己**。
+    private val ruleGate = Mutex()
+
+    /** 预热车道并发度。2 = 两笔预热可同时在飞（播放仍为 1，且优先级最高）。 */
+    private val preloadLane = Semaphore(2)
     // ===== 11-24 00:5x（用户实报「跳段时有时候不能立马出声」）=====
     // 记「上一笔真正拿到合成锁的是谁」：synthesize() 整段持锁，播放请求若排在后面会干等
     //（真机 23:40:39 那笔等了 42s——前一笔卡在插件 30s 超时里）。以前日志里只有时间戳，
@@ -1172,6 +1242,26 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
     }
 
 
+    /**
+     * 「当前有没有合成在跑」。
+     *
+     * ===== 11-29：**语义已收窄为"播放车道"**，预热车道不算 =====
+     *
+     * 分车道后预热不占 [mutex]，所以这里**不能**再把预热算进来。原因是这个值
+     * 唯一的消费者是 SystemTtsService:686 的预热让路判据：
+     *
+     *     if (reqSnapshot.isPreload && mTtsManager?.isSynthesizing == true) → 让路
+     *
+     * 若把预热车道计入，则「第 1 笔预热在飞」⇒ isSynthesizing=true ⇒
+     * 「第 2 笔预热被自己的同伴拦掉」⇒ 并发度永远是 1，本次改造等于没做。
+     * 这正是改造前那个 92% 让路率、自锁成串行的同一个坑，只是换了个入口。
+     *
+     * 现在的口径很清楚：
+     *   · true  = 有**播放**笔在跑 ⇒ 预热该让路（播放永远优先，11-21 定案不变）；
+     *   · false = 没有播放 ⇒ 预热尽管并行（不超过 [preloadLane] 的并发度）。
+     *
+     * 播放笔自己从不看这个值（它走破窗 + [mutex]），所以收窄语义对播放零影响。
+     */
     override val isSynthesizing: Boolean
         get() = mutex.isLocked
 
@@ -1196,8 +1286,54 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
         bookName: String,
         chapterTitle: String,
     ): Result<Unit, SynthesisError> = run {
+        // ===== 11-29：分车道（详见 ruleGate / preloadLane 声明处）=====
+        //
+        // 播放笔（isPreload=false && batchSegments==null）：路径**逐字不变**，
+        //   照旧独占 mutex——破窗、让路、BGM、lastLockHolderDesc 全靠它，
+        //   11-21「播放即掐」的定案一个字符都不许动。
+        // 预热笔（isPreload 或批量）：走 [preloadLane]，最多 2 笔同时在飞，
+        //   不再占播放锁 ⇒ 播放永远不用等预热（这正是用户要的「插件慢也别等」）。
+        //
+        // 判据用 batchSegments != null || isPreload：与 SystemTtsService 里
+        // `isPreloadRequest = preloadBatch != null || preloadOnly` 完全同口径，
+        // 两处必须一致，否则会出现「UTTS 认为是播放、U阅 认为是预热」的错位。
+        val isPreloadLane = batchSegments != null || isPreload
+        if (isPreloadLane) {
+            preloadLane.withPermit {
+                synthesizeLane(
+                    isPreloadLane, params, forceConfigId, callback, paraIndex, paraTotal,
+                    batchSegments, emitHitLog, isPreload, bookName, chapterTitle
+                )
+            }
+        } else synthesizeLane(isPreloadLane, params, forceConfigId, callback, paraIndex, paraTotal, batchSegments, emitHitLog, isPreload, bookName, chapterTitle)
+    }
+
+    /**
+     * [synthesize] 的单车道实现体。
+     *
+     * @param isPreloadLane true=预热车道（不拿播放锁），false=播放车道（独占 [mutex]）
+     */
+    private suspend fun synthesizeLane(
+        isPreloadLane: Boolean,
+        params: SystemParams, forceConfigId: Long?, callback: SynthesisCallback,
+        paraIndex: Int, paraTotal: Int,
+        batchSegments: List<BatchSegment>?,
+        emitHitLog: Boolean, isPreload: Boolean,
+        bookName: String, chapterTitle: String,
+    ): Result<Unit, SynthesisError> {
         val lockWaitStartedAt = SystemClock.elapsedRealtime()
-        mutex.withLock {
+        // 预热车道**不碰播放锁**（见上方判据）：直接进执行体，与播放零排队。
+        // BGM 也完全跳过——预热不出声，`bgmPlayer.play()/stop()` 是给"正在念的
+        // 那一段"配的。预热若也去调，它一收尾就 `stop()` 把播放的 BGM 关掉
+        // （BgmPlayer 是单实例 ExoPlayer），并发下必然互相掐。
+        if (isPreloadLane) {
+            return synthesizeInner(
+                params, forceConfigId, callback, paraIndex, paraTotal, batchSegments,
+                emitHitLog, isPreload, bookName, chapterTitle,
+                withBgm = false,
+            )
+        }
+        return mutex.withLock {
             // ===== 11-24 00:5x（用户实报「跳段时有时候不能立马出声」）=====
             // 本函数整段持锁：播放请求若排在后面会干等（真机 23:40:39 那笔等了 42s——
             // 前一笔卡在插件 30s 超时里）。以前只有时间戳，看不出"等了多久、被谁挡的"。
@@ -1209,6 +1345,28 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
                 }
             }
             lastLockHolderDesc = "${if (isPreload) "预合成" else "播放"} text=${params.text.take(12)}"
+            synthesizeInner(
+                params, forceConfigId, callback, paraIndex, paraTotal, batchSegments,
+                emitHitLog, isPreload, bookName, chapterTitle,
+                withBgm = true,
+            )
+        }
+    }
+
+    /**
+     * 合成执行体（两条车道共用）。
+     *
+     * @param withBgm 只有**播放车道**才碰 BGM：预热不出声，且 BgmPlayer 是单实例，
+     *   预热并发时去 play/stop 会把正在播放那段的 BGM 掐掉。
+     */
+    private suspend fun synthesizeInner(
+        params: SystemParams, forceConfigId: Long?, callback: SynthesisCallback,
+        paraIndex: Int, paraTotal: Int,
+        batchSegments: List<BatchSegment>?,
+        emitHitLog: Boolean, isPreload: Boolean,
+        bookName: String, chapterTitle: String,
+        withBgm: Boolean,
+    ): Result<Unit, SynthesisError> {
             logger.atTrace {
                 message = "synthesize"
                 payload = mapOf(
@@ -1219,22 +1377,29 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
             }
 
         initError?.let {
-            return@withLock Err(it)
+            return Err(it)
         }
 
-        withMain { bgmPlayer.play() }
-        try {
+        if (withBgm) withMain { bgmPlayer.play() }
+        // ⚠️ evaluate 的返回**必须原样透出**：它就是合成结果（Err 时调用方要拿
+        // 错误码区分让路/真失败/超时）。改造前这里是 `run { ... }` 的最后表达式，
+        // 抽函数时若写成无条件 `return Ok(Unit)` 会把所有合成失败吞成成功——
+        // U阅 侧会据此把「没合成」记进「已备」账本（11-28 空壳故障同款）。
+        // 所以用 val 接住再 finally 收尾，最后原样 return。
+        val outcome = try {
             executeSynthesis(
                 params, callback, forceConfigId, paraIndex, paraTotal, batchSegments,
                 emitHitLog, isPreload, bookName, chapterTitle
             )
         } finally {
             logger.debug { "synthesize done" }
-            withContext(NonCancellable) {
-                withMain { bgmPlayer.stop() }
+            if (withBgm) {
+                withContext(NonCancellable) {
+                    withMain { bgmPlayer.stop() }
+                }
             }
         }
-        }
+        return outcome
     }
 
     override suspend fun init() = mutex.withLock {
@@ -1257,7 +1422,23 @@ abstract class AbstractMixSynthesizer() : Synthesizer {
 
         // 引擎实例池大小跟随预取并发数（2026-11-15，用户定稿：不新增设置项）。
         // 用 provider 而非取值：并发数原本就是 ValueProvider，用户改设置后无需重建合成器。
-        CachedEngineManager.poolSizeProvider = { context.cfg.prefetchConcurrency() }
+        //
+        // ===== 11-29：下限抬到预热车道数，否则前面所有并发改动都是空转 =====
+        //
+        // 用户令（原话）：「播放都是单线条的，只要攒的段落够就行」「只能靠并发解决」。
+        // 但这里有个致命的默认值：prefetchConcurrency **默认 1** ⇒ 池大小 1 ⇒
+        // 同插件只有**一个**引擎实例 ⇒ TtsPluginEngineV2.mMutex 那一把锁
+        // 把两路预热重新串成了一条线。前面的分车道、并发门全部白改——
+        // 表面上看"两笔同时在飞"，实际两笔抢同一把插件锁，产能一点没变。
+        //
+        // 所以池大小取 max(用户设置, 预热车道数)：
+        //   · 用户调大（如 4）→ 照用户的，池更大更快；
+        //   · 用户没调（默认 1）→ 抬到 2，与 preloadLane / U阅 preloadSlots 对齐。
+        // 只在 allowParallel=true 的插件上分池（CachedEngineManager 内部判），
+        // 未判定插件仍走单实例老路径，不会因为这条改动而串音。
+        CachedEngineManager.poolSizeProvider = {
+            maxOf(context.cfg.prefetchConcurrency(), DEFAULT_POOL_FLOOR)
+        }
 
         // 引擎预热：提前初始化所有引擎，避免首请求时同步初始化延迟
         mConfigs.values.map { it.source }.distinctBy { it.getKey() }.forEach { source ->
