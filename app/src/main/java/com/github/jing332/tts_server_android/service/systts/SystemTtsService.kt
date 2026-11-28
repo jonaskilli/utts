@@ -472,6 +472,20 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
      */
     private var preloadJob: Job? = null
 
+    /**
+     * ===== 11-29：**所有**在飞的预热 Job（用于播放优先全掐）=====
+     *
+     * [preloadJob] 是单变量句柄，只够记「最后一笔」预热。11-29 起预热可并发 2 笔，
+     * 单句柄必然漏掐——写 A 时覆盖 B、播放来时只 cancel 到最近那一个，
+     * 另一笔继续占着插件，播放仍要排队，「播放优先」这条 11-16 定案就被削弱了。
+     *
+     * 用并发集合：登记/摘除都在合成协程里，可能多线程同时操作。
+     * 摘除放 finally（见下方 `if (isPreloadRequest)` 分支），保证异常/取消也摘干净，
+     * 否则集合只涨不落，播放每次冒头都要 cancel 一堆已结束的 Job（无害但脏）。
+     */
+    private val preloadActiveJobs: MutableSet<Job> =
+        java.util.concurrent.ConcurrentHashMap.newKeySet()
+
     // 🛠️ 记住上一个 callback，解决系统队列死锁
     private var lastTtsCallback: android.speech.tts.SynthesisCallback? = null
 
@@ -578,9 +592,23 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
             // 中间 9.6 秒完全没声音。这不是「日志顺序乱」，是**播放被预热堵住了**。
             //
             // 而且预热 Job 刻意不占 synthesizerJob 槽位（见下方注释），
-            // 所以上面的 onStop() 破窗取消不到它 —— 必须在这里单独记一个句柄。
+            // 所以上面的 onStop() 破窗取消不到它 —— 必须在这里单独掐。
+            //
+            // ===== 11-29：预热可并发 N 笔，必须**全部**掐掉 =====
+            //
+            // 11-29 起预热走独立车道、最多 2 笔同时在飞（见 MixSynthesizer.preloadLane）。
+            // 旧写法只记一个 preloadJob 句柄、只 cancel 一次，于是：
+            //   预热笔A 在跑 → 记 preloadJob=A
+            //   预热笔B 在跑 → preloadJob 被覆盖成 B（A 的句柄丢了！）
+            //   用户点播放 → 只 cancel 到 B，**A 继续跑**
+            // ⇒ 播放仍要排在 A 后面，「播放优先」被削弱。
+            // 这正是 11-16 那条定案（真机 9.6 秒没声音）要防的事，不能因并发回退。
+            //
+            // 改为「登记所有在飞的预热 Job，播放来了全掐」。
             preloadJob?.cancel()
             preloadJob = null
+            preloadActiveJobs.forEach { job -> runCatching { job.cancel() } }
+            preloadActiveJobs.clear()
         } else {
             // 预热不打断播放，但仍要保证服务处于前台可运行状态
             reNewWakeLock()
@@ -940,11 +968,15 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
 
             // 11-16：两类请求各归各位——
             //   · 播放请求：照旧登记进 synthesizerJob，下一笔请求的破窗才取消得到它；
-            //   · 预热请求：只记 preloadJob，播放请求冒头时用它掐掉本批（播放优先）。
-            if (isPreloadRequest) preloadJob = newJob else synthesizerJob = newJob
+            //   · 预热请求：记 preloadJob（兼容单句柄语义）+ preloadActiveJobs（11-29 并发全掐）。
+            if (isPreloadRequest) {
+                preloadJob = newJob
+                preloadActiveJobs.add(newJob)
+            } else synthesizerJob = newJob
             newJob.join()
             // 批次自己收尾后清掉句柄，免得播放请求以后去 cancel 一个已结束的 Job
             // （cancel 已完成的 Job 无害，但留着旧引用会让「有没有在跑预热」判断失真）
+            if (isPreloadRequest) preloadActiveJobs.remove(newJob)
             if (isPreloadRequest && preloadJob === newJob) preloadJob = null
         }
 
