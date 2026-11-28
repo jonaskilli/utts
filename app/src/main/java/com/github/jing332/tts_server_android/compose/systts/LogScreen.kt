@@ -167,17 +167,23 @@ private val LOG_RAW_TEXT_SIZE = 12.sp
 private val MetaColorSentinel = Color(0xFFFF00FF)       // 获取成功前缀 → 石板灰
 
 /**
- * 11-28（用户实报「书章日志整块跑到最前」）：**无书章系统行**的排序哨兵。
+ * 「连时间上下文都推不出书章」的行（整份日志一条带书章的行都没有）的排序哨兵。
  *
- * 系统行（initialize / service destroy / close / 兜底发音人）书与章都为空，
- * 旧逻辑用 `ifBlank { fallbackBook/fallbackChapter }` 把它们塞回回落章
- *（= 最后一条带书章的行），于是那个章凭空拿到章 rank 0、整块被顶到页首。
+ * ## 沿革（三段，别再翻回去）
+ * ① 11-28 上午：书章皆空的行用 `ifBlank { fallbackBook/fallbackChapter }` 塞回**全局回落章**
+ *   （= 全量日志里最后一条带书章的行）⇒ 那个章凭空拿到章 rank 0、整块被顶到页首
+ *   （用户实报「书章日志整块跑到最前」）。
+ * ② 11-28 下午：改成「书章皆空一律沉底」。修掉了顶到页首，但**判据放得太宽**——
+ *   它把「正文性质、只是落盘时丢了上下文」的行也一起沉了。真机 11-28 晚上实锤三条：
+ *   `17:48:39.758 Synthesize Interrupted`（紧跟第34章段17的成功行 8ms）、
+ *   `18:11:08.553 Synthesize Interrupted`（紧跟第35章段19的成功行 8ms）、
+ *   `18:21:01.624 使用兜底发音人`（夹在第35章段103 的预合成失败与请求行之间）。
+ *   这三条本来就在正文中间，被压到页面最底部，用户实报「又是没放对位置的日志」。
+ * ③ 现在：**先按时间就近继承书章**（见 build 里 `inheritBook/inheritChapter`），
+ *   只有整份日志都推不出书章时才落到本哨兵。哨兵的含义因此收窄成「真的无处可归」。
  *
- * 现在系统行不写真实 bookSeq/chapSeq，改用本哨兵：
- *   · 取值必须**大于任何真实书 rank**（bookSeq 从 0 递增，本场含多本书也只有个位数）
- *     ⇒ 整组沉到列表末尾，正文完整在前；
- *   · 组内仍按 `time` 升序（比较器最后两档是 time 和输入下标）⇒ 会话事件保持时间顺序。
- *
+ * 取值必须**大于任何真实书 rank**（bookSeq 从 0 递增，多本书也只有个位数）
+ * ⇒ 这类行沉到列表末尾，不占正文位置；组内仍按 `time` 升序。
  * 用 Int.MAX_VALUE/2 而不是 MAX_VALUE：后续若有人对 rank 做 +1 运算不会溢出。
  */
 private const val SYSTEM_ROW_BOOK_RANK = Int.MAX_VALUE / 2
@@ -595,12 +601,75 @@ internal class LogGroups(
                 // 于是「章首的规则日志」落在 `firstSeg - 1`——紧跟章首、
                 // 在第一个真正带段号的行之前，而不是被甩到章尾。
                 // 完全不改正向扫描的语义：有 carry 时照旧用 carry（那是更精确的就近位置）。
+                // ===== 11-28 晚（用户实报「又是没放对位置的日志」）：无书章行按时间**就近继承** =====
+                //
+                // ⚠️ **主修点不在这里**：继承已在 `TtsLogViewModel.filteredLogs` 里做完
+                // （`inheritMissingBookChapter`）。那两个 build 入口（displayLogs / fullList）
+                // 都取自 filteredLogs，所以进到这里的行**基本都已带书章**。
+                //
+                // 这里保留一份同样的继承只为**防御**：build 是纯函数、有单测与「就地重建」
+                // 调用点（locateOriginal 用 fullList），若哪天有人绕过 filteredLogs 直接喂
+                // 原始列表（例如测试、或新入口），没有这一步就会退回「无章行乱排/沉底」。
+                // 两处口径必须一致：都是「前一条优先，头部行用后一条」。
+                //
+                // ## 为什么当初无章行会错位（历史，别照旧版改回去）
+                // 反例三条（真机 system_tts.log，均无书章、本该在正文中间）：
+                //   17:48:39.758 `Synthesize Interrupted` 紧跟第34章段17 的成功行 8ms；
+                //   18:11:08.553 `Synthesize Interrupted` 紧跟第35章段19 的成功行 8ms；
+                //   18:21:01.624 `使用兜底发音人` 夹在第35章段103 的预合成失败与请求行之间。
+                // 上一版把「书+章同时为空」一律当系统行**沉底** ⇒ 这三条被压到页面最底，
+                // 用户看到的就是「日志没放对位置」。再上一版则塞进**全局回落章** ⇒
+                // 页首的启动行让那一章顶到页首（用户报「书章日志整块跑到最前」）。
+                // 沉底与全局回落都是拿**全局**答案填**局部**空缺，必然有一头错。
+                //
+                // ⚠️ 必须排在下面预扫**之前**：预扫也用继承后的书章建桶，
+                // 否则无书章但带段号的行会落进空桶，把该章「最早段号」算歪。
+                val inheritBook = arrayOfNulls<String>(n)
+                val inheritChapter = arrayOfNulls<String>(n)
+                run {
+                    // 前向扫描：记住最近一条带书章的行
+                    var lBook = ""
+                    var lChapter = ""
+                    for (i in 0 until n) {
+                        val e = input[i]
+                        if (e.bookName.isNotBlank()) {
+                            lBook = e.bookName
+                            lChapter = e.chapterTitle
+                        }
+                        inheritBook[i] = lBook
+                        inheritChapter[i] = lChapter
+                    }
+                    // 反向补空：前面一条带书章的都没有时，用后面最近的
+                    var rBook = ""
+                    var rChapter = ""
+                    for (i in n - 1 downTo 0) {
+                        val e = input[i]
+                        if (e.bookName.isNotBlank()) {
+                            rBook = e.bookName
+                            rChapter = e.chapterTitle
+                        }
+                        if (inheritBook[i].isNullOrBlank()) {
+                            inheritBook[i] = rBook
+                            inheritChapter[i] = rChapter
+                        }
+                    }
+                }
+                // 「这一行算哪本书哪一章」的唯一口径：自带优先，缺失则用继承值。
+                // 计段桶/排序键两处都用它，避免两处各写一套（上一版就是这么写歪的）。
+                fun bookOf(i: Int): String =
+                    input[i].bookName.ifBlank { inheritBook[i].orEmpty() }
+
+                fun chapterOf(i: Int): String =
+                    input[i].chapterTitle.ifBlank { inheritChapter[i].orEmpty() }
+
                 val firstSegOfChapter = HashMap<String, Int>()
                 for (i in 0 until n) {
                     val e = input[i]
                     if (e.paraIndex < 0) continue
-                    val b = e.bookName.ifBlank { fallbackBook }
-                    val c = e.chapterTitle.ifBlank { fallbackChapter }
+                    val b = bookOf(i)
+                    val c = chapterOf(i)
+                    // 书章都推不出（整份日志没有带书章的行）⇒ 不参与章首段号统计
+                    if (b.isBlank() && c.isBlank()) continue
                     val key = "$b\u0000$c"
                     val cur = firstSegOfChapter[key]
                     if (cur == null || e.paraIndex < cur) firstSegOfChapter[key] = e.paraIndex
@@ -608,49 +677,14 @@ internal class LogGroups(
                 val keys = ArrayList<IntArray>(n)
                 for (i in 0 until n) {
                     val e = input[i]
-                    // ===== 11-28（用户实报「书章日志整块跑到最前」）：系统行不参与章排名 =====
-                    //
-                    // ## 现场
-                    // 「全部日志」里 05:09 那条 `initialize or load configruation`（启动行）
-                    // 本身不带书章，却排在**最早**；下面 `ifBlank { fallbackBook }` 把它
-                    // 硬塞给回落章（= 全量日志最后一条带书章的行，本场是第29章）
-                    // ⇒ 第29章拿到章 rank 0 ⇒ 整块被顶到页面最前，之后才是第22章。
-                    // 无书章的 38 行（initialize/service destroy/close/兜底发音人）
-                    // 散在三处，把页面切成「第29章 → 第22章 → …」，看着像顺序全乱。
-                    //
-                    // ## 修法
-                    // 系统行**不写 bookSeq/chapSeq**，用哨兵 rank 单独成一组、
-                    // 内部再按时间排。哨兵取 [SYSTEM_ROW_BOOK_RANK]（大于任何真实书 rank）
-                    // ⇒ 整组沉到列表末尾，而不是跟着回落章跑去占据某个章的首位。
-                    //
-                    // 为什么沉底而不是置顶：这 38 行是会话级事件（启动/销毁/引擎重建/
-                    // 兜底发音人/close），对"读到哪、备了多少"零信息量。用户打开日志页
-                    // 第一眼要看的是正文，把它们堆在页顶等于把有效内容往下推一屏。
-                    // 沉底后仍可搜到、可勾选，功能不减。
-                    //
-                    // 为什么不追求"按时间散进各章之间"：本页排序是**章优先**的
-                    //（书→章→段，11-22 用户定稿「卡片按正文顺序出现」），
-                    // 系统行没有章，塞进任何章内部都会破坏那个结构；独立成组最不误导。
-                    // 判据：书与章**同时**为空，且**不是 console 日志**（插件/朗读规则）。
-                    //
-                    // 为什么排除 console：console 行的书章是靠 stampBookChapter 用
-                    // "当前上下文"现补的，冷启动最初几条还没有上下文 ⇒ 书章为空。
-                    // 它们不是会话级系统事件，而是「正文还没来时先到的规则分析」，
-                    // 必须留在原位（那里本就是页首），不能被沉到列表末尾。
-                    // 系统行只可能是主日志里那几种固定文案（initialize / destroy / close），
-                    // 它们都由主通道产生，isPluginLog/isSpeechRuleLog 均为 false。
-                    if (e.bookName.isBlank() && e.chapterTitle.isBlank() &&
-                        !e.isPluginLog && !e.isSpeechRuleLog
-                    ) {
+                    // 书章皆空 ⇒ 用时间邻近继承值（见上方 11-28 晚注释）。
+                    // 整份日志都推不出书章（继承值仍空）才落到系统行哨兵沉底。
+                    val b = bookOf(i)
+                    val c = chapterOf(i)
+                    if (b.isBlank() && c.isBlank()) {
                         keys.add(intArrayOf(SYSTEM_ROW_BOOK_RANK, 0, 0, i))
                         continue
                     }
-                    val b = e.bookName.ifBlank { fallbackBook }
-                    val c = e.chapterTitle.ifBlank { fallbackChapter }
-                    // 补充：console 行书章为空时仍走回落（= 让它按当前章落位，
-                    // 旧行为不变）。它们数量极少（只在冷启动最初几秒），且本页
-                    // 记忆里"有正文才叫一章"，塞回落比沉底更贴近直觉。
-                    // 真正需要挪走的是系统行——它们对正文零信息量，见上面的分支。
                     val bk = bookSeq.getOrPut(b) { bookSeq.size }
                     val ck = chapSeq.getOrPut("$b\u0000$c") { chapSeq.size }
                     val sc = "$b\u0000$c"
@@ -679,7 +713,27 @@ internal class LogGroups(
                     compareBy<IntArray> { it[0] }.thenBy { it[1] }.thenBy { it[2] }
                         .thenBy { input[it[3]].time }.thenBy { it[3] }
                 )
-                keys.map { input[it[3]] }
+                // ===== 11-28 晚：继承值**写回条目**，让全页口径统一 =====
+                //
+                // 只把继承值用在排序键上是不够的。下面这些地方全都直接读 `entry.bookName/
+                // chapterTitle`，各读各的就会出现「排序对了、吸顶/筛选/计数不对」：
+                //   · 按书/章筛选（TtsLogScreen 的 displayLogs）：判据是 `bookName == b`，
+                //     不写回则这些行在筛选态直接消失；
+                //   · 吸顶跟随（itemBookArr，靠 `e.bookName.isNotBlank()` 推进）；
+                //   · 书章条数（bookCount/chapterCount）与 `【书章就绪】` 之外的章首判定。
+                // 写回是幂等的（原本就带书章的行 copy 出同样的值），且 `LogEntry` 是 data class，
+                // 相等性/复制语义不受影响。排序键仍用上面算好的 keys——这里只管展示口径。
+                keys.map { k ->
+                    val e = input[k[3]]
+                    if (e.bookName.isNotBlank()) e
+                    else {
+                        val b = inheritBook[k[3]].orEmpty()
+                        val c = inheritChapter[k[3]].orEmpty()
+                        // 整份日志都推不出书章时不写回（保持空白头像系统行，由哨兵沉底）
+                        if (b.isBlank() && c.isBlank()) e
+                        else e.copy(bookName = b, chapterTitle = c)
+                    }
+                }
             }
 
             val list = regroupByReqId(sortedInput)

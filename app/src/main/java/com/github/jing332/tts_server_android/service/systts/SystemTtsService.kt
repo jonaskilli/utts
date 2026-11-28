@@ -830,7 +830,40 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                         // 正常中断：保留 logcat 一行便于对时序，但不污染落盘日志
                         Log.d(TAG, "Synthesize Interrupted (cancel/timeout): ${e.message}")
                     } else {
-                        logE("Synthesize Interrupted: ${e.javaClass.simpleName}: ${e.message}", e)
+                        // ===== 11-28 晚（用户实报「又是没放对位置的日志」）=====
+                        // 这行此前**不带任何书章/段号**，落盘成 `| § |  |  | …`（真机 17:48:39.758
+                        // 与 18:11:08.553 两条）。两个后果：
+                        //   ① 日志页「按书/章筛选」把它丢掉（判据是 `bookName == b`）；
+                        //   ② 排序拿不到章，只能沉到页面最底部 —— 它明明紧跟上一条
+                        //      「获取成功」只差 8ms、就在那一章那一段中间。
+                        // 根因：这里在 `catch` 里打日志，而 normalEvent 的 finally 早已
+                        // `MDC.clear()`，MDC 是空的。与 11-23 修「预合成失败」裸行同一个坑。
+                        // 修法同源：用本笔请求自己的快照补 MDC（reqSnapshot 在本栈帧内，
+                        // 并发安全），打完立即 clear 防串值。
+                        runCatching {
+                            org.slf4j.MDC.put("configId", (cfgId ?: 0L).toString())
+                            if (reqSnapshot.reqBookName.isNotBlank())
+                                org.slf4j.MDC.put("bookName", reqSnapshot.reqBookName)
+                            if (reqSnapshot.reqChapterTitle.isNotBlank())
+                                org.slf4j.MDC.put("chapterTitle", reqSnapshot.reqChapterTitle)
+                            if (reqSnapshot.paraIndex >= 0)
+                                org.slf4j.MDC.put("paraIndex", reqSnapshot.paraIndex.toString())
+                            if (reqSnapshot.paraTotal > 0)
+                                org.slf4j.MDC.put("paraTotal", reqSnapshot.paraTotal.toString())
+                            // reqId 是合成器层（RequestPayload）产生的，服务层拿不到；
+                            // 用「当前在途那一笔」的登记值——同一时刻只有一笔在飞，
+                            // 正是本笔（预热笔不登记，所以预热失败时它为空，行为不变）。
+                            if (currentReqId.isNotBlank())
+                                org.slf4j.MDC.put("reqId", currentReqId)
+                            if (reqSnapshot.isPreload)
+                                org.slf4j.MDC.put("isPreload", "true")
+                            logE(
+                                "Synthesize Interrupted: ${e.javaClass.simpleName}: ${e.message}",
+                                e
+                            )
+                        }
+                        // 清理面必须与 put 面完全对齐（MDC 是线程级，漏一个就跨请求串值）
+                        org.slf4j.MDC.clear()
                     }
                     // 11-16：**预热批次被播放请求掐掉**属于设计内行为，不报错。
                     // 预热本来就是「有空就备货」，用户点播放时它让路是正确结果；
@@ -1949,21 +1982,33 @@ class SystemTtsService : TextToSpeechService(), IEventDispatcher {
                 )
 
             is NormalEvent.StandbyTts -> {
-                if (e.fromTag.isNotEmpty() || e.toTag.isNotEmpty()) {
-                    // 两条来路分开用词：备用=用户显式勾选的替补；
-                    // 兜底=按性别/中性借一个能用的嗓子顶班。
-                    // 兜底借来的往往是平时正常在用的配置（如括号4），
-                    // 一并叫「备用发音人」会让人以为日常发音人成了替补（09-17 用户实报）。
-                    logI(
-                        getString(
-                            if (e.isFallback) R.string.use_fallback_tts_with_tag
-                            else R.string.use_standby_tts_with_tag,
-                            e.fromTag, e.toTag
+                // ===== 11-28 晚（用户实报「又是没放对位置的日志」）=====
+                // 这条此前也不带书章：`StandbyTts` 是合成器派的**独立事件**，
+                // 不在任何 MDC 作用域里（进入 dispatch 时上一笔的 finally 已 clear），
+                // 于是落盘成 `| § |  |`。真机 18:21:01.624 那条「使用兜底发音人」
+                // 本该夹在第35章段103 的「预合成失败」和它的请求行之间，
+                // 却因为无章被判成系统行、压到页面最底部（用户截图底部那条）。
+                // 事件自带 request（含书章/段号），用它与请求行同一套 MDC 落盘。
+                runCatching {
+                    putRequestMdc(e.request)
+                    if (e.fromTag.isNotEmpty() || e.toTag.isNotEmpty()) {
+                        // 两条来路分开用词：备用=用户显式勾选的替补；
+                        // 兜底=按性别/中性借一个能用的嗓子顶班。
+                        // 兜底借来的往往是平时正常在用的配置（如括号4），
+                        // 一并叫「备用发音人」会让人以为日常发音人成了替补（09-17 用户实报）。
+                        logI(
+                            getString(
+                                if (e.isFallback) R.string.use_fallback_tts_with_tag
+                                else R.string.use_standby_tts_with_tag,
+                                e.fromTag, e.toTag
+                            )
                         )
-                    )
-                } else {
-                    logI(getString(R.string.use_standby_tts, e.request.text()))
+                    } else {
+                        logI(getString(R.string.use_standby_tts, e.request.text()))
+                    }
                 }
+                // 清理面与 put 面完全对齐（MDC 线程级，漏清就跨事件串值）
+                org.slf4j.MDC.clear()
             }
 
             // 11-18 用户令：重试上限文案按来路分叉——

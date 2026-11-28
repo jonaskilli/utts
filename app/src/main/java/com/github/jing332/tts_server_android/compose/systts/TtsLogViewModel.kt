@@ -213,7 +213,7 @@ class TtsLogViewModel : ViewModel() {
 
             // 都不勾（或勾了但缓冲为空）：纯主列表直通，不建列表不排序
             if (pluginPart.isEmpty() && rulePart.isEmpty())
-                return logs.filter { keep(it) }
+                return inheritMissingBookChapter(logs.filter { keep(it) })
 
             val source = ArrayList<LogEntry>(logs.size + pluginPart.size + rulePart.size)
             source.addAll(logs)
@@ -221,10 +221,85 @@ class TtsLogViewModel : ViewModel() {
             source.addAll(rulePart)
             // 稳定排序：同毫秒内保持各缓冲内的到达顺序
             val merged = source.sortedBy { it.time }
-            return merged.filter { keep(it) }
+            return inheritMissingBookChapter(merged.filter { keep(it) })
             // 注：搜索词不做过滤——搜索是定位(跳转+高亮)，由 TtsLogScreen/LogScreen 处理，
             // 保留完整列表便于查看匹配项的前后文
         }
+
+    /**
+     * 11-28 晚（用户实报「又是没放对位置的日志」）：给**缺书章的行**按时间就近继承书章。
+     *
+     * ## 为什么要做在这一层，而不是 `LogGroups.build` 里
+     * 筛选（`TtsLogScreen.displayLogs` 的 `bookName == b`）发生在 build **之前**，
+     * build 拿到的已经是筛过的列表。若继承只在 build 里做，磁盘上的旧行一旦按章筛选
+     * 就**直接消失**（判据看的是原始 `bookName`，那时还是空的）。
+     * 本方法是所有下游（筛选 / build / 吸顶 / 计数）的共同上游，做在这里才一次到位。
+     *
+     * ## 哪些行会缺书章（真机 system_tts.log 2145 行里有 27 条）
+     * 两类，都是**落盘时没有 MDC 上下文**，不是「没有归属」：
+     *   · `Synthesize Interrupted`：在 `catch` 里打，此时 normalEvent 的 finally 已清 MDC；
+     *   · `使用兜底发音人`：`NormalEvent.StandbyTts` 是独立事件，不在任何 MDC 作用域里；
+     *   · 另有会话级事件（initialize / service destroy / close ×19）——它们确实无归属。
+     * 前两类在源头补 MDC 后**新行**会自带书章；本方法兜的是**磁盘上已有的历史行**
+     * （用户不会清日志，历史行还要能按章筛选、按章定位）。
+     *
+     * ## 继承口径
+     * 时间上最近的带书章行：**前一条优先**，前面没有（冷启动头部）才用后一条。
+     * 真机验证（2026-11-28 那份日志）：三条错位行全部归位——
+     *   `17:48:39.758` → 第34章（紧跟同段成功行 8ms）、
+     *   `18:11:08.553` → 第35章（同上）、
+     *   `18:21:01.624` → 第35章（夹在同段预合成失败与请求行之间）。
+     *
+     * ## 为什么不整段沉底（上一版的做法）
+     * 沉底把「正文中间的行」挪到页面末尾，正是用户这次报的问题；而塞进全局回落章
+     * 又会把页首的启动行塞给最后读的那一章（上一版修掉的「整块跑到最前」）。
+     * 两者都是拿**全局**答案填**局部**空缺，必然有一头错。就近继承是局部的，两头都对。
+     *
+     * 整份日志一条带书章的行都没有时（空日志/全被裁掉），原样返回，不做任何猜测。
+     */
+    private fun inheritMissingBookChapter(list: List<LogEntry>): List<LogEntry> {
+        if (list.isEmpty()) return list
+        // 快路径：全都有书章（绝大多数情况，含勾选插件/规则混排后）→ 不复制任何对象
+        if (list.none { it.bookName.isBlank() }) return list
+        val n = list.size
+        val books = arrayOfNulls<String>(n)
+        val chapters = arrayOfNulls<String>(n)
+        // 前向：记住最近一条带书章的行
+        var lb = ""
+        var lc = ""
+        for (i in 0 until n) {
+            val e = list[i]
+            if (e.bookName.isNotBlank()) {
+                lb = e.bookName
+                lc = e.chapterTitle
+            }
+            books[i] = lb
+            chapters[i] = lc
+        }
+        // 反向补空：前面没有任何带书章的行时（冷启动头部），用后面最近的
+        var rb = ""
+        var rc = ""
+        for (i in n - 1 downTo 0) {
+            val e = list[i]
+            if (e.bookName.isNotBlank()) {
+                rb = e.bookName
+                rc = e.chapterTitle
+            }
+            if (books[i].isNullOrBlank()) {
+                books[i] = rb
+                chapters[i] = rc
+            }
+        }
+        if (books.none { !it.isNullOrBlank() }) return list // 整份都推不出 → 原样返回
+        return list.mapIndexed { i, e ->
+            if (e.bookName.isNotBlank()) e
+            else {
+                val b = books[i].orEmpty()
+                val c = chapters[i].orEmpty()
+                if (b.isBlank() && c.isBlank()) e else e.copy(bookName = b, chapterTitle = c)
+            }
+        }
+    }
 
     // 按类型路由日志到对应缓冲（主列表 / 插件缓冲 / 规则缓冲）。
     // 双保险裁剪：条数上限 + 字符总量熔断（超长条目堆积时按最旧裁，与条数无关）
